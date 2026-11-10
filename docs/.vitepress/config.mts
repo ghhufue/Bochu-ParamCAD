@@ -13,13 +13,13 @@ export default withMermaid(defineConfig({
   lang: 'zh-CN',
   title: 'Bochu Capstone',
   description: 'ParamCAD Studio 项目技术文档',
-  base: '/Bochu_Capstone/',
+  base: '/Bochu-ParamCAD/',
   srcDir: 'site',
   markdown: { math: true },
   themeConfig: {
     nav: [sections[0], sections[2], sections[4]],
     sidebar: [{ text: '项目文档', items: sections }],
-    socialLinks: [{ icon: 'github', link: 'https://github.com/yang-pei-hua/Bochu_Capstone' }],
+    socialLinks: [{ icon: 'github', link: 'https://github.com/ghhufue/Bochu-ParamCAD' }],
     outline: { label: '本页目录' },
     docFooter: { prev: '上一页', next: '下一页' },
     search: {
