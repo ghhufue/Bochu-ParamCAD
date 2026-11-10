@@ -20,6 +20,8 @@ features:
   - title: 算法原理
     details: 记录几何处理方法、判定条件和适用范围。
     link: /algorithms/
+  - title: 案例与验证
+    link: /validation/
   - title: 开发维护
     details: 文档预览、发布和后续维护入口。
     link: /development/
