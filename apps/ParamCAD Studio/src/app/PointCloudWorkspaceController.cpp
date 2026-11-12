@@ -385,8 +385,7 @@ void PointCloudWorkspaceController::onReconstructionFinished(const QString& poin
                       "scale is arbitrary until a reconstruction with capture "
                       "metadata is available."));
     }
-    if (m_cadTask->isRunning() || m_startingCad) m_analyseAfterCad = true;
-    else startPointCloudAnalysis();
+    m_ui.relationsPanel->setStatus(workspaceTr("点云已载入；需要表面识别时点击“识别表面”。"));
 }
 
 void PointCloudWorkspaceController::openPointCloud()
