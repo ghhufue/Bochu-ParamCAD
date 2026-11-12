@@ -6,6 +6,11 @@
 #include "ui/panels/CapturePanel.h"
 #include "ui/panels/PropertyPanel.h"
 #include "ui/panels/RenderPanel.h"
+#include "ui/panels/ReconstructPanel.h"
+#include "capture/CaptureSessionController.h"
+#include "capture/VtkProjectionBackend.h"
+#include "capture/MitsubaBackend.h"
+#include "capture/ScanPlanner.h"
 #include "ui/viewport/VTKViewer.h"
 
 #include <QAction>
@@ -15,6 +20,7 @@
 #include <QFileInfo>
 #include <QMessageBox>
 #include <exception>
+#include <cmath>
 
 CaptureWorkspaceController::CaptureWorkspaceController(
     CaptureController* captureController, const CaptureWorkspaceUi& ui,
@@ -24,11 +30,33 @@ CaptureWorkspaceController::CaptureWorkspaceController(
     auto* panel = m_ui.propertyPanel->capturePanel();
     panel->setBaseDirectory(m_captureController->baseDirectory());
     panel->setDefaultDistance(m_captureController->currentDistance());
+    m_structured=new capture::CaptureSessionController(new capture::VtkProjectionBackend,this);
+    connect(m_structured,&capture::CaptureSessionController::completed,this,&CaptureWorkspaceController::structuredCaptureCompleted);
+    connect(m_structured,&capture::CaptureSessionController::failed,this,&CaptureWorkspaceController::structuredCaptureFailed);
+    connect(m_structured,&capture::CaptureSessionController::cancelled,this,&CaptureWorkspaceController::structuredCaptureCancelled);
 }
 
 void CaptureWorkspaceController::connectUi()
 {
     CapturePanel* capturePanel = m_ui.propertyPanel->capturePanel();
+    connect(capturePanel,&CapturePanel::structuredScanRequested,this,[this](bool multiple){startStructuredScan(multiple);});
+    connect(capturePanel,&CapturePanel::structuredCancelRequested,m_structured,&capture::CaptureSessionController::cancel);
+    connect(m_structured,&capture::CaptureSessionController::progress,this,[this,capturePanel](int done,int total) {
+        capturePanel->setStatusText(workspaceTr("结构光拍摄：%1/%2 帧").arg(done).arg(total));
+    });
+    const auto release=[this,capturePanel] {capturePanel->setStructuredBusy(false);emit captureBusyChanged(false);};
+    connect(m_structured,&capture::CaptureSessionController::completed,this,[this,capturePanel,release](const QString& directory) {
+        release();capturePanel->setStatusText(workspaceTr("结构光拍摄完成：%1").arg(directory));
+        m_ui.propertyPanel->reconstructPanel()->setImageDirectory(directory);
+        emit logInfo(workspaceTr("Structured-light capture completed: %1").arg(directory));
+        emit statusMessage(workspaceTr("拍摄完成，可在图像重建页生成点云"),5000);
+    });
+    connect(m_structured,&capture::CaptureSessionController::failed,this,[this,capturePanel,release](const QString& error) {
+        release();capturePanel->setStatusText(error);emit logError(error);
+    });
+    connect(m_structured,&capture::CaptureSessionController::cancelled,this,[capturePanel,release](const QString&) {
+        release();capturePanel->setStatusText(workspaceTr("结构光拍摄已取消"));
+    });
     connect(m_ui.captureToolAction, &QAction::toggled, this, [this](bool visible) {
         m_ui.propertyPanel->showCapturePanel(visible);
     });
@@ -67,6 +95,47 @@ void CaptureWorkspaceController::connectUi()
                 emit logError(message);
                 QMessageBox::warning(m_dialogParent, workspaceTr("拍摄"), message);
             });
+}
+
+bool CaptureWorkspaceController::structuredScanRunning() const {return m_structured->isRunning();}
+
+bool CaptureWorkspaceController::startStructuredScan(bool multipleStations,const QString& outputDirectory)
+{
+    auto* panel=m_ui.propertyPanel->capturePanel();
+    if(m_structured->isRunning())return false;
+    try {
+        const auto camera=m_ui.viewer->cameraParameters();
+        if(camera.parallelProjection)throw std::invalid_argument("Structured-light capture requires a perspective camera");
+        auto options=panel->structuredOptions();options.fieldOfViewDegrees=camera.fieldOfView;
+        if(options.renderBackend=="mitsuba") {
+            QStringList prefix;
+            const auto python=ProjectPaths::pythonInterpreter(prefix);
+            const auto worker=QDir(ProjectPaths::projectRoot()).filePath("core/reconstruction/render_structured_light.py");
+            m_structured->setBackend(new capture::MitsubaBackend(python,prefix,worker,
+                options.samplesPerPixel,options.maxPathDepth,options.randomSeed));
+        } else if(options.renderBackend=="vtk")m_structured->setBackend(new capture::VtkProjectionBackend);
+        else throw std::invalid_argument("Unknown capture rendering backend");
+        QString directory=outputDirectory;
+        if(directory.isEmpty()) {
+            const QString base=m_captureController->baseDirectory();
+            const QString stamp=QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
+            directory=QDir(base).filePath(stamp);
+            for(int i=2;QFileInfo::exists(directory);++i)directory=QDir(base).filePath(stamp+"-"+QString::number(i));
+        }
+        const auto pose=capture::lookAt({camera.position[0],camera.position[1],camera.position[2]},
+            {camera.target[0],camera.target[1],camera.target[2]},{camera.up[0],camera.up[1],camera.up[2]});
+        if(!multipleStations)options.distance=std::hypot(camera.position[0]-camera.target[0],
+            camera.position[1]-camera.target[1],camera.position[2]-camera.target[2]);
+        auto job=capture::planScan(m_ui.viewer->captureGeometry(),options,directory,multipleStations?nullptr:&pose);
+        panel->setStructuredBusy(true);emit captureBusyChanged(true);
+        if(!m_structured->start(std::move(job))) {
+            panel->setStructuredBusy(false);emit captureBusyChanged(false);
+            throw std::runtime_error(m_structured->lastError().toStdString());
+        }
+        return true;
+    } catch(const std::exception& e) {
+        const QString error=QString::fromUtf8(e.what());panel->setStatusText(error);emit logError(error);return false;
+    }
 }
 
 void CaptureWorkspaceController::captureImage()

@@ -7,7 +7,9 @@ $root = [IO.Path]::GetFullPath($PackageRoot)
 foreach ($file in @('README.md','Start-ParamCADStudio.cmd','Install-ParamCADStudio.cmd',
                    'installer\Install-ParamCADStudio.ps1','package-manifest.json',
                    'app\ParamCAD Studio.exe','app\qt.conf','app\gmp-10.dll',
-                   'deps\python\python.exe','deps\colmap\bin\colmap.exe','core\reconstruction\reconstruct.py')) {
+                   'deps\python\python.exe','deps\colmap\bin\colmap.exe','core\reconstruction\reconstruct.py',
+                   'core\reconstruction\reconstruct_structured_light.py','core\reconstruction\structured_light\pipeline.py',
+                   'deps\python\structured-light-wheels.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $root $file) -PathType Leaf)) { throw "Missing release file: $file" }
 }
 $info = Get-Content -LiteralPath (Join-Path $root 'package-manifest.json') -Raw | ConvertFrom-Json

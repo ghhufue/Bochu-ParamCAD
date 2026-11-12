@@ -4,6 +4,8 @@
 
 本文件供维护者打包和排错；发布包内的 `README.md` 来自 [PACKAGE_README.md](PACKAGE_README.md)。只修改本指南时，无需重新打包已有 Release。
 
+结构光完整离线候选包 `0.3.0-structuredlight.20261112.4` 已执行实际 ZIP 解压、CMD 安装及安装副本拍摄/重建。包体积 409.65 MiB，SHA-256、依赖增量和日志位置见[本轮验证记录](../docs/site/development/structured-light-validation.md)。这是当前开发机上的隔离验收，尚未进行干净 Windows 虚拟机测试。
+
 ## 1. 下次直接怎么做
 
 在项目根目录执行。先关闭从默认构建目录启动的客户端，避免 Windows 锁住待更新的 EXE/DLL。已有构建缓存和本地运行时的情况下，不需要重新配置依赖，也不需要手动整理文件。
@@ -58,6 +60,16 @@ artifacts/releases/<版本>/
 现在常规打包仍会执行增量构建、运行时复制、校验和压缩；耗时受需要重新编译的文件数量、磁盘和 CPU 影响。此前反复失败和重新打包的过程不应成为每次发布的固定步骤。
 
 ## 3. 打包机需要的本地输入
+
+结构光计算另外需要 `artifacts/cache/structured-light/` 中的固定 wheel，清单和 SHA-256 位于 `packaging/structured-light-wheels.json`。只在开发/依赖准备机器下载：
+
+```powershell
+python -m pip download --only-binary=:all: --no-deps `
+  --dest artifacts/cache/structured-light `
+  -r core/reconstruction/requirements-structured-light.txt
+```
+
+命令在仓库根目录执行。正式打包脚本只读取并校验本地 wheel，随包部署 NumPy、headless OpenCV、Dr.Jit 和 Mitsuba，不运行 pip 或下载。需要改变缓存位置时传 `-StructuredLightWheelDirectory`。原生计算库的普通/延迟导入会检查，隔离运行时验证包括图像编码、结构光模块和 Mitsuba `scalar_rgb` 变体加载；VTK 仍是默认渲染后端，Mitsuba 为可选路径追踪后端。
 
 以下是打包机的要求，使用者无需安装这些开发环境。
 

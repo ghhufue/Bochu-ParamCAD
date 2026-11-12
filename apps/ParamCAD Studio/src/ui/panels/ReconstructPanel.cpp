@@ -5,6 +5,8 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
+#include <QFileInfo>
+#include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -77,9 +79,18 @@ ReconstructPanel::ReconstructPanel(QWidget* parent)
 
     auto* optionsGroup = new QGroupBox(tr("选项"), this);
     auto* optionsForm = new QFormLayout(optionsGroup);
+    m_engine=new QComboBox(this);m_engine->setObjectName("reconstructEngine");
+    m_engine->addItem(tr("按采集类型自动选择"),"auto");m_engine->addItem(tr("COLMAP 普通多视角图片"),"colmap");
+    m_engine->addItem(tr("编码结构光"),"structured_light");optionsForm->addRow(tr("重建方式"),m_engine);
     optionsForm->addRow(QString(), m_useCameraInfo);
     optionsForm->addRow(QString(), m_dense);
     optionsForm->addRow(tr("匹配器"), m_matcher);
+    m_voxelSize=new QDoubleSpinBox(this);m_voxelSize->setObjectName("reconstructVoxelSize");
+    m_voxelSize->setRange(.001,100);m_voxelSize->setDecimals(3);m_voxelSize->setValue(.2);
+    m_minContrast=new QDoubleSpinBox(this);m_minContrast->setObjectName("reconstructMinContrast");
+    m_minContrast->setRange(.1,253);m_minContrast->setValue(8);
+    optionsForm->addRow(tr("结构光融合间距（mm）"),m_voxelSize);
+    optionsForm->addRow(tr("结构光最小明暗差"),m_minContrast);
 
     m_runButton = new QPushButton(tr("重建"), this);
     m_runButton->setObjectName(QStringLiteral("reconstructRunButton"));
@@ -124,6 +135,9 @@ ReconstructPanel::ReconstructPanel(QWidget* parent)
     connect(m_useLatestButton, &QPushButton::clicked, this, &ReconstructPanel::useLatestCapture);
     connect(m_runButton, &QPushButton::clicked, this, &ReconstructPanel::startReconstruction);
     connect(m_cancelButton, &QPushButton::clicked, this, &ReconstructPanel::cancelRequested);
+    connect(m_engine,&QComboBox::currentIndexChanged,this,&ReconstructPanel::updateBackendControls);
+    connect(m_imageDirectory,&QLineEdit::textChanged,this,&ReconstructPanel::updateBackendControls);
+    updateBackendControls();
 }
 
 QString ReconstructPanel::imageDirectory() const
@@ -169,6 +183,7 @@ void ReconstructPanel::setStatusText(const QString& text)
 
 void ReconstructPanel::setBusy(bool busy)
 {
+    m_busy=busy;m_engine->setEnabled(!busy);
     m_runButton->setEnabled(!busy);
     m_cancelButton->setEnabled(busy);
     m_imageDirectory->setEnabled(!busy);
@@ -179,6 +194,16 @@ void ReconstructPanel::setBusy(bool busy)
     m_useCameraInfo->setEnabled(!busy);
     m_dense->setEnabled(!busy);
     m_matcher->setEnabled(!busy);
+    updateBackendControls();
+}
+
+void ReconstructPanel::updateBackendControls() {
+    const QString engine=m_engine->currentData().toString();
+    const bool structured=engine=="structured_light" || (engine=="auto"
+        && QFileInfo::exists(QDir(imageDirectory()).filePath("capture.json")));
+    m_useCameraInfo->setEnabled(!m_busy && !structured);m_dense->setEnabled(!m_busy && !structured);
+    m_matcher->setEnabled(!m_busy && !structured);
+    m_voxelSize->setEnabled(!m_busy && structured);m_minContrast->setEnabled(!m_busy && structured);
 }
 
 void ReconstructPanel::setProgress(int value, int maximum)
@@ -247,6 +272,8 @@ void ReconstructPanel::startReconstruction()
     ReconstructRequest request;
     request.imageDirectory = imageDirectory();
     request.outputRoot = outputRoot();
+    request.engine=m_engine->currentData().toString();
+    request.voxelSizeMm=m_voxelSize->value();request.minContrast=m_minContrast->value();
     request.useCameraInfo = m_useCameraInfo->isChecked();
     request.dense = m_dense->isChecked();
     request.matcher = m_matcher->currentIndex() == 1 ? QStringLiteral("sequential")

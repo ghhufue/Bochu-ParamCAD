@@ -31,6 +31,7 @@ const sections = [
     items: [
       { text: '虚拟拍摄与相机元数据', link: '/modules/capture' },
       { text: 'COLMAP 图像重建', link: '/modules/image-reconstruction' },
+      { text: '编码结构光与投影拍摄', link: '/modules/structured-light' },
       { text: '点云输入与预处理', link: '/modules/preprocessing' },
       { text: '曲面检测与证据', link: '/modules/surface-detection' },
       { text: '曲面分析与修复', link: '/modules/surface-analysis' },
@@ -76,6 +77,8 @@ const sections = [
       { text: '超参数配置与 CLI', link: '/development/configuration-cli' },
       { text: '贡献指南与文档维护', link: '/development/contributing' },
       { text: '设计决策', link: '/development/design-decisions' },
+      { text: '多视角图片转点云扩展方案', link: '/development/multiview-reconstruction-extension' },
+        { text: '结构光实现验证记录', link: '/development/structured-light-validation' },
       { text: '路线图与里程碑', link: '/development/roadmap' },
     ],
   },

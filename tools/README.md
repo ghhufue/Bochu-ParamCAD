@@ -2,6 +2,8 @@
 
 `pcad` 是仓库工具的统一入口，使用 Python 3.10 或更新版本，仅依赖标准库。
 
+结构光固定场景验收使用 `validation/run_structured_light_validation.py`：通过 `--client` 指定实际客户端、`--output` 指定新目录，比较 Gray Code、相移、多曝光和均匀材质；所有拍摄与重建仍在客户端内完成。结果口径和开发环境依赖见[验证记录](../docs/site/development/structured-light-validation.md)。
+
 ## 点云划分人工审核桌面工具
 
 双击检查包目录中的 `点云划分审核.lnk` 或 `启动点云审核.cmd`，也可执行：

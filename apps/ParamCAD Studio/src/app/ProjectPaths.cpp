@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QSettings>
+#include <QStandardPaths>
 
 namespace {
 
@@ -15,25 +16,41 @@ constexpr char kRootMarker[] = "core/reconstruction/reconstruct.py";
 
 QString ProjectPaths::projectRoot()
 {
-    const QSettings settings;
-    const QString configured = settings.value(QStringLiteral("reconstruction/repoRoot")).toString();
-    if (!configured.isEmpty()
-        && QFileInfo::exists(QDir(configured).filePath(QLatin1String(kRootMarker)))) {
-        return QDir(configured).absolutePath();
-    }
-
     // The executable lives several levels below the root (build/<preset>/Release),
     // so walk up until the marker shows up.
     QDir directory(QCoreApplication::applicationDirPath());
+    QString discovered;
     for (int depth = 0; depth <= 8; ++depth) {
         if (QFileInfo::exists(directory.filePath(QLatin1String(kRootMarker)))) {
-            return directory.absolutePath();
+            discovered=directory.absolutePath();break;
         }
         if (!directory.cdUp()) {
             break;
         }
     }
-    return QString();
+    // An installed offline payload owns its code and interpreter. Developer
+    // preferences from this machine must not redirect it to another checkout.
+    if(!discovered.isEmpty() && QFileInfo::exists(QDir(discovered).filePath("deps/python/python.exe")))return discovered;
+    const QSettings settings;
+    const QString configured=settings.value(QStringLiteral("reconstruction/repoRoot")).toString();
+    if(!configured.isEmpty() && QFileInfo::exists(QDir(configured).filePath(QLatin1String(kRootMarker))))
+        return QDir(configured).absolutePath();
+    return discovered;
+}
+
+QString ProjectPaths::pythonInterpreter(QStringList& prefixArguments)
+{
+    const QString root=projectRoot();
+    const QString bundled=QDir(root).filePath("deps/python/python.exe");
+    if(!root.isEmpty() && QFileInfo(bundled).isFile())return bundled;
+    const QString configured=QSettings().value("reconstruction/pythonInterpreter").toString();
+    if(!configured.isEmpty() && QFileInfo(configured).isFile())return configured;
+    for(const auto& name:{QString("python"),QString("python3")}) {
+        const auto executable=QStandardPaths::findExecutable(name);if(!executable.isEmpty())return executable;
+    }
+    const auto launcher=QStandardPaths::findExecutable("py");
+    if(!launcher.isEmpty())prefixArguments<<"-3";
+    return launcher;
 }
 
 QString ProjectPaths::outputsRoot()

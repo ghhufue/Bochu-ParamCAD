@@ -21,8 +21,9 @@
 | --- | --- |
 | [虚拟拍摄与相机元数据](./capture) | 在 VTK 视口中离屏渲染 STEP 模型，输出多视角 PNG、逐图 sidecar 和 manifest v2 相机元数据。 |
 | [COLMAP 图像重建](./image-reconstruction) | 以无界面 Python 流程调用 COLMAP 4.2.0，把图片目录和可选 `CameraInfo` 转换为稀疏或稠密彩色 PLY。 |
+| [编码结构光与投影拍摄](/modules/structured-light) | VTK 投影光照采集编码序列，由客户端调用 Python 解码、三角化和多站融合，输出毫米单位点云。 |
 
-这两个模块只负责把模型变成图像、再把图像变成点云。它们不判断零件语义，也不生成 CAD 特征。
+这些模块负责把模型变成图像、再把图像变成点云。它们不判断零件语义，也不生成 CAD 特征。
 
 ## 点云与曲面
 

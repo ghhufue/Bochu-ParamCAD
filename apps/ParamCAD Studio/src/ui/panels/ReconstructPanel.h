@@ -5,6 +5,7 @@
 #include <QWidget>
 
 class QCheckBox;
+class QDoubleSpinBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -43,6 +44,7 @@ private:
     void browseForOutput();
     void useLatestCapture();
     void startReconstruction();
+    void updateBackendControls();
     QString latestCaptureDirectory() const;
 
     QString m_captureBaseDirectory;
@@ -58,4 +60,8 @@ private:
     QPushButton* m_cancelButton = nullptr;
     QProgressBar* m_progress = nullptr;
     QLabel* m_status = nullptr;
+    QComboBox* m_engine = nullptr;
+    QDoubleSpinBox* m_voxelSize = nullptr;
+    QDoubleSpinBox* m_minContrast = nullptr;
+    bool m_busy = false;
 };

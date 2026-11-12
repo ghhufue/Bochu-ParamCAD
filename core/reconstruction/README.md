@@ -1,6 +1,8 @@
 # Layer 2：无界面多视角点云重建
 
-本目录实现 Layer 2，输入多视角图片和可选
+本目录实现 Layer 2，保留普通照片的 COLMAP 路线，并增加客户端投影拍摄对应的编码结构光后端。结构光使用 `reconstruct_structured_light.py` 和 `structured_light/`，完整说明见 `docs/site/modules/structured-light.md`；下文主要描述现有 COLMAP 接口。
+
+COLMAP 路线输入多视角图片和可选
 `CameraInfo`，输出彩色 PLY 点云。重建引擎为官方 COLMAP 4.2.0，固定于提交
 `be5e29168d4aff238409d60424812df66aac919f`，源码以浅克隆方式保存在
 `third_party/colmap`。运行路径只有命令行，不依赖 COLMAP GUI。

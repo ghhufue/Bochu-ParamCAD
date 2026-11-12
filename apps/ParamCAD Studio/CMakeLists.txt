@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.24)
 project(CadPointCloudClient VERSION 0.3.0 LANGUAGES CXX)
 
 option(CAD_CLIENT_BUILD_TESTS "Build ParamCAD Studio I/O tests" OFF)
+option(CAD_CLIENT_BUILD_CAPTURE_TESTS "Build structured-light rendering contract tests" OFF)
 option(CAD_CLIENT_BUILD_VALIDATION_TOOLS "Build standard STEP and CAD validation tools" OFF)
 option(CAD_CLIENT_BUILD_MODULE_CLIS "Build one standalone CLI per reconstruction module" ON)
 
@@ -83,6 +84,44 @@ find_package(VTK REQUIRED COMPONENTS
     RenderingCore
     RenderingOpenGL2
 )
+
+add_library(ParamCADCapture STATIC
+    src/capture/CaptureJob.h src/capture/CaptureJob.cpp
+    src/capture/RenderBackend.h
+    src/capture/VtkProjectionBackend.h src/capture/VtkProjectionBackend.cpp
+    src/capture/MitsubaBackend.h src/capture/MitsubaBackend.cpp
+    src/capture/CaptureSessionController.h src/capture/CaptureSessionController.cpp
+    src/capture/ScanPlanner.h src/capture/ScanPlanner.cpp
+    src/capture/QualityEvaluation.h src/capture/QualityEvaluation.cpp
+)
+target_include_directories(ParamCADCapture PUBLIC src)
+target_link_libraries(ParamCADCapture PUBLIC Qt6::Core Qt6::Gui
+    VTK::CommonCore VTK::CommonDataModel VTK::RenderingCore VTK::RenderingOpenGL2)
+vtk_module_autoinit(TARGETS ParamCADCapture MODULES VTK::RenderingOpenGL2)
+if(MSVC)
+    target_compile_options(ParamCADCapture PRIVATE /W4 /permissive- /utf-8)
+endif()
+
+if(CAD_CLIENT_BUILD_CAPTURE_TESTS)
+    enable_testing()
+    add_executable(structured_light_render_test tests/structured_light_render_test.cpp)
+    target_link_libraries(structured_light_render_test PRIVATE ParamCADCapture Qt6::Widgets)
+    vtk_module_autoinit(TARGETS structured_light_render_test MODULES VTK::RenderingOpenGL2)
+    if(MSVC)
+        target_compile_options(structured_light_render_test PRIVATE /W4 /permissive- /utf-8)
+    endif()
+    add_test(NAME structured_light_render_test COMMAND structured_light_render_test)
+    set_tests_properties(structured_light_render_test PROPERTIES TIMEOUT 90
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:CadPointCloudClient>")
+    add_executable(structured_light_mitsuba_test tests/structured_light_mitsuba_test.cpp)
+    target_link_libraries(structured_light_mitsuba_test PRIVATE ParamCADCapture Qt6::Core Qt6::Gui)
+    if(MSVC)
+        target_compile_options(structured_light_mitsuba_test PRIVATE /W4 /permissive- /utf-8)
+    endif()
+    add_test(NAME structured_light_mitsuba_test COMMAND structured_light_mitsuba_test)
+    set_tests_properties(structured_light_mitsuba_test PROPERTIES TIMEOUT 90
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:CadPointCloudClient>")
+endif()
 
 qt_add_executable(CadPointCloudClient WIN32
     src/main.cpp
@@ -236,6 +275,7 @@ target_include_directories(CadPointCloudClient PRIVATE src)
 # the data-exchange and meshing toolkits are added on top of it.
 target_link_directories(CadPointCloudClient PRIVATE ${OpenCASCADE_LIBRARY_DIR})
 target_link_libraries(CadPointCloudClient PRIVATE
+    ParamCADCapture
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
@@ -310,6 +350,24 @@ vtk_module_autoinit(
     TARGETS CadPointCloudClient
     MODULES ${VTK_LIBRARIES}
 )
+
+if(CAD_CLIENT_BUILD_CAPTURE_TESTS)
+    get_target_property(CAPTURE_CLIENT_TEST_SOURCES CadPointCloudClient SOURCES)
+    list(REMOVE_ITEM CAPTURE_CLIENT_TEST_SOURCES src/main.cpp)
+    add_executable(structured_light_client_test tests/structured_light_client_test.cpp ${CAPTURE_CLIENT_TEST_SOURCES})
+    target_include_directories(structured_light_client_test PRIVATE src)
+    target_link_directories(structured_light_client_test PRIVATE ${OpenCASCADE_LIBRARY_DIR})
+    target_link_libraries(structured_light_client_test PRIVATE ParamCADCapture Qt6::Core Qt6::Gui Qt6::Widgets
+        ${VTK_LIBRARIES} CadModelCore::CadModelCore GeometricReconstruction::GeometricReconstruction
+        TKDE TKXSBase TKDESTEP TKMesh)
+    vtk_module_autoinit(TARGETS structured_light_client_test MODULES ${VTK_LIBRARIES})
+    if(MSVC)
+        target_compile_options(structured_light_client_test PRIVATE /W4 /permissive- /utf-8)
+    endif()
+    add_test(NAME structured_light_client_test COMMAND structured_light_client_test)
+    set_tests_properties(structured_light_client_test PROPERTIES TIMEOUT 180
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:CadPointCloudClient>")
+endif()
 
 function(stage_module_configs target)
     add_custom_command(TARGET ${target} POST_BUILD
@@ -528,7 +586,7 @@ if(CAD_CLIENT_BUILD_TESTS)
         target_include_directories(${interaction_test} PRIVATE src)
         target_link_directories(${interaction_test} PRIVATE ${OpenCASCADE_LIBRARY_DIR})
         target_link_libraries(${interaction_test} PRIVATE
-            Qt6::Core Qt6::Gui Qt6::Widgets ${VTK_LIBRARIES}
+            ParamCADCapture Qt6::Core Qt6::Gui Qt6::Widgets ${VTK_LIBRARIES}
             CadModelCore::CadModelCore GeometricReconstruction::GeometricReconstruction
             TKDE TKXSBase TKDESTEP TKMesh)
         vtk_module_autoinit(TARGETS ${interaction_test} MODULES ${VTK_LIBRARIES})

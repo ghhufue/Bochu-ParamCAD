@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 // Every artefact the client produces - captured images, the camera pose
 // metadata written beside them, and reconstructed point clouds - belongs under
@@ -16,6 +17,8 @@ namespace ProjectPaths {
 // Repository root: the folder holding core/reconstruction/reconstruct.py.
 // Empty when it cannot be located.
 QString projectRoot();
+// Bundled runtime first; developer settings/PATH are fallback for source builds.
+QString pythonInterpreter(QStringList& prefixArguments);
 
 // <projectRoot>/outputs
 QString outputsRoot();

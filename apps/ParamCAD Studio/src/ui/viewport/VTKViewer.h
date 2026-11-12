@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/CameraController.h"
+#include "capture/CaptureJob.h"
 #include "core/PointCloudDocument.h"
 #include "rendering/BodyActor.h"
 #include "rendering/BoxReferenceActor.h"
@@ -56,6 +57,9 @@ public:
     // Writes the render window at its native pixel size exactly as displayed.
     // Unlike captureImage(), editing aids stay in the frame.
     bool captureViewport(const QString& filePath);
+    // Freeze only visible body geometry into a renderer-neutral value object.
+    // Display overlays, point clouds and the legacy surface decal are excluded.
+    capture::Geometry captureGeometry() const;
 
     // Pixel size of the render window that captureImage() resizes from. It
     // differs from the requested output size, which is what makes the

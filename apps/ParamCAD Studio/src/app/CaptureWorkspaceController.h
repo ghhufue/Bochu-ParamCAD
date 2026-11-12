@@ -6,6 +6,7 @@ class QAction;
 class CaptureController;
 class PropertyPanel;
 class VTKViewer;
+namespace capture {class CaptureSessionController;}
 
 struct CaptureWorkspaceUi
 {
@@ -26,6 +27,13 @@ public:
     void captureImage();
     void captureViewport();
     void syncCaptureDistance();
+    bool startStructuredScan(bool multipleStations,const QString& outputDirectory={});
+    bool structuredScanRunning() const;
+signals:
+    void captureBusyChanged(bool busy);
+    void structuredCaptureCompleted(const QString& directory);
+    void structuredCaptureFailed(const QString& error);
+    void structuredCaptureCancelled(const QString& directory);
 
 private:
     void capturePhoto();
@@ -33,4 +41,5 @@ private:
 
     CaptureController* const m_captureController;
     const CaptureWorkspaceUi m_ui;
+    capture::CaptureSessionController* m_structured = nullptr;
 };

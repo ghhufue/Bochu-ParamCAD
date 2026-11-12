@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/Scene.h"
+#include "capture/ScanPlanner.h"
 
 #include <QMainWindow>
 
@@ -42,6 +43,9 @@ public:
                                const QString& outputDirectory,
                                const QString& texturePath,
                                QString& errorMessage);
+    bool runStructuredCapture(const QString& modelPath,const QString& outputDirectory,
+                              const capture::ScanOptions& options,bool reconstruct,
+                              QString& cloudPath,QString& errorMessage);
 
 public slots:
     void logInfo(const QString& message);

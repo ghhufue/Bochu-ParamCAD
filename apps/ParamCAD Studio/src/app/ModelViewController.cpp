@@ -133,6 +133,20 @@ void ModelViewController::loadModelFromFile(const QString& filePath)
     m_ui.viewer->setFocus(Qt::OtherFocusReason);
 }
 
+bool ModelViewController::prepareStructuredCaptureModel(const QString& path,QString& error)
+{
+    StepModelLoader loader;LoadedModel loaded;
+    if(!loader.canLoad(path)) {error=workspaceTr("结构光采集需要 STEP 模型");return false;}
+    if(!loader.load(path,loaded,error))return false;
+    m_loadedModel=loaded;
+    m_ui.viewer->setObjectVisible(true);m_ui.viewer->setBodyShape(loaded.shape);
+    m_ui.viewer->setBodyTextureEnabled(false);m_ui.viewer->setParallelProjection(false);
+    m_ui.propertyPanel->cameraPanel()->releaseOriginLock();
+    m_ui.viewer->resetCamera();m_ui.viewer->renderNow();
+    m_ui.scenePanel->updateNodeLabel(SceneNodeType::Model,QFileInfo(path).fileName());
+    emit sceneFramed();return true;
+}
+
 void ModelViewController::chooseTexture()
 {
     if (!m_ui.viewer->hasBody()) {

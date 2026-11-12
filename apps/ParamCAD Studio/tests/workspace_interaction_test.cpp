@@ -1,4 +1,5 @@
 #include "app/MainWindow.h"
+#include "app/UiLanguage.h"
 #include "app/CadReconstructionTask.h"
 #include "app/CaptureController.h"
 #include "app/PointCloudWorkspaceController.h"
@@ -151,7 +152,8 @@ void verifyFeatureDetails(MainWindow& window)
                 "actual feature list selection opens current details in Properties");
         if (const auto* extrusion = std::get_if<modeling::ExtrudeFeatureParams>(&f.params)) {
             require(text->toPlainText().contains(QString::number(extrusion->depth,'g',12) + " mm")
-                    && text->toPlainText().contains("草图轮廓"),
+                    && text->toPlainText().contains(QCoreApplication::translate(
+                        "FeatureDetailsPanel", "草图轮廓（%1 个元素）").section("%1",0,0)),
                     "reconstructed extrusion shows fitted depth and its source sketch");
         }
     }
@@ -491,6 +493,9 @@ int main(int argc, char** argv)
     QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QSurfaceFormat::setDefaultFormat(QVTKOpenGLNativeWidget::defaultFormat());
     QApplication application(argc, argv);
+    // Action text assertions use the English catalog, independently of the
+    // developer's persisted UI language. Production startup installs this too.
+    i18n::installTranslators(application, QStringLiteral("en"));
     try {
         if ((argc == 3 || argc == 4) && QString::fromLocal8Bit(argv[1]) == "--replay-cloud") {
             replayDenseCloud(QString::fromLocal8Bit(argv[2]), argc == 4 ? QString::fromLocal8Bit(argv[3]) : QString());
@@ -606,7 +611,8 @@ int main(int argc, char** argv)
             QMetaObject::invokeMethod(dialog, "accept", Qt::QueuedConnection);
         });
         exportStep->trigger();
-        require(replaced && !QFile::exists(stalePath) && console->toPlainText().contains("model changed"),
+        require(replaced && !QFile::exists(stalePath)
+                && console->toPlainText().contains(workspaceTr("选择文件期间模型已更改，请重新导出 STEP。")),
                 "modal model replacement prevents stale export");
         verifyExport(window, temp.filePath("replaced.step"), temp.filePath("replaced.step"),
                      BRepPrimAPI_MakeBox(2, 3, 4).Shape());
@@ -658,7 +664,8 @@ int main(int argc, char** argv)
         require(capturePanel->findChild<QPushButton*>("capturePhotoButton")->isEnabled(),
                 "orbit completion restores capture controls");
         require(!window.runPerformanceCapture(modelPath, validationRoot, QString(), error)
-                && error.contains("already exists"), "validation refuses to overwrite images");
+                && error == workspaceTr("验证图像目录已存在：%1").arg(QDir(validationRoot).filePath("images")),
+                "validation refuses to overwrite images");
 
         // A finished photo reconstruction feeds the same cloud workflow as import.
         const QString cloudPath = temp.filePath("plane.ply");

@@ -13,6 +13,9 @@ struct ReconstructRequest
 {
     QString imageDirectory;
     QString outputRoot;
+    QString engine = QStringLiteral("auto"); // auto | colmap | structured_light
+    double voxelSizeMm = 0.2;
+    double minContrast = 8;
     bool useCameraInfo = true;
     bool dense = false;
     QString matcher = QStringLiteral("exhaustive"); // "exhaustive" | "sequential"
@@ -76,4 +79,5 @@ private:
     bool m_dense = false;
     bool m_running = false;
     bool m_cancelled = false;
+    QString m_engine;
 };

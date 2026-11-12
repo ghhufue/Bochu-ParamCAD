@@ -7,6 +7,8 @@
 
 #include <vtkActor.h>
 #include <vtkPoints.h>
+#include <vtkPointData.h>
+#include <vtkDataArray.h>
 #include <vtkCellArray.h>
 #include <vtkCellData.h>
 #include <vtkPolyData.h>
@@ -36,6 +38,43 @@
 
 #include <algorithm>
 #include <cmath>
+
+capture::Geometry VTKViewer::captureGeometry() const
+{
+    capture::Geometry result;
+    if(!hasBody())return result;
+    auto* actor=m_bodyActor.surfaceActor();
+    auto* mapper=vtkPolyDataMapper::SafeDownCast(actor->GetMapper());
+    if(!mapper)return result;
+    mapper->Update();auto* mesh=mapper->GetInput();
+    if(!mesh || !mesh->GetPointData()->GetNormals())return result;
+    auto* transform=actor->GetMatrix();
+    vtkNew<vtkMatrix4x4> normalTransform;
+    vtkMatrix4x4::Invert(transform,normalTransform);normalTransform->Transpose();
+    double bounds[6];mesh->GetBounds(bounds);
+    for(vtkIdType i=0;i<mesh->GetNumberOfPoints();++i) {
+        double p[4]{0,0,0,1},world[4],n[4]{0,0,0,0},normal[4];
+        mesh->GetPoint(i,p);transform->MultiplyPoint(p,world);
+        mesh->GetPointData()->GetNormals()->GetTuple(i,n);normalTransform->MultiplyPoint(n,normal);
+        const double length=std::sqrt(normal[0]*normal[0]+normal[1]*normal[1]+normal[2]*normal[2]);
+        if(length<=0)return {};
+        result.positions.push_back({world[0],world[1],world[2]});
+        result.normals.push_back({normal[0]/length,normal[1]/length,normal[2]/length});
+        int axis=0;for(int j=1;j<3;++j)if(std::abs(n[j])>std::abs(n[axis]))axis=j;
+        const int u=(axis+1)%3,v=(axis+2)%3;
+        result.uv.push_back({(p[u]-bounds[2*u])/std::max(bounds[2*u+1]-bounds[2*u],1e-9),
+                             (p[v]-bounds[2*v])/std::max(bounds[2*v+1]-bounds[2*v],1e-9)});
+    }
+    vtkIdType count=0;const vtkIdType* indices=nullptr;
+    mesh->GetPolys()->InitTraversal();
+    while(mesh->GetPolys()->GetNextCell(count,indices)) {
+        if(count!=3)return {};
+        result.triangles.push_back({static_cast<std::uint32_t>(indices[0]),
+                                   static_cast<std::uint32_t>(indices[1]),
+                                   static_cast<std::uint32_t>(indices[2])});
+    }
+    return result;
+}
 
 namespace {
 

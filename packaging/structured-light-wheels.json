@@ -1,0 +1,32 @@
+{
+  "schema": "paramcad.structured-light.offline-wheels",
+  "version": 1,
+  "python": "3.13",
+  "platform": "windows-x64",
+  "packages": [
+    {
+      "name": "numpy",
+      "version": "2.3.5",
+      "file": "numpy-2.3.5-cp313-cp313-win_amd64.whl",
+      "sha256": "00dc4e846108a382c5869e77c6ed514394bdeb3403461d25a829711041217d5b"
+    },
+    {
+      "name": "opencv-contrib-python-headless",
+      "version": "4.13.0.92",
+      "file": "opencv_contrib_python_headless-4.13.0.92-cp37-abi3-win_amd64.whl",
+      "sha256": "dcbb12d04ae74f5dcd782e3b166e1894c6fbdfaaf30866588746205d2a0cde5a"
+    },
+    {
+      "name": "drjit",
+      "version": "1.5.0",
+      "file": "drjit-1.5.0-cp313-cp313-win_amd64.whl",
+      "sha256": "05d0d13c69e5278d32848b3df75ee76f370db5f267393812f21de848ee84d451"
+    },
+    {
+      "name": "mitsuba",
+      "version": "3.9.1",
+      "file": "mitsuba-3.9.1-cp313-cp313-win_amd64.whl",
+      "sha256": "51e0a09b1cc59fb7b88013db622489f9bec718c7c25bd2fa239ae9ed4218dbf1"
+    }
+  ]
+}

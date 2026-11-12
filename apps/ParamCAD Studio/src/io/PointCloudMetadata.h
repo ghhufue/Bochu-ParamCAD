@@ -13,6 +13,7 @@ inline QString pointCloudUnitName(const QString& path)
     const auto directory = cloud.dir();
     for (const auto& candidate :
          QStringList{directory.filePath("workspace/reconstruction.json"),
+                     directory.filePath("result.json"),
                      directory.filePath("reconstruction.json"),
                      directory.filePath(cloud.completeBaseName() + ".json")}) {
         if (!QFileInfo(candidate).isFile())

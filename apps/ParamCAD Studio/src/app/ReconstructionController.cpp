@@ -1,6 +1,7 @@
 #include "app/ReconstructionController.h"
 
 #include "app/ProjectPaths.h"
+#include "capture/CaptureSessionController.h"
 #include "io/CameraInfoBuilder.h"
 
 #include <QCoreApplication>
@@ -11,6 +12,8 @@
 #include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QStandardPaths>
 #include <QTimer>
 
@@ -106,37 +109,7 @@ QString ReconstructionController::resolveRepoRoot() const
 
 QString ReconstructionController::resolvePython(QStringList& prefixArgs) const
 {
-    const QSettings settings;
-    const QString configured = settings.value(QStringLiteral("reconstruction/pythonInterpreter")).toString();
-    if (!configured.isEmpty() && QFileInfo::exists(configured)) {
-        return configured;
-    }
-
-    // Release packages install the embeddable interpreter under deps/python.
-    // Prefer it over a machine-wide Python so reconstruction behaves the same
-    // on developer workstations and clean end-user machines.
-    const QString root = resolveRepoRoot();
-    if (!root.isEmpty()) {
-        const QString bundled = QDir(root).filePath(QStringLiteral("deps/python/python.exe"));
-        if (QFileInfo::exists(bundled)) {
-            return QDir::cleanPath(bundled);
-        }
-    }
-
-    const QString python = QStandardPaths::findExecutable(QStringLiteral("python"));
-    if (!python.isEmpty()) {
-        return python;
-    }
-    const QString python3 = QStandardPaths::findExecutable(QStringLiteral("python3"));
-    if (!python3.isEmpty()) {
-        return python3;
-    }
-    const QString launcher = QStandardPaths::findExecutable(QStringLiteral("py"));
-    if (!launcher.isEmpty()) {
-        prefixArgs << QStringLiteral("-3");
-        return launcher;
-    }
-    return QString();
+    return ProjectPaths::pythonInterpreter(prefixArgs);
 }
 
 QString ReconstructionController::createRunDirectory(const QString& outputRoot) const
@@ -164,6 +137,15 @@ bool ReconstructionController::buildArguments(const ReconstructRequest& request,
 {
     const QString imageDirectory = QDir::cleanPath(request.imageDirectory);
     m_outputPath = m_runDirectory + QStringLiteral("/cloud.ply");
+
+    if(m_engine=="structured_light") {
+        cameraModeHint="provided";
+        arguments << "--capture" << imageDirectory << "--output" << m_runDirectory
+                  << "--cancel-file" << (m_runDirectory+".cancel")
+                  << "--voxel-size-mm" << QString::number(request.voxelSizeMm,'g',12)
+                  << "--min-contrast" << QString::number(request.minContrast,'g',12);
+        return true;
+    }
 
     arguments << QStringLiteral("--images") << imageDirectory;
     arguments << QStringLiteral("--output") << m_outputPath;
@@ -219,12 +201,20 @@ bool ReconstructionController::start(const ReconstructRequest& request)
     m_logOffset = 0;
     m_cancelled = false;
     m_dense = request.dense;
+    m_engine=request.engine;
+    const bool structuredCapture=QFileInfo::exists(QDir(request.imageDirectory).filePath("capture.json"));
+    if(m_engine=="auto")m_engine=structuredCapture?"structured_light":"colmap";
+    if(m_engine!="colmap" && m_engine!="structured_light") {m_lastError=tr("未知重建后端");return false;}
+    if(m_engine=="colmap" && structuredCapture) {
+        m_lastError=tr("此目录是编码结构光采集，请使用结构光后端；编码序列不能作为普通多视角照片匹配。");return false;
+    }
+    if(m_engine=="structured_light")m_dense=true;
 
     if (!QFileInfo(request.imageDirectory).isDir()) {
         m_lastError = tr("图像目录不存在：%1").arg(request.imageDirectory);
         return false;
     }
-    if (CameraInfoBuilder::findImages(request.imageDirectory).size() < 2) {
+    if (m_engine=="colmap" && CameraInfoBuilder::findImages(request.imageDirectory).size() < 2) {
         m_lastError = tr("%1 中至少需要两张图像").arg(request.imageDirectory);
         return false;
     }
@@ -243,7 +233,7 @@ bool ReconstructionController::start(const ReconstructRequest& request)
     QStringList prefixArgs;
     const QString python = resolvePython(prefixArgs);
     if (python.isEmpty()) {
-        m_lastError = tr("未找到 Python 3 解释器。请运行 ParamCAD Studio 安装目录下的 Install-Dependencies.cmd，或安装 Python，或设置 reconstruction/pythonInterpreter。");
+        m_lastError = tr("未找到随包 Python 运行时，请检查完整离线包；开发环境可设置 reconstruction/pythonInterpreter。");
         return false;
     }
 
@@ -259,7 +249,9 @@ bool ReconstructionController::start(const ReconstructRequest& request)
         return false;
     }
 
-    arguments.prepend(m_repoRoot + QStringLiteral("/core/reconstruction/reconstruct.py"));
+    arguments.prepend(m_repoRoot + (m_engine=="structured_light"
+        ? QStringLiteral("/core/reconstruction/reconstruct_structured_light.py")
+        : QStringLiteral("/core/reconstruction/reconstruct.py")));
     arguments = prefixArgs + arguments;
 
     // Set program and arguments separately so paths with spaces or non-ASCII
@@ -277,9 +269,9 @@ bool ReconstructionController::start(const ReconstructRequest& request)
         return false;
     }
 
-    m_pollTimer->start();
+    if(m_engine=="colmap")m_pollTimer->start();
     emit started(m_runDirectory, cameraModeHint);
-    emit progressChanged(0, m_dense ? kDenseStages : kSparseStages, tr("正在启动"));
+    emit progressChanged(0, m_engine=="structured_light"?5:(m_dense ? kDenseStages : kSparseStages), tr("正在启动"));
     if (!m_cameraInfoNote.isEmpty()) {
         emit logMessage(m_cameraInfoNote);
     }
@@ -292,6 +284,15 @@ void ReconstructionController::cancel()
         return;
     }
     m_cancelled = true;
+    if(m_engine=="structured_light") {
+        QFile marker(m_runDirectory+".cancel");
+        if(marker.open(QIODevice::WriteOnly))marker.write("cancel\n");
+        const auto pid=m_process->processId();
+        QTimer::singleShot(3000,this,[this,pid] {
+            if(m_running && m_cancelled && m_process->processId()==pid)m_process->kill();
+        });
+        return;
+    }
 
     // Killing the Python process does not stop the colmap.exe it spawned, so the
     // whole tree has to go. taskkill walks the parent/child chain, which only
@@ -310,7 +311,7 @@ void ReconstructionController::cancel()
 
 void ReconstructionController::pollColmapLog()
 {
-    if (m_runDirectory.isEmpty()) {
+    if (m_runDirectory.isEmpty() || m_engine!="colmap") {
         return;
     }
     QFile log(m_runDirectory + QStringLiteral("/workspace/colmap.log"));
@@ -376,6 +377,27 @@ void ReconstructionController::handleStdoutLine(const QString& line)
         return;
     }
     m_lastOutputLine = line;
+    if(m_engine=="structured_light") {
+        QJsonParseError error;
+        const auto message=QJsonDocument::fromJson(line.toUtf8(),&error).object();
+        if(error.error==QJsonParseError::NoError && !message.isEmpty()) {
+            const QString type=message["type"].toString();
+            if(type=="progress") {
+                const QString stage=message["stage"].toString();
+                const QStringList stages{"validate","decode","triangulate","fuse","export"};
+                const QStringList labels{tr("校验采集数据"),tr("解码投影图案"),tr("三角化点云"),tr("融合扫描站"),tr("导出点云")};
+                const int index=stages.indexOf(stage);
+                if(index>=0)emit progressChanged(index+1,5,QString("%1 · %2/%3")
+                    .arg(labels[index]).arg(message["completed"].toInt()).arg(message["total"].toInt()));
+            } else if(type=="result") {
+                m_pointCloudPath=message["point_cloud"].toString();m_pointCount=message["point_count"].toInt();
+                m_cameraMode="provided";
+            } else if(type=="log" || type=="error") {
+                m_lastOutputLine=message["message"].toString();emit logMessage(m_lastOutputLine);
+            }
+            return;
+        }
+    }
 
     const QStringList markers{QStringLiteral("point cloud: "), QStringLiteral("points: "),
                               QStringLiteral("camera mode: "), QStringLiteral("manifest: ")};
@@ -413,7 +435,15 @@ void ReconstructionController::handleFinished(int exitCode, QProcess::ExitStatus
 
     m_running = false;
     if (m_cancelled) {
+        if(m_engine=="structured_light") {
+            QFile file(m_runDirectory+"/result.json");QJsonObject result;
+            if(file.open(QIODevice::ReadOnly))result=QJsonDocument::fromJson(file.readAll()).object();
+            file.close();result["status"]="cancelled";
+            result["schema"]="paramcad.structured-light.result";result["version"]=1;result["unit"]="mm";
+            QString error;capture::saveJson(m_runDirectory+"/result.json",result,error);
+        }
         reportFailure(tr("重建已取消"));
+        QFile::remove(m_runDirectory+".cancel");
         return;
     }
     if (exitCode != 0 || status == QProcess::CrashExit) {
@@ -421,6 +451,18 @@ void ReconstructionController::handleFinished(int exitCode, QProcess::ExitStatus
                           ? tr("重建失败，退出码 %1").arg(exitCode)
                           : m_lastOutputLine);
         return;
+    }
+
+    if(m_engine=="structured_light") {
+        QFile file(m_runDirectory+"/result.json");
+        if(!file.open(QIODevice::ReadOnly)) {reportFailure(tr("缺少结构光重建结果清单"));return;}
+        const auto result=QJsonDocument::fromJson(file.readAll()).object();
+        if(result["schema"].toString()!="paramcad.structured-light.result"
+            || result["status"].toString()!="complete" || result["point_count"].toInt()<=0
+            || !QFileInfo(m_outputPath).isFile() || QFileInfo(m_outputPath).size()<=100) {
+            reportFailure(tr("结构光重建未生成有效点云"));return;
+        }
+        m_pointCloudPath=m_outputPath;m_pointCount=result["point_count"].toInt();m_cameraMode="provided";
     }
 
     emit finished(m_pointCloudPath.isEmpty() ? m_outputPath : m_pointCloudPath,

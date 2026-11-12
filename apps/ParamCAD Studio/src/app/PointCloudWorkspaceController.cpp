@@ -330,7 +330,8 @@ void PointCloudWorkspaceController::connectUi()
                     return;
                 }
                 emit logError(message);
-                QMessageBox::warning(m_dialogParent, workspaceTr("点云重建"), message);
+                if(!m_dialogParent->property("paramcadBatchCapture").toBool())
+                    QMessageBox::warning(m_dialogParent, workspaceTr("点云重建"), message);
             });
     connect(m_reconstructionController, &ReconstructionController::finished,
             this, &PointCloudWorkspaceController::onReconstructionFinished);
@@ -344,7 +345,8 @@ void PointCloudWorkspaceController::startReconstruction(const ReconstructRequest
         panel->setBusy(false);
         const QString error = m_reconstructionController->lastError();
         emit logError(error);
-        QMessageBox::warning(m_dialogParent, workspaceTr("点云重建"), error);
+        if(!m_dialogParent->property("paramcadBatchCapture").toBool())
+            QMessageBox::warning(m_dialogParent, workspaceTr("点云重建"), error);
     }
 }
 
@@ -358,7 +360,8 @@ void PointCloudWorkspaceController::onReconstructionFinished(const QString& poin
     if (!m_document->load(pointCloudPath, error)) {
         emit logError(error);
         panel->setStatusText(error);
-        QMessageBox::warning(m_dialogParent, workspaceTr("点云重建"), error);
+        if(!m_dialogParent->property("paramcadBatchCapture").toBool())
+            QMessageBox::warning(m_dialogParent, workspaceTr("点云重建"), error);
         return;
     }
 

@@ -1,12 +1,17 @@
 #pragma once
 
 #include "app/CaptureController.h"
+#include "capture/ScanPlanner.h"
 
 #include <QWidget>
 
 #include <vector>
 
 class QDoubleSpinBox;
+class QComboBox;
+class QSpinBox;
+class QCheckBox;
+class QGroupBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -31,6 +36,9 @@ public:
     void setShots(const std::vector<CaptureShot>& shots);
     void setStatusText(const QString& text);
     void setBusy(bool busy);
+    void setStructuredBusy(bool busy);
+    capture::ScanOptions structuredOptions() const;
+    void setStructuredOptions(const capture::ScanOptions& options);
 
 signals:
     void baseDirectoryChanged(const QString& directory);
@@ -38,6 +46,8 @@ signals:
     // Fixed 30-degree longitude/latitude grid: five 12-shot rings plus the two
     // poles, always looking at the centred model origin (62 images total).
     void captureOrbitRequested(double distance);
+    void structuredScanRequested(bool multipleStations);
+    void structuredCancelRequested();
 
 private:
     void browseForDirectory();
@@ -52,4 +62,16 @@ private:
     QTreeWidget* m_shots = nullptr;
     QLabel* m_status = nullptr;
     QLabel* m_aspectHint = nullptr;
+    QGroupBox* m_structuredGroup = nullptr;
+    std::array<QSpinBox*,5> m_scanSizes{};
+    QDoubleSpinBox* m_baseline = nullptr;
+    QDoubleSpinBox* m_metallic = nullptr;
+    QDoubleSpinBox* m_roughness = nullptr;
+    QCheckBox* m_phase = nullptr;
+    QCheckBox* m_hdr = nullptr;
+    QComboBox* m_renderer = nullptr;
+    QSpinBox* m_samples = nullptr;
+    QSpinBox* m_depth = nullptr;
+    std::array<QLineEdit*,3> m_materialMaps{};
+    QPushButton* m_scanCancel = nullptr;
 };

@@ -10,6 +10,7 @@ param(
     [string]$BuildDirectory,
     [string]$LocalColmapPath,
     [string]$PythonArchive,
+    [string]$StructuredLightWheelDirectory,
     [switch]$Clean,
     [switch]$SkipBuild,
     [switch]$SkipSmokeTest
@@ -17,6 +18,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 . (Join-Path $PSScriptRoot 'Runtime-Helpers.ps1')
+. (Join-Path $PSScriptRoot 'StructuredLight-Helpers.ps1')
 
 function Invoke-Native([string]$Program, [string[]]$Arguments) {
     Write-Host "> $Program $($Arguments -join ' ')"
@@ -57,6 +59,8 @@ function Get-CrtDirectory {
 }
 
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+if (-not $StructuredLightWheelDirectory) { $StructuredLightWheelDirectory = Join-Path $projectRoot 'artifacts\cache\structured-light' }
+$structuredLightWheels = Assert-StructuredLightWheels $StructuredLightWheelDirectory
 $appRoot = Join-Path $projectRoot 'apps\ParamCAD Studio'
 if (-not $BuildDirectory) { $BuildDirectory = Join-Path $appRoot 'build\msvc-debug' }
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $projectRoot "artifacts\releases\$Version" }
@@ -116,7 +120,7 @@ Write-Host "Packaging binaries from $release"
 $name = "ParamCAD-Studio-$Version-windows-x64-full-$ColmapFlavor"
 $stage = Join-Path $projectRoot "artifacts\staging\release\$name"
 Reset-Directory $stage
-foreach ($directory in @('app','app\plugins','deps','core\reconstruction\colmap_reconstruction','installer','docs\licenses')) {
+foreach ($directory in @('app','app\plugins','deps','core\reconstruction\colmap_reconstruction','core\reconstruction\structured_light','installer','docs\licenses')) {
     New-Item -ItemType Directory -Path (Join-Path $stage $directory) -Force | Out-Null
 }
 $app = Join-Path $stage 'app'
@@ -140,6 +144,7 @@ if ($null -eq $pth) { throw 'Embedded Python path configuration is missing' }
 $lines = @(Get-Content -LiteralPath $pth.FullName)
 if ($lines -notcontains '../../core/reconstruction') { $lines += '../../core/reconstruction' }
 Set-Content -LiteralPath $pth.FullName -Value $lines -Encoding ASCII
+Install-StructuredLightWheels $pythonRoot $StructuredLightWheelDirectory
 # Bulk-copy the runtime without inspecting or logging files in the local COLMAP dependency.
 Copy-Item -LiteralPath $LocalColmapPath -Destination (Join-Path $stage 'deps\colmap') -Recurse
 # Clean only the copied payload; never enumerate the opaque local dependency.
@@ -157,8 +162,14 @@ foreach ($runtime in @($app,$pythonRoot,(Join-Path $stage 'deps\colmap\bin'))) {
     }
 }
 $binaryCount = Assert-AppRuntime $app @((Join-Path $QtRoot 'bin'),(Join-Path $VcpkgRoot 'installed\x64-windows\bin'),$crtDirectory) -TrimUnused
+$pythonBinaryCount = Assert-PythonNativeRuntime $pythonRoot
 $pipeline = Join-Path $projectRoot 'core\reconstruction'
 Copy-Item -LiteralPath (Join-Path $pipeline 'reconstruct.py'),(Join-Path $pipeline 'camera_info.example.json') -Destination (Join-Path $stage 'core\reconstruction')
+Copy-Item -LiteralPath (Join-Path $pipeline 'reconstruct_structured_light.py') -Destination (Join-Path $stage 'core\reconstruction')
+Copy-Item -LiteralPath (Join-Path $pipeline 'render_structured_light.py') -Destination (Join-Path $stage 'core\reconstruction')
+Get-ChildItem -LiteralPath (Join-Path $pipeline 'structured_light') -Filter '*.py' -File | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stage 'core\reconstruction\structured_light')
+}
 Get-ChildItem -LiteralPath (Join-Path $pipeline 'colmap_reconstruction') -Filter '*.py' -File | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stage 'core\reconstruction\colmap_reconstruction')
 }
@@ -170,6 +181,17 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'THIRD-PARTY-NOTICES.md') -Desti
 foreach ($library in @('cgal','gmp','mpfr','eigen3')) {
     $copyright = Join-Path $VcpkgRoot "installed\x64-windows\share\$library\copyright"
     if (Test-Path -LiteralPath $copyright) { Copy-Item -LiteralPath $copyright -Destination (Join-Path $stage "docs\licenses\$library.txt") }
+}
+# Preserve the renderer licenses exactly as published in the verified wheels.
+foreach ($entry in @(@('mitsuba','mitsuba-3.9.1.dist-info/licenses/LICENSE','Mitsuba-BSD-3-Clause.txt'),
+                     @('drjit','drjit-1.5.0.dist-info/licenses/LICENSE','DrJit-BSD-3-Clause.txt'))) {
+    $package = $structuredLightWheels.packages | Where-Object { $_.name -eq $entry[0] } | Select-Object -First 1
+    $wheel = [IO.Compression.ZipFile]::OpenRead((Join-Path $StructuredLightWheelDirectory $package.file))
+    try {
+        $license = $wheel.GetEntry($entry[1])
+        if ($null -eq $license) { throw "Missing license entry $($entry[1]) in $($package.file)" }
+        [IO.Compression.ZipFileExtensions]::ExtractToFile($license,(Join-Path $stage "docs\licenses\$($entry[2])"),$false)
+    } finally { $wheel.Dispose() }
 }
 # Exact license files only; the local VTK/OCCT SDKs are not scanned or copied.
 foreach ($entry in @(
@@ -200,8 +222,10 @@ $releaseInfo = [ordered]@{
     builtAtUtc=[DateTime]::UtcNow.ToString('o'); gitCommit=$commit; workingTreeModified=$dirty;
     dependencies=[ordered]@{ python=$manifest.dependencies.python.version; pythonArchiveSha256=$manifest.dependencies.python.sha256;
         colmap=$colmapVersion; qt=(Get-Item (Join-Path $app 'Qt6Core.dll')).VersionInfo.FileVersion;
-        vtk='9.7.0'; occt='8.0.1'; msvc=(Get-Item (Join-Path $app 'vcruntime140.dll')).VersionInfo.FileVersion };
-    validation=[ordered]@{ auditedGuiBinaries=$binaryCount; isolatedRuntimeSmokeTest=(-not $SkipSmokeTest) };
+        vtk='9.7.0'; occt='8.0.1'; msvc=(Get-Item (Join-Path $app 'vcruntime140.dll')).VersionInfo.FileVersion;
+        structuredLightWheels=$structuredLightWheels.packages;
+        captureRenderer='VTK direct GGX (default); optional Mitsuba 3.9.1 scalar_rgb path tracing with bundled runtime' };
+    validation=[ordered]@{ auditedGuiBinaries=$binaryCount; auditedPythonBinaries=$pythonBinaryCount; isolatedRuntimeSmokeTest=(-not $SkipSmokeTest) };
     files=$files
 }
 Write-Utf8 (Join-Path $stage 'package-manifest.json') ($releaseInfo | ConvertTo-Json -Depth 8)

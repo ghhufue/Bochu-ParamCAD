@@ -1,5 +1,7 @@
 #include "app/MainWindow.h"
 #include "app/CaptureController.h"
+#include "capture/QualityEvaluation.h"
+#include "capture/CaptureSessionController.h"
 #include "app/CaptureWorkspaceController.h"
 #include "app/ModelingController.h"
 #include "app/ModelViewController.h"
@@ -33,6 +35,9 @@
 #include <QAbstractSlider>
 #include <QAbstractSpinBox>
 #include <QApplication>
+#include <QDir>
+#include <QEventLoop>
+#include <QScopeGuard>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QDockWidget>
@@ -228,6 +233,51 @@ bool MainWindow::runPerformanceCapture(const QString& modelPath,
         modelPath, outputDirectory, texturePath, errorMessage);
 }
 
+bool MainWindow::runStructuredCapture(const QString& modelPath,const QString& outputDirectory,
+    const capture::ScanOptions& options,bool reconstruct,QString& cloudPath,QString& error)
+{
+    const QVariant previousBatch=property("paramcadBatchCapture");
+    setProperty("paramcadBatchCapture",true);
+    const auto restoreBatch=qScopeGuard([&]{setProperty("paramcadBatchCapture",previousBatch);});
+    if(!m_modelViewController->prepareStructuredCaptureModel(modelPath,error))return false;
+    m_propertyPanel->capturePanel()->setStructuredOptions(options);
+    QEventLoop loop;bool succeeded=false;
+    const auto complete=connect(m_captureWorkspace,&CaptureWorkspaceController::structuredCaptureCompleted,&loop,
+        [&](const QString&){succeeded=true;loop.quit();});
+    const auto failed=connect(m_captureWorkspace,&CaptureWorkspaceController::structuredCaptureFailed,&loop,
+        [&](const QString& message){error=message;loop.quit();});
+    const auto cancelled=connect(m_captureWorkspace,&CaptureWorkspaceController::structuredCaptureCancelled,&loop,
+        [&](const QString&){error=tr("结构光采集已取消");loop.quit();});
+    if(!m_captureWorkspace->startStructuredScan(true,QDir(outputDirectory).filePath("capture"))) {
+        disconnect(complete);disconnect(failed);disconnect(cancelled);error=tr("无法启动结构光采集，请检查输出目录和扫描参数");return false;
+    }
+    loop.exec();disconnect(complete);disconnect(failed);disconnect(cancelled);
+    if(!succeeded || !reconstruct)return succeeded;
+    auto* controller=findChild<ReconstructionController*>();
+    succeeded=false;
+    const auto reconstructed=connect(controller,&ReconstructionController::finished,&loop,
+        [&](const QString& path,int,const QString&,bool){cloudPath=path;succeeded=true;loop.quit();});
+    const auto reconstructionFailed=connect(controller,&ReconstructionController::failed,&loop,
+        [&](const QString& message){error=message;loop.quit();});
+    ReconstructRequest request;request.engine="structured_light";
+    request.imageDirectory=QDir(outputDirectory).filePath("capture");request.outputRoot=QDir(outputDirectory).filePath("reconstructions");
+    if(controller->start(request))loop.exec();else error=controller->lastError();
+    disconnect(reconstructed);disconnect(reconstructionFailed);
+    if(succeeded) {
+        const auto readObject=[](const QString& path) {
+            QFile file(path);if(!file.open(QIODevice::ReadOnly))return QJsonObject{};
+            return QJsonDocument::fromJson(file.readAll()).object();
+        };
+        std::vector<std::array<double,3>> points;
+        for(const auto& p:m_pointCloudDocument->sourceCloud().positions)points.push_back({p[0],p[1],p[2]});
+        const auto evaluation=capture::evaluateSurface(m_viewer->captureGeometry(),points,
+            readObject(outputDirectory+"/capture/capture.json"),readObject(outputDirectory+"/capture/calibration.json"));
+        QString evaluationError;
+        if(!capture::saveJson(outputDirectory+"/evaluation.json",evaluation,evaluationError))logWarning(evaluationError);
+    }
+    return succeeded;
+}
+
 void MainWindow::createWorkspaceControllers()
 {
     auto* modeling = new ModelingController(this);
@@ -272,6 +322,7 @@ void MainWindow::createWorkspaceControllers()
         setWindowTitle(tr("CAD 与点云工作台 — %1").arg(QFileInfo(path).fileName()));
     });
     connect(capture, &CaptureController::batchStateChanged, m_projectController, &ProjectController::setCaptureBusy);
+    connect(m_captureWorkspace,&CaptureWorkspaceController::captureBusyChanged,m_projectController,&ProjectController::setCaptureBusy);
 
     WorkspaceController* workspaces[] = {
         m_sketchWorkspace, m_captureWorkspace, m_pointCloudWorkspace, m_modelViewController, m_projectController, m_featureEditing};

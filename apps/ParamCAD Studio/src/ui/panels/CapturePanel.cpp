@@ -3,6 +3,10 @@
 #include "core/OrbitCamera.h"
 
 #include <QDoubleSpinBox>
+#include <QComboBox>
+#include <QSpinBox>
+#include <QCheckBox>
+#include <QScrollArea>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -90,7 +94,8 @@ CapturePanel::CapturePanel(QWidget* parent)
     m_status->setObjectName(QStringLiteral("captureStatus"));
     m_status->setWordWrap(true);
 
-    auto* layout = new QVBoxLayout(this);
+    auto* contents = new QWidget(this);
+    auto* layout = new QVBoxLayout(contents);
     layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(8);
     layout->addWidget(outputGroup);
@@ -98,13 +103,72 @@ CapturePanel::CapturePanel(QWidget* parent)
     layout->addLayout(buttonRow);
     layout->addWidget(m_aspectHint);
     layout->addWidget(m_status);
+    m_structuredGroup=new QGroupBox(tr("结构光扫描"),this);
+    m_structuredGroup->setObjectName("structuredLightGroup");
+    auto* scanForm=new QFormLayout(m_structuredGroup);
+    m_renderer=new QComboBox(m_structuredGroup);m_renderer->setObjectName("scanRenderer");
+    m_renderer->addItem(tr("VTK · 直接光照"),"vtk");m_renderer->addItem(tr("Mitsuba · 路径追踪"),"mitsuba");
+    scanForm->addRow(tr("采集渲染器"),m_renderer);
+    m_samples=new QSpinBox(m_structuredGroup);m_samples->setObjectName("scanSamples");
+    m_samples->setRange(1,4096);m_samples->setValue(32);m_samples->setEnabled(false);
+    m_depth=new QSpinBox(m_structuredGroup);m_depth->setObjectName("scanPathDepth");
+    m_depth->setRange(2,16);m_depth->setValue(4);m_depth->setEnabled(false);
+    scanForm->addRow(tr("路径追踪采样数"),m_samples);scanForm->addRow(tr("最大光路深度"),m_depth);
+    connect(m_renderer,&QComboBox::currentIndexChanged,this,[this] {
+        const bool tracing=m_renderer->currentData().toString()=="mitsuba";
+        m_samples->setEnabled(tracing);m_depth->setEnabled(tracing);
+    });
+    const QStringList labels{tr("相机宽度"),tr("相机高度"),tr("投影宽度"),tr("投影高度"),tr("扫描站数")};
+    const QStringList names{"scanCameraWidth","scanCameraHeight","scanProjectorWidth","scanProjectorHeight","scanStationCount"};
+    const int defaults[]{640,480,256,256,12};
+    for(int i=0;i<5;++i) {
+        auto* spin=new QSpinBox(m_structuredGroup);m_scanSizes[i]=spin;spin->setObjectName(names[i]);
+        spin->setRange(i==4?1:32,i==4?64:4096);spin->setValue(defaults[i]);scanForm->addRow(labels[i],spin);
+    }
+    m_baseline=new QDoubleSpinBox(m_structuredGroup);m_baseline->setObjectName("scanBaseline");
+    m_baseline->setRange(0,10000);m_baseline->setDecimals(3);m_baseline->setSpecialValueText(tr("自动"));
+    scanForm->addRow(tr("相机与投影器间距（mm）"),m_baseline);
+    m_metallic=new QDoubleSpinBox(m_structuredGroup);m_metallic->setObjectName("scanMetallic");
+    m_roughness=new QDoubleSpinBox(m_structuredGroup);m_roughness->setObjectName("scanRoughness");
+    m_metallic->setRange(0,1);m_metallic->setSingleStep(.1);m_metallic->setValue(.9);
+    m_roughness->setRange(.04,1);m_roughness->setSingleStep(.05);m_roughness->setValue(.4);
+    scanForm->addRow(tr("材质金属度"),m_metallic);scanForm->addRow(tr("材质粗糙度"),m_roughness);
+    const QStringList mapLabels{tr("材质基色贴图"),tr("金属度贴图"),tr("粗糙度贴图")};
+    for(int i=0;i<3;++i) {
+        auto* row=new QWidget(m_structuredGroup);auto* rowLayout=new QHBoxLayout(row);rowLayout->setContentsMargins(0,0,0,0);
+        m_materialMaps[i]=new QLineEdit(row);m_materialMaps[i]->setObjectName(QString("scanMaterialMap%1").arg(i));
+        m_materialMaps[i]->setPlaceholderText(tr("可选，描述材料自身"));
+        auto* browse=new QPushButton(tr("选择…"),row);
+        rowLayout->addWidget(m_materialMaps[i],1);rowLayout->addWidget(browse);scanForm->addRow(mapLabels[i],row);
+        connect(browse,&QPushButton::clicked,this,[this,i] {
+            const QString path=QFileDialog::getOpenFileName(this,tr("选择材质贴图"),{},tr("图像 (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)"));
+            if(!path.isEmpty())m_materialMaps[i]->setText(path);
+        });
+    }
+    m_phase=new QCheckBox(tr("相移条纹精化"),m_structuredGroup);m_phase->setObjectName("scanPhaseShift");
+    m_hdr=new QCheckBox(tr("多曝光采集"),m_structuredGroup);m_hdr->setObjectName("scanMultiExposure");
+    scanForm->addRow(m_phase);scanForm->addRow(m_hdr);
+    auto* scanSingle=new QPushButton(tr("当前视角结构光扫描"),m_structuredGroup);scanSingle->setObjectName("scanSingleButton");
+    auto* scanMultiple=new QPushButton(tr("多站结构光扫描"),m_structuredGroup);scanMultiple->setObjectName("scanMultipleButton");
+    scanForm->addRow(scanSingle);scanForm->addRow(scanMultiple);
+    auto* scanHint=new QLabel(tr("材质贴图保持固定，编码由投影光产生。VTK 只计算直接光；Mitsuba 需完整离线运行库，最大光路深度为 2 时只含直接光照。"),m_structuredGroup);
+    scanHint->setWordWrap(true);scanForm->addRow(scanHint);
+    layout->addWidget(m_structuredGroup);
+    m_scanCancel=new QPushButton(tr("取消结构光拍摄"),this);m_scanCancel->setObjectName("scanCancelButton");m_scanCancel->setEnabled(false);
+    layout->addWidget(m_scanCancel);
     layout->addWidget(shotsGroup, 1);
+    connect(scanSingle,&QPushButton::clicked,this,[this]{emit structuredScanRequested(false);});
+    connect(scanMultiple,&QPushButton::clicked,this,[this]{emit structuredScanRequested(true);});
+    connect(m_scanCancel,&QPushButton::clicked,this,&CapturePanel::structuredCancelRequested);
 
     connect(m_browseButton, &QPushButton::clicked, this, &CapturePanel::browseForDirectory);
     connect(m_photoButton, &QPushButton::clicked, this, &CapturePanel::capturePhotoRequested);
     connect(m_orbitButton, &QPushButton::clicked, this, [this] {
         emit captureOrbitRequested(m_distance->value());
     });
+    auto* scroll=new QScrollArea(this);scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);scroll->setWidget(contents);
+    auto* outer=new QVBoxLayout(this);outer->setContentsMargins(0,0,0,0);outer->addWidget(scroll);
 }
 
 QString CapturePanel::baseDirectory() const
@@ -154,6 +218,37 @@ void CapturePanel::setBusy(bool busy)
     m_orbitButton->setEnabled(!busy);
     m_browseButton->setEnabled(!busy);
     m_distance->setEnabled(!busy);
+    m_structuredGroup->setEnabled(!busy);
+}
+
+void CapturePanel::setStructuredBusy(bool busy) {setBusy(busy);m_scanCancel->setEnabled(busy);}
+
+capture::ScanOptions CapturePanel::structuredOptions() const {
+    capture::ScanOptions result;
+    result.renderBackend=m_renderer->currentData().toString();result.samplesPerPixel=m_samples->value();
+    result.maxPathDepth=m_depth->value();
+    result.cameraWidth=m_scanSizes[0]->value();result.cameraHeight=m_scanSizes[1]->value();
+    result.projectorWidth=m_scanSizes[2]->value();result.projectorHeight=m_scanSizes[3]->value();
+    result.stationCount=m_scanSizes[4]->value();result.distance=m_distance->value();
+    result.baseline=m_baseline->value();result.material.metallic=m_metallic->value();
+    result.material.roughness=m_roughness->value();result.phaseShift=m_phase->isChecked();result.multiExposure=m_hdr->isChecked();
+    result.material.baseColorMap=m_materialMaps[0]->text().trimmed();
+    result.material.metallicMap=m_materialMaps[1]->text().trimmed();
+    result.material.roughnessMap=m_materialMaps[2]->text().trimmed();
+    return result;
+}
+
+void CapturePanel::setStructuredOptions(const capture::ScanOptions& options) {
+    m_renderer->setCurrentIndex(m_renderer->findData(options.renderBackend));
+    m_samples->setValue(options.samplesPerPixel);m_depth->setValue(options.maxPathDepth);
+    const int sizes[]{options.cameraWidth,options.cameraHeight,options.projectorWidth,options.projectorHeight,options.stationCount};
+    for(int i=0;i<5;++i)m_scanSizes[i]->setValue(sizes[i]);
+    m_baseline->setValue(options.baseline);m_metallic->setValue(options.material.metallic);
+    m_roughness->setValue(options.material.roughness);m_phase->setChecked(options.phaseShift);
+    m_hdr->setChecked(options.multiExposure);
+    m_materialMaps[0]->setText(options.material.baseColorMap);m_materialMaps[1]->setText(options.material.metallicMap);
+    m_materialMaps[2]->setText(options.material.roughnessMap);
+    if(options.distance>0)m_distance->setValue(options.distance);
 }
 
 void CapturePanel::browseForDirectory()

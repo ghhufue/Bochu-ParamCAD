@@ -9,9 +9,13 @@
 #include <QFileInfo>
 #include <QIcon>
 #include <QSurfaceFormat>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QTextStream>
 #include <QVTKOpenGLNativeWidget.h>
 
 #include <filesystem>
+#include <cmath>
 
 int main(int argc, char* argv[])
 {
@@ -31,6 +35,18 @@ int main(int argc, char* argv[])
         QStringLiteral("performance-capture"),
         QStringLiteral("Capture a STEP model as a self-contained validation case."),
         QStringLiteral("step-file"));
+    const QCommandLineOption structuredCapture("structured-light-capture","Capture a STEP model through the client structured-light workflow.","step-file");
+    const QCommandLineOption scanStations("scan-stations","Number of structured-light scan stations.","count","12");
+    const QCommandLineOption scanSize("scan-size","Camera image dimensions WIDTHxHEIGHT.","size","640x480");
+    const QCommandLineOption projectorSize("projector-size","Projector dimensions WIDTHxHEIGHT.","size","256x256");
+    const QCommandLineOption scanPhase("scan-phase-shift","Capture four-step phase refinement patterns.");
+    const QCommandLineOption scanHdr("scan-multi-exposure","Capture three fixed exposure sequences.");
+    const QCommandLineOption scanReconstruct("scan-reconstruct","Also reconstruct and load the resulting point cloud in the client.");
+    const QCommandLineOption scanRenderer("scan-renderer","Capture renderer: vtk or mitsuba.","backend","vtk");
+    const QCommandLineOption scanSamples("scan-samples","Mitsuba samples per pixel.","count","32");
+    const QCommandLineOption scanDepth("scan-max-depth","Mitsuba maximum path depth; 2 means direct only.","count","4");
+    const QCommandLineOption scanMetallic("scan-metallic","Material metallic factor [0,1].","value","0.9");
+    const QCommandLineOption scanRoughness("scan-roughness","Material roughness [0.04,1].","value","0.4");
     const QCommandLineOption outputDirectory(
         QStringLiteral("output"), QStringLiteral("Validation case directory."),
         QStringLiteral("directory"));
@@ -47,6 +63,8 @@ int main(int argc, char* argv[])
         QStringLiteral("lang"), QStringLiteral("Interface language: zh (default) or en."),
         QStringLiteral("language"));
     parser.addOption(performanceCapture);
+    for(const auto& option:{structuredCapture,scanStations,scanSize,projectorSize,scanPhase,scanHdr,
+                           scanReconstruct,scanMetallic,scanRoughness,scanRenderer,scanSamples,scanDepth})parser.addOption(option);
     parser.addOption(outputDirectory);
     parser.addOption(texture);
     parser.addOption(configDirectory);
@@ -66,7 +84,41 @@ int main(int argc, char* argv[])
         reconstruction::settings::addOverride(assignment.toStdString());
 
     MainWindow window;
+    if(parser.isSet(structuredCapture))window.setAttribute(Qt::WA_DontShowOnScreen);
     window.show();
+
+    if(parser.isSet(structuredCapture)) {
+        const auto parseSize=[&](const QString& value,int& width,int& height) {
+            const auto parts=value.toLower().split('x');bool ok1=false,ok2=false;
+            if(parts.size()!=2)return false;width=parts[0].toInt(&ok1);height=parts[1].toInt(&ok2);
+            return ok1 && ok2 && width>=32 && height>=32 && width<=4096 && height<=4096;
+        };
+        capture::ScanOptions options;bool okStations=false,okMetal=false,okRough=false;
+        bool okSamples=false,okDepth=false;
+        options.renderBackend=parser.value(scanRenderer);
+        options.samplesPerPixel=parser.value(scanSamples).toInt(&okSamples);
+        options.maxPathDepth=parser.value(scanDepth).toInt(&okDepth);
+        options.stationCount=parser.value(scanStations).toInt(&okStations);
+        options.material.metallic=parser.value(scanMetallic).toDouble(&okMetal);
+        options.material.roughness=parser.value(scanRoughness).toDouble(&okRough);
+        if(!okStations || !okMetal || !okRough || !okSamples || !okDepth || options.stationCount<1 || options.stationCount>64
+            || (options.renderBackend!="vtk" && options.renderBackend!="mitsuba")
+            || options.samplesPerPixel<1 || options.samplesPerPixel>4096 || options.maxPathDepth<2 || options.maxPathDepth>16
+            || !std::isfinite(options.material.metallic) || options.material.metallic<0 || options.material.metallic>1
+            || !std::isfinite(options.material.roughness) || options.material.roughness<.04 || options.material.roughness>1
+            || !parseSize(parser.value(scanSize),options.cameraWidth,options.cameraHeight)
+            || !parseSize(parser.value(projectorSize),options.projectorWidth,options.projectorHeight)
+            || parser.value(outputDirectory).isEmpty())parser.showHelp(2);
+        options.phaseShift=parser.isSet(scanPhase);options.multiExposure=parser.isSet(scanHdr);
+        QString error,cloud;
+        const QString output=QFileInfo(parser.value(outputDirectory)).absoluteFilePath();
+        const bool success=window.runStructuredCapture(QFileInfo(parser.value(structuredCapture)).absoluteFilePath(),
+            output,options,parser.isSet(scanReconstruct),cloud,error);
+        QJsonObject result{{"status",success?"complete":"failed"},{"capture",output+"/capture/capture.json"},
+                           {"point_cloud",cloud},{"error",error}};
+        QTextStream(stdout)<<QJsonDocument(result).toJson(QJsonDocument::Compact)<<Qt::endl;
+        return success?0:2;
+    }
 
     if (parser.isSet(performanceCapture)) {
         const QString modelPath = parser.value(performanceCapture);

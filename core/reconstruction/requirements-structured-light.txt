@@ -1,0 +1,5 @@
+# Build-side offline wheel preparation; never installed/downloaded on user machines.
+numpy==2.3.5
+opencv-contrib-python-headless==4.13.0.92
+drjit==1.5.0
+mitsuba==3.9.1

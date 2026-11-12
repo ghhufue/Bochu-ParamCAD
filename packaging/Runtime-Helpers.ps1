@@ -145,6 +145,14 @@ function Invoke-IsolatedRuntimeValidation([string]$Root, [switch]$SkipGui) {
         if ($LASTEXITCODE -ne 0) { throw 'Bundled Python or COLMAP discovery failed' }
         & $python $script --help | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'Bundled reconstruction CLI failed' }
+        $structuredCode = "import cv2,numpy as np; from structured_light.patterns import sequence,image,decode; assert hasattr(cv2,'structured_light'); frames={p.id:(image(p,16,12)*0.6+10).astype(np.uint8) for p in sequence(16,12)}; uv,valid,score=decode(frames,16,12); assert valid.all(); ok,png=cv2.imencode('.png',frames['white']); assert ok and cv2.imdecode(png,0).shape==(12,16); print('Bundled structured-light native libraries and codec OK')"
+        & $python -c $structuredCode
+        if ($LASTEXITCODE -ne 0) { throw 'Bundled structured-light dependencies failed with a clean PATH' }
+        & $python (Join-Path $Root 'core\reconstruction\reconstruct_structured_light.py') --help | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Bundled structured-light CLI failed' }
+        $mitsubaCode = "import mitsuba as mi; mi.set_variant('scalar_rgb'); print('Bundled Mitsuba', mi.__version__, 'scalar_rgb OK')"
+        & $python -c $mitsubaCode
+        if ($LASTEXITCODE -ne 0) { throw 'Bundled Mitsuba renderer failed with a clean PATH' }
         & $colmap version
         if ($LASTEXITCODE -ne 0) { throw 'Bundled COLMAP failed with a clean PATH' }
         if (-not $SkipGui) {

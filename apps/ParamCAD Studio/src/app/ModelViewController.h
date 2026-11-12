@@ -28,6 +28,7 @@ public:
     void connectUi();
     void openModel();
     void loadModelFromFile(const QString& filePath);
+    bool prepareStructuredCaptureModel(const QString& filePath,QString& error);
     void closeModel();
     void deleteModel();
     void exportModel();

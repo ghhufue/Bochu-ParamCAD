@@ -1,0 +1,22 @@
+#pragma once
+#include "capture/CaptureJob.h"
+
+namespace capture {
+struct ScanOptions {
+    int cameraWidth=640,cameraHeight=480,projectorWidth=256,projectorHeight=256;
+    int stationCount=12;
+    double baseline=0; // zero selects 10% of scene diagonal
+    double distance=0; // zero selects a scene-fitting distance
+    double fieldOfViewDegrees=35;
+    bool phaseShift=false;
+    bool multiExposure=false;
+    QString renderBackend="vtk";
+    int samplesPerPixel=32,maxPathDepth=4,randomSeed=0;
+    Material material;
+};
+
+Matrix4 lookAt(const std::array<double,3>& position,const std::array<double,3>& target,
+               const std::array<double,3>& up);
+RenderJob planScan(const Geometry& geometry,const ScanOptions& options,
+                   const QString& directory,const Matrix4* singleCameraPose=nullptr);
+} // namespace capture

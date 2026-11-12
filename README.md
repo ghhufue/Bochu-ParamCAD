@@ -9,7 +9,7 @@ STEP 模型 / 真实零件
         ↓
 虚拟拍摄 / 现实拍摄得到的多视角图片
         ↓
-COLMAP 稀疏或稠密点云（PLY）
+COLMAP 或编码结构光点云（PLY）
         ↓
 点云预处理 + 解析曲面检测
         ↓
@@ -65,6 +65,8 @@ outputs/captures/<时间戳>/
 ```
 
 `CameraInfoBuilder` 会在开始重建前，把透视相机元数据转换为 COLMAP 使用的 `PINHOLE` 内参和外参。若图片来自现实拍摄、元数据缺失或包含正交投影视角，客户端会放弃这些先验，让 COLMAP 自行估计相机。
+
+另有独立的编码结构光模式：客户端冻结几何/PBR 材质，用 VTK 投影光照和遮挡生成完整 Gray Code 序列，可选相移与多曝光；随后由随包 Python 解码、三角化和按已知位姿融合。条纹属于光源，材质保持固定。该模式已完成单站/多站客户端闭环及离线包验证，当前仅模拟直接光照，不能代表光亮钢件的多次反射行为。见[操作与数据格式](docs/site/modules/structured-light.md)、[固定场景验证](docs/site/development/structured-light-validation.md)。
 
 这一阶段的主要依赖是：
 
@@ -228,7 +230,7 @@ Bochu_Capstone/
 | 部分 | 主要职责 | 不负责的内容 |
 | --- | --- | --- |
 | `apps/ParamCAD Studio` | Qt 界面、控制器、文件 I/O、VTK 视口、各核心模块编排 | 不在 UI 中实现几何算法 |
-| `core/reconstruction` | 调用 COLMAP，把图片和可选相机信息转换为点云 | 不解释点云中的 CAD 语义 |
+| `core/reconstruction` | 普通照片调用 COLMAP；结构光图片独立解码、三角化与多站融合 | 不解释点云中的 CAD 语义，不从 CAD 真值生成重建点 |
 | `core/geometric_reconstruction` | 点云预处理、解析曲面证据、长方体/贯穿孔识别、生成 `ModelPatch` | 不依赖 Qt/VTK，不直接维护界面状态 |
 | `core/parametric_modeling` | 保存特征历史、执行建模命令、重建 B-Rep、STEP 导出 | 不读取图片或运行点云检测 |
 | `packaging` | 收集客户端 DLL、Python 和 COLMAP，生成 Windows 包 | 不参与算法运行 |
@@ -267,6 +269,7 @@ Bochu_Capstone/
 | ParamCAD Studio 桌面框架与 VTK 视口 | 已完成基础版 | 支持场景、属性、相机、渲染、建模和日志面板 |
 | STEP/STP 导入 | 已完成 | 保留 OCCT B-Rep，并生成显示网格 |
 | 虚拟多视角拍摄 | 已完成 | 单张、自定义环绕和 62 视角球面采样，带完整相机元数据 |
+| 编码结构光 | 已完成直接光照闭环 | 单站/多站、Gray Code、相移、多曝光、毫米点云及离线包；间接反射与光亮钢件物理验证仍未完成 |
 | 现实照片输入 | 已支持 | 可直接选择图片目录；未集成相机硬件采集 |
 | COLMAP 稀疏点云 | 已完成 | 支持未知、部分已知和全部已知相机参数 |
 | COLMAP 稠密点云 | 已完成基础版 | 需要支持的 GPU/CUDA 环境 |
