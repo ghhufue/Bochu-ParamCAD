@@ -3,6 +3,8 @@
 
 #include <vtkPolyData.h>
 
+#include <QSet>
+
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -89,12 +91,17 @@ void PointCloudSelection::inferRelations(double tolerance, double angleDegrees, 
     std::string error;
     if(!reconstruction::inferSurfaceRelations(reconstruction::PointStore(std::move(observations)),
             nodes,options,inferred,error)) return;
+    // Relation count can reach tens of thousands after surface analysis. A linear
+    // duplicate scan inside the append loop is quadratic and stalls the UI thread.
+    QSet<QString> suppressedKeys;
+    for (const auto& suppressedKey : m_suppressed) suppressedKeys.insert(suppressedKey);
+    QSet<QString> knownKeys;
+    knownKeys.reserve(static_cast<qsizetype>(m_relations.size() + inferred.size()));
+    for (const auto& existing : m_relations) knownKeys.insert(key(existing.first, existing.second, existing.type));
     const auto append = [&](const PointCloudRegion& a, const PointCloudRegion& b, const QString& type, double confidence) {
         const auto relationKey = key(a.id, b.id, type);
-        if (std::find(m_suppressed.begin(), m_suppressed.end(), relationKey) != m_suppressed.end()) return;
-        for (const auto& existing : m_relations) {
-            if (key(existing.first, existing.second, existing.type) == relationKey) return;
-        }
+        if (suppressedKeys.contains(relationKey) || knownKeys.contains(relationKey)) return;
+        knownKeys.insert(relationKey);
         const auto previous = previousIds.find(relationKey);
         const int id = previous == previousIds.end() ? m_nextRelationId++ : previous->second;
         m_relations.push_back({id, a.id, b.id, type, true, confidence});
