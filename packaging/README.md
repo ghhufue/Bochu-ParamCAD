@@ -4,7 +4,7 @@
 
 本文件供维护者打包和排错；发布包内的 `README.md` 来自 [PACKAGE_README.md](PACKAGE_README.md)。只修改本指南时，无需重新打包已有 Release。
 
-结构光完整离线候选包 `0.3.0-structuredlight.20261112.4` 已执行实际 ZIP 解压、CMD 安装及安装副本拍摄/重建。包体积 409.65 MiB，SHA-256、依赖增量和日志位置见[本轮验证记录](../docs/site/development/structured-light-validation.md)。这是当前开发机上的隔离验收，尚未进行干净 Windows 虚拟机测试。
+结构光完整离线候选包 `0.3.0-structuredlight.20261113.2` 已执行实际 ZIP 解压、CMD 安装及安装副本拍摄/重建，并包含 Mitsuba/Dr.Jit 运行时。包体积 456.88 MiB，SHA-256、依赖增量和日志位置见[本轮验证记录](../docs/site/development/structured-light-validation.md)。这是当前开发机上的隔离验收，尚未进行干净 Windows 虚拟机测试。
 
 ## 1. 下次直接怎么做
 

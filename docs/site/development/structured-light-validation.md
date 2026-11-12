@@ -100,7 +100,7 @@ python tools/validation/run_structured_light_validation.py `
 
 Mitsuba 3.9.1 与 Dr.Jit 1.5.0 的 cp313 Windows wheel 已加入 `packaging/structured-light-wheels.json`，由打包脚本按 SHA-256 校验后解包到内嵌 Python，不执行 pip 或联网。`render_structured_light.py` 与 `structured_light/mitsuba_renderer.py` 随包分发，Mitsuba/Dr.Jit 的 BSD-3-Clause 许可证从 wheel 原样复制到 `docs/licenses/`；隔离运行时验证新增 `mitsuba` + `scalar_rgb` 加载检查。
 
-新包 `artifacts/releases/0.3.0-structuredlight.20261113.1/ParamCAD-Studio-0.3.0-structuredlight.20261113.1-windows-x64-full-cuda.zip` 为 479073463 字节（456.88 MiB），SHA-256 `5ca453d6d0b9784400c6038a9402884a1efc81953232aae75e4a3b77de6d7b90`，ZIP 条目 2134，校验 2133 个文件。相较上一包：ZIP 增加 47.23 MiB（+11.5%），解压后 1022.36 MiB（增加 132.05 MiB），其中 Mitsuba 115.56 MiB、Dr.Jit 15.63 MiB、Mitsuba 数据 0.34 MiB。GUI 冷启动响应 0.12 s（旧包同法测量 0.10 s），Mitsuba 不在启动时加载。
+新包 `artifacts/releases/0.3.0-structuredlight.20261113.2/ParamCAD-Studio-0.3.0-structuredlight.20261113.2-windows-x64-full-cuda.zip` 为 479073466 字节（456.88 MiB），SHA-256 `5525bb937422caee7c9fee6ef314aac58fa4fb2ea45a8b927e72aee7f97f7865`，ZIP 条目 2134，校验 2133 个文件，清单记录提交 `a2a987e`。逐文件哈希比对确认它与前一包（20261113.1）仅在 `package-manifest.json` 上不同，因此前一包的隔离运行结果同样适用于本包。相较上一版 20261112.4：ZIP 增加 47.23 MiB（+11.5%），解压后 1022.36 MiB（增加 132.05 MiB），其中 Mitsuba 115.56 MiB、Dr.Jit 15.63 MiB、Mitsuba 数据 0.34 MiB。GUI 冷启动响应 0.12 s（旧包同法测量 0.10 s），Mitsuba 不在启动时加载。
 
 解压副本与离线安装副本在隔离 PATH（仅 System32，清除 Python/Qt 变量）下各完成一次 Mitsuba 拍摄与重建：2 站、320×240 / 128×128、相移 + 三档曝光、4 spp、最大深度 4，228 帧采集 7.15 s（解压）/ 6.08 s（安装），单帧约 27–31 ms，重建 0.32 s，40353 点。同一参数下 VTK 采集 2.04 s、单帧约 9 ms、15286 点。两份副本点数完全一致，说明固定种子调度在打包环境中可复现。所有数值均为本机测量，不是产品性能承诺。
 
