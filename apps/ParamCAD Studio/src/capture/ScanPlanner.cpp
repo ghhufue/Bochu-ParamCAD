@@ -20,6 +20,8 @@ Matrix4 lookAt(const V& position,const V& target,const V& up) {
 RenderJob planScan(const Geometry& geometry,const ScanOptions& options,
                    const QString& directory,const Matrix4* singleCameraPose) {
     if(geometry.positions.empty() || options.stationCount<1 || options.stationCount>256
+        || !std::isfinite(options.lightIntensity) || options.lightIntensity<=0
+        || options.lightIntensity>1000
         || !std::isfinite(options.fieldOfViewDegrees) || options.fieldOfViewDegrees<10 || options.fieldOfViewDegrees>100)
         throw std::invalid_argument("Invalid geometry, station count or field of view");
     V low=geometry.positions.front(),high=low;
@@ -42,7 +44,7 @@ RenderJob planScan(const Geometry& geometry,const ScanOptions& options,
     job.phaseSteps=options.phaseShift?4:0;job.patterns=grayPatterns(options.projectorWidth,options.projectorHeight,job.phaseSteps);
     if(options.multiExposure)job.exposures={.25,1.0,4.0};
     job.referenceDistance=distance;job.nearPlane=std::max(.01,distance*.05);
-    job.farPlane=distance+diagonal*3;job.lightIntensity=2.0;
+    job.farPlane=distance+diagonal*3;job.lightIntensity=options.lightIntensity;
     const int count=singleCameraPose?1:options.stationCount;
     for(int i=0;i<count;++i) {
         Matrix4 pose;

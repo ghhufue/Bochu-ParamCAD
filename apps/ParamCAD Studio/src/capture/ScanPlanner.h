@@ -7,6 +7,7 @@ struct ScanOptions {
     int stationCount=12;
     double baseline=0; // zero selects 10% of scene diagonal
     double distance=0; // zero selects a scene-fitting distance
+    double lightIntensity=2.0; // projector radiance scale at the reference distance
     double fieldOfViewDegrees=35;
     bool phaseShift=false;
     bool multiExposure=false;

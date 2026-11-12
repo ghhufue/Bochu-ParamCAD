@@ -65,6 +65,7 @@ private:
     QGroupBox* m_structuredGroup = nullptr;
     std::array<QSpinBox*,5> m_scanSizes{};
     QDoubleSpinBox* m_baseline = nullptr;
+    QDoubleSpinBox* m_lightIntensity = nullptr;
     QDoubleSpinBox* m_metallic = nullptr;
     QDoubleSpinBox* m_roughness = nullptr;
     QCheckBox* m_phase = nullptr;

@@ -128,6 +128,11 @@ CapturePanel::CapturePanel(QWidget* parent)
     m_baseline=new QDoubleSpinBox(m_structuredGroup);m_baseline->setObjectName("scanBaseline");
     m_baseline->setRange(0,10000);m_baseline->setDecimals(3);m_baseline->setSpecialValueText(tr("自动"));
     scanForm->addRow(tr("相机与投影器间距（mm）"),m_baseline);
+    m_lightIntensity=new QDoubleSpinBox(m_structuredGroup);m_lightIntensity->setObjectName("scanLightIntensity");
+    m_lightIntensity->setRange(.05,100);m_lightIntensity->setDecimals(2);m_lightIntensity->setSingleStep(.5);
+    m_lightIntensity->setValue(2.0);
+    m_lightIntensity->setToolTip(tr("参考距离处的投影光强。提高会整体变亮，过高会在高光处饱和；需要保留高动态范围时改用多曝光。"));
+    scanForm->addRow(tr("投影光强"),m_lightIntensity);
     m_metallic=new QDoubleSpinBox(m_structuredGroup);m_metallic->setObjectName("scanMetallic");
     m_roughness=new QDoubleSpinBox(m_structuredGroup);m_roughness->setObjectName("scanRoughness");
     m_metallic->setRange(0,1);m_metallic->setSingleStep(.1);m_metallic->setValue(.9);
@@ -230,7 +235,8 @@ capture::ScanOptions CapturePanel::structuredOptions() const {
     result.cameraWidth=m_scanSizes[0]->value();result.cameraHeight=m_scanSizes[1]->value();
     result.projectorWidth=m_scanSizes[2]->value();result.projectorHeight=m_scanSizes[3]->value();
     result.stationCount=m_scanSizes[4]->value();result.distance=m_distance->value();
-    result.baseline=m_baseline->value();result.material.metallic=m_metallic->value();
+    result.baseline=m_baseline->value();result.lightIntensity=m_lightIntensity->value();
+    result.material.metallic=m_metallic->value();
     result.material.roughness=m_roughness->value();result.phaseShift=m_phase->isChecked();result.multiExposure=m_hdr->isChecked();
     result.material.baseColorMap=m_materialMaps[0]->text().trimmed();
     result.material.metallicMap=m_materialMaps[1]->text().trimmed();
@@ -243,7 +249,8 @@ void CapturePanel::setStructuredOptions(const capture::ScanOptions& options) {
     m_samples->setValue(options.samplesPerPixel);m_depth->setValue(options.maxPathDepth);
     const int sizes[]{options.cameraWidth,options.cameraHeight,options.projectorWidth,options.projectorHeight,options.stationCount};
     for(int i=0;i<5;++i)m_scanSizes[i]->setValue(sizes[i]);
-    m_baseline->setValue(options.baseline);m_metallic->setValue(options.material.metallic);
+    m_baseline->setValue(options.baseline);m_lightIntensity->setValue(options.lightIntensity);
+    m_metallic->setValue(options.material.metallic);
     m_roughness->setValue(options.material.roughness);m_phase->setChecked(options.phaseShift);
     m_hdr->setChecked(options.multiExposure);
     m_materialMaps[0]->setText(options.material.baseColorMap);m_materialMaps[1]->setText(options.material.metallicMap);
