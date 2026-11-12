@@ -66,7 +66,7 @@ outputs/captures/<时间戳>/
 
 `CameraInfoBuilder` 会在开始重建前，把透视相机元数据转换为 COLMAP 使用的 `PINHOLE` 内参和外参。若图片来自现实拍摄、元数据缺失或包含正交投影视角，客户端会放弃这些先验，让 COLMAP 自行估计相机。
 
-另有独立的编码结构光模式：客户端冻结几何/PBR 材质，用 VTK 投影光照和遮挡生成完整 Gray Code 序列，可选相移与多曝光；随后由随包 Python 解码、三角化和按已知位姿融合。条纹属于光源，材质保持固定。该模式已完成单站/多站客户端闭环及离线包验证，当前仅模拟直接光照，不能代表光亮钢件的多次反射行为。见[操作与数据格式](docs/site/modules/structured-light.md)、[固定场景验证](docs/site/development/structured-light-validation.md)。
+另有独立的编码结构光模式：客户端冻结几何/PBR 材质，用 VTK 投影光照和遮挡或可选的 Mitsuba 路径追踪生成完整 Gray Code 序列，可选相移与多曝光；随后由随包 Python 解码、三角化和按已知位姿融合。条纹属于光源，材质保持固定。该模式已完成单站/多站客户端闭环及离线包验证；默认 VTK 后端模拟直接光照，Mitsuba 在路径深度大于 2 时可计算表面间多次反射，但两者都不能代表真实钢材的光学行为。见[操作与数据格式](docs/site/modules/structured-light.md)、[固定场景验证](docs/site/development/structured-light-validation.md)。
 
 这一阶段的主要依赖是：
 
@@ -269,7 +269,7 @@ Bochu_Capstone/
 | ParamCAD Studio 桌面框架与 VTK 视口 | 已完成基础版 | 支持场景、属性、相机、渲染、建模和日志面板 |
 | STEP/STP 导入 | 已完成 | 保留 OCCT B-Rep，并生成显示网格 |
 | 虚拟多视角拍摄 | 已完成 | 单张、自定义环绕和 62 视角球面采样，带完整相机元数据 |
-| 编码结构光 | 已完成直接光照闭环 | 单站/多站、Gray Code、相移、多曝光、毫米点云及离线包；间接反射与光亮钢件物理验证仍未完成 |
+| 编码结构光 | 已完成双后端闭环 | 单站/多站、Gray Code、相移、多曝光、毫米点云及离线包；VTK 为默认后端，Mitsuba 路径追踪可选并已随包分发。间接反射对照已完成，真实钢材光学参数与实物设备验证仍未完成 |
 | 现实照片输入 | 已支持 | 可直接选择图片目录；未集成相机硬件采集 |
 | COLMAP 稀疏点云 | 已完成 | 支持未知、部分已知和全部已知相机参数 |
 | COLMAP 稠密点云 | 已完成基础版 | 需要支持的 GPU/CUDA 环境 |
