@@ -86,7 +86,7 @@ python tools/validation/run_structured_light_validation.py `
 
 ## 客户端与分发验收状态
 
-本轮通过 7 个 CTest：结构光原生渲染、结构光客户端、Mitsuba 适配协议、原工作区、导航导入、相机交互和相机元数据。结构光客户端测试验证 6 站采集、7337 点载入、毫米元数据、交互相机不变；同一采集成功重建两次并隔离目录、缺帧失败时保留旧点云、单站拍摄及重建（886 点）、拍摄/重建取消。Mitsuba 适配协议测试用桩 worker 验证参数传递、帧清单校验、EXR 记录、取消清理和启动前拒绝，不依赖本机安装 Mitsuba。测试通过真实窗口中的按钮和正式控制器执行。
+本轮通过 7 个 CTest：结构光原生渲染、结构光客户端、Mitsuba 适配协议、原工作区、导航导入、相机交互和相机元数据。结构光客户端测试验证 6 站采集、7337 点载入、毫米元数据、交互相机不变；同一采集成功重建两次并隔离目录、缺帧失败时保留旧点云、单站拍摄及重建（886 点）、拍摄/重建取消。Mitsuba 适配协议测试用桩 worker 验证参数传递、帧清单校验、EXR 记录、取消清理和启动前拒绝，不依赖本机安装 Mitsuba。测试通过真实窗口中的按钮和正式控制器执行。开发机运行客户端集成测试时需设置 `PYTHONPATH=core/reconstruction;artifacts/structured-light-python`，否则系统 Python 找不到 NumPy/OpenCV 会触发 120 秒超时；离线包内由内嵌解释器和 site-packages 提供依赖，不需要该变量。
 
 原有普通拍摄批量入口生成 62 张带稳定表面纹理的诊断图片；经原 COLMAP CLI、已知位姿、sequential matcher 与 GPU SIFT 路径得到 18271 个点。输入为 `ordinary-colmap-regression`，计算日志为 `ordinary-colmap-reconstruction.log`。该测试独立于结构光，未将编码帧输入 SfM。
 
