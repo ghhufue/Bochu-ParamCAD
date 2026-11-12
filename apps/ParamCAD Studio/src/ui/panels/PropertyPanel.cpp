@@ -64,6 +64,10 @@ PropertyPanel::PropertyPanel(QWidget* parent)
     // never laid out would otherwise float at the panel's top-left corner and
     // paint its "No entity selected" line straight over the tab bar.
     m_sketchEntityPanel->hide();
+    // Capture and Reconstruct are the same kind of tool page, so they must start
+    // hidden too; otherwise they float over the tab bar from start-up.
+    m_capturePanel->hide();
+    m_reconstructPanel->hide();
 
     m_objectTab = createObjectTab();
     // Like the sketch editor below, the Object page is built detached from the tab
@@ -103,7 +107,12 @@ void PropertyPanel::showProjectionDebug(QWidget* page)
 void PropertyPanel::removeProjectionDebug(QWidget* page)
 {
     const int index = m_tabs->indexOf(page);
-    if (index >= 0) m_tabs->removeTab(index);
+    if (index >= 0) {
+        m_tabs->removeTab(index);
+        // removeTab() only detaches the page: it stays a visible child at its
+        // last geometry and would float over the tab bar as a tiny strip.
+        page->hide();
+    }
 }
 
 RenderPanel* PropertyPanel::renderPanel() const
@@ -138,6 +147,7 @@ void PropertyPanel::showCapturePanel(bool visible)
         m_tabs->setCurrentWidget(m_capturePanel);
     } else if (index >= 0) {
         m_tabs->removeTab(index);
+        m_capturePanel->hide();
     }
 }
 
@@ -157,6 +167,7 @@ void PropertyPanel::showReconstructPanel(bool visible)
         m_tabs->setCurrentWidget(m_reconstructPanel);
     } else if (index >= 0) {
         m_tabs->removeTab(index);
+        m_reconstructPanel->hide();
     }
 }
 
@@ -177,6 +188,7 @@ void PropertyPanel::showSketchEntityPanel(bool visible)
         m_tabs->setCurrentWidget(m_sketchEntityPanel);
     } else if (index >= 0) {
         m_tabs->removeTab(index);
+        m_sketchEntityPanel->hide();
     }
 }
 
