@@ -108,13 +108,20 @@ if(slP.z>slNear && slP.z<slFar) {
   float slDepth=0.5*((slFar+slNear)/(slFar-slNear)-2.0*slFar*slNear/((slFar-slNear)*slP.z))+0.5;
   vec3 slPackedDepth=texture(slShadowMap,vec2(slUV.x,1.0-slUV.y)).rgb;
   float slShadow=dot(slPackedDepth,vec3(65536.0,256.0,1.0))/65793.0;
-  bool slVisible=all(greaterThanEqual(slUV,vec2(0.0))) && all(lessThan(slUV,vec2(1.0))) && slDepth<=slShadow+0.00003;
-  if(slVisible) {
-    vec3 slN=normalize(slWorldNormal);
-    vec3 slL=normalize(slProjectorCenter-slWorldPosition);
+  vec3 slN=normalize(slWorldNormal);
+  vec3 slL=normalize(slProjectorCenter-slWorldPosition);
+  float slNL=max(dot(slN,slL),0.0);
+  // A fixed bias cannot cover the depth spread of one shadow texel at grazing
+  // angles, which shows up as projector-grid shaped self-shadow acne. The bias
+  // grows with the local slope while staying small on front-facing surfaces.
+  float slSlope=sqrt(max(1.0-slNL*slNL,0.0))/max(slNL,0.0001);
+  float slTexelDepth=(slFar*slNear)/max((slFar-slNear)*slP.z*max(slShadowFy,1.0),1.0);
+  float slBias=max(0.00003,2.0*slSlope*slTexelDepth);
+  bool slVisible=all(greaterThanEqual(slUV,vec2(0.0))) && all(lessThan(slUV,vec2(1.0))) && slDepth<=slShadow+slBias;
+  if(slVisible && slNL>0.0) {
     vec3 slV=normalize(slCameraCenter-slWorldPosition);
-    float slNL=max(dot(slN,slL),0.0),slNV=max(dot(slN,slV),0.0);
-    if(slNL>0.0 && slNV>0.0) {
+    float slNV=max(dot(slN,slV),0.0);
+    if(slNV>0.0) {
       vec3 slH=normalize(slL+slV);
       float slNH=max(dot(slN,slH),0.0),slVH=max(dot(slV,slH),0.0);
       float slA=slRough*slRough,slA2=slA*slA;
@@ -141,6 +148,8 @@ struct VtkProjectionBackend::State {
     std::size_t next=0;
     bool running=false,cancelled=false;
     int shadowStation=-1;
+    int shadowWidth=0,shadowHeight=0;
+    float shadowFy=0;
     vtkSmartPointer<vtkRenderWindow> window,shadowWindow;
     vtkSmartPointer<vtkRenderer> renderer,shadowRenderer;
     vtkSmartPointer<vtkActor> actor;
@@ -155,6 +164,7 @@ QJsonObject VtkProjectionBackend::capabilities() const {
             {"pixel_convention","top-left; centers=(i+0.5,j+0.5)"},{"intensity_encoding","linear_uint8"},
             {"material_model","GGX metallic-roughness"},{"shadow_mapping",true},
             {"shadow_depth_encoding","RGB24"},{"shadow_depth_bias",0.00003},
+            {"shadow_bias_model","constant + slope-scaled"},{"shadow_map_min_extent",1024},
             {"samples_per_pixel",1},{"random_seed",0},{"max_surface_bounces",1},
             {"pattern_filter","nearest Gray; linear phase"}};
 }
@@ -169,6 +179,14 @@ void VtkProjectionBackend::start(const RenderJob& job) {
     m_state=std::make_unique<State>();
     auto& state=*m_state;
     state.job=job;state.frames=job.frames();state.running=true;
+    // The projector grid limits shadow-map detail even when the camera image is
+    // larger. Scale the depth pass to at least 1024 texels per axis while keeping
+    // the projector aspect ratio and field of view unchanged.
+    const int shadowExtent=std::max(job.projector.width,job.projector.height);
+    const int shadowScale=std::max(1,(1024+shadowExtent-1)/shadowExtent);
+    state.shadowWidth=job.projector.width*shadowScale;
+    state.shadowHeight=job.projector.height*shadowScale;
+    state.shadowFy=static_cast<float>(job.projector.K[4]*shadowScale);
     vtkNew<vtkPoints> points;
     points->SetDataTypeToDouble();
     vtkNew<vtkFloatArray> normals;
@@ -209,6 +227,7 @@ void VtkProjectionBackend::start(const RenderJob& job) {
     uniforms->SetUniformf("slFar",static_cast<float>(job.farPlane));
     uniforms->SetUniformf("slFx",static_cast<float>(job.projector.K[0]));
     uniforms->SetUniformf("slFy",static_cast<float>(job.projector.K[4]));
+    uniforms->SetUniformf("slShadowFy",state.shadowFy);
     uniforms->SetUniformf("slCx",static_cast<float>(job.projector.K[2]));
     uniforms->SetUniformf("slCy",static_cast<float>(job.projector.K[5]));
     uniforms->SetUniformf("slWidth",static_cast<float>(job.projector.width));
@@ -226,12 +245,12 @@ void VtkProjectionBackend::start(const RenderJob& job) {
     state.patternData=imageData(patternImage(job.patterns.front(),job.projector.width,job.projector.height,job.phasePeriod));
     state.actor->GetProperty()->SetTexture("slPatternMap",texture(state.patternData));
     state.shadowData=vtkSmartPointer<vtkImageData>::New();
-    state.shadowData->SetDimensions(job.projector.width,job.projector.height,1);
+    state.shadowData->SetDimensions(state.shadowWidth,state.shadowHeight,1);
     // Pack Z into three bytes: ordinary normalized texture storage otherwise
     // permits driver-dependent float precision or scalar lookup conversion.
     state.shadowData->AllocateScalars(VTK_UNSIGNED_CHAR,3);
     std::fill_n(static_cast<unsigned char*>(state.shadowData->GetScalarPointer()),
-                job.projector.width*job.projector.height*3,static_cast<unsigned char>(255));
+                state.shadowWidth*state.shadowHeight*3,static_cast<unsigned char>(255));
     state.actor->GetProperty()->SetTexture("slShadowMap",texture(state.shadowData));
     state.renderer=vtkSmartPointer<vtkRenderer>::New();state.renderer->SetBackground(0,0,0);
     state.renderer->UseFXAAOff();state.renderer->AddActor(state.actor);
@@ -243,7 +262,7 @@ void VtkProjectionBackend::start(const RenderJob& job) {
     vtkNew<vtkActor> shadowActor;shadowActor->SetMapper(shadowMapper);
     state.shadowRenderer=vtkSmartPointer<vtkRenderer>::New();state.shadowRenderer->AddActor(shadowActor);
     state.shadowWindow=vtkSmartPointer<vtkRenderWindow>::New();state.shadowWindow->SetOffScreenRendering(1);
-    state.shadowWindow->SetMultiSamples(0);state.shadowWindow->SetSize(job.projector.width,job.projector.height);
+    state.shadowWindow->SetMultiSamples(0);state.shadowWindow->SetSize(state.shadowWidth,state.shadowHeight);
     state.shadowWindow->AddRenderer(state.shadowRenderer);
     QTimer::singleShot(0,this,&VtkProjectionBackend::nextFrame);
 }
@@ -267,7 +286,7 @@ void VtkProjectionBackend::nextFrame() {
         depth->ShouldRerenderOff();depth->Update();
         const auto* source=static_cast<float*>(depth->GetOutput()->GetScalarPointer());
         auto* destination=static_cast<unsigned char*>(state.shadowData->GetScalarPointer());
-        for(int i=0;i<job.projector.width*job.projector.height;++i) {
+        for(int i=0;i<state.shadowWidth*state.shadowHeight;++i) {
             const auto packed=static_cast<unsigned int>(std::llround(std::clamp(source[i],0.f,1.f)*16777215.0));
             destination[3*i]=static_cast<unsigned char>(packed>>16);
             destination[3*i+1]=static_cast<unsigned char>((packed>>8)&255);
