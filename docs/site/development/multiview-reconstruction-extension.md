@@ -272,11 +272,11 @@ STEP 导入得到的几何不能默认包含可用的 PBR 资产；导出三角�
 
 | 方案 | 可直接复用的能力 | 仍需开发或验证的部分 | 本方案定位 |
 | --- | --- | --- | --- |
-| 现有 VTK 视口 | 现有交互、网格、相机与点云显示；VTK 自身支持 PBR 材质贴图 | 当前项目仍是 Phong/表面贴图路径；投影光、遮挡与材质响应需开发，多次反射不属于普通 OpenGL 直接光照能力 | 保留交互预览；增加直接投影光照作为最小增量候选 |
+| 现有 VTK 视口 | 现有交互、网格、相机与点云显示；已加入与拍摄共用的 GGX 材质预览和随相机的投影光、阴影贴图 | 视口仍是单光源直接光照，材质贴图与多次反射不在预览范围内 | 保留交互预览；视口预览与正式拍摄共用同一份着色代码与材质参数 |
 | **Mitsuba 3** | 原生 `projector` 光源、透视相机、金属/Principled 材质、贴图与路径追踪；Python 调用 | 场景导出、PBR 资产映射、设备坐标转换、采样和性能验证 | **结构光物理采集的优先验证对象** |
 | Blender Cycles | 现成 PBR 材质体系、材质资产调试与后台 Python 渲染 | 编码投影的光源节点/透视映射、标定一致性、场景转换和运行时体积 | 研发对照；不列入默认离线包 |
 
-VTK 官方 PBR 示例已支持基色、ORM 和法线等纹理，因此不需要为了材质预览立即替换现有视口；但“开启 PBR”不能证明当前截图路径已正确模拟编码光与多次反射。[VTK PBR Mapping](https://examples.vtk.org/site/Cxx/Rendering/PBR_Mapping/)
+VTK 官方 PBR 示例已支持基色、ORM 和法线等纹理，因此不需要为了材质预览替换现有视口；但“开启 PBR”不能证明当前路径已正确模拟编码光与多次反射。视口材质预览只用于观察常量金属度、粗糙度与颜色的打光效果，正式成像仍以拍摄产物为准。[VTK PBR Mapping](https://examples.vtk.org/site/Cxx/Rendering/PBR_Mapping/)
 
 Mitsuba 的 `projector` 将二维图案作为光源虚拟像平面的辐照度输入，采用与透视相机对应的像素—方向映射。这比在模型表面生成条纹更符合本项目的几何解码需求，故优先选它做小规模验证。加入间接反射时选择支持多次散射的路径追踪积分器；仅直接光照可作为分离误差来源的诊断模式，不作为钢面最终物理验证。[Mitsuba 投影光源](https://mitsuba.readthedocs.io/en/stable/src/generated/plugins_emitters.html)、[积分器说明](https://mitsuba.readthedocs.io/en/stable/src/generated/plugins_integrators.html)
 

@@ -10,6 +10,11 @@ struct ObjectPresentation
     int representation = 0;
     double opacity = 1;
     QColor color{71, 145, 214};
+    // Physical surface used both by the viewport preview and by the
+    // structured-light capture, so a material is set once and then seen.
+    double metallic = 0.9;
+    double roughness = 0.4;
+    bool materialPreview = true;
 };
 struct RenderPresentation
 {

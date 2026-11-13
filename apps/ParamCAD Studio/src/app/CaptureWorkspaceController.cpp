@@ -107,6 +107,11 @@ bool CaptureWorkspaceController::startStructuredScan(bool multipleStations,const
         const auto camera=m_ui.viewer->cameraParameters();
         if(camera.parallelProjection)throw std::invalid_argument("Structured-light capture requires a perspective camera");
         auto options=panel->structuredOptions();options.fieldOfViewDegrees=camera.fieldOfView;
+        // The material is a property of the model, not of this capture, so the
+        // scan uses exactly the values the viewport preview is showing.
+        const auto material=m_ui.propertyPanel->presentation();
+        options.material.metallic=material.metallic;
+        options.material.roughness=material.roughness;
         if(options.renderBackend=="mitsuba") {
             QStringList prefix;
             const auto python=ProjectPaths::pythonInterpreter(prefix);

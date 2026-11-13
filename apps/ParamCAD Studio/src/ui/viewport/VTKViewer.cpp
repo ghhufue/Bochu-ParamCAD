@@ -320,6 +320,9 @@ void VTKViewer::endBoxReferenceSelection()
 void VTKViewer::renderNow()
 {
     m_renderTimer.stop();
+    // The preview light rides on the camera, so its pose and shadow map are
+    // refreshed from the pose the frame is about to be drawn with.
+    m_bodyActor.updateMaterialPreview(m_renderer->GetActiveCamera());
     m_renderWindow->Render();
 }
 
@@ -1283,6 +1286,24 @@ void VTKViewer::setObjectOpacity(double opacity)
 void VTKViewer::setObjectColor(const QColor& color)
 {
     m_bodyActor.setColor(color);
+    renderNow();
+}
+
+void VTKViewer::setObjectMetallic(double metallic)
+{
+    m_bodyActor.setMetallic(metallic);
+    renderNow();
+}
+
+void VTKViewer::setObjectRoughness(double roughness)
+{
+    m_bodyActor.setRoughness(roughness);
+    renderNow();
+}
+
+void VTKViewer::setObjectMaterialPreview(bool enabled)
+{
+    m_bodyActor.setMaterialPreviewEnabled(enabled);
     renderNow();
 }
 

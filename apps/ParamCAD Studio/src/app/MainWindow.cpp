@@ -241,6 +241,14 @@ bool MainWindow::runStructuredCapture(const QString& modelPath,const QString& ou
     const auto restoreBatch=qScopeGuard([&]{setProperty("paramcadBatchCapture",previousBatch);});
     if(!m_modelViewController->prepareStructuredCaptureModel(modelPath,error))return false;
     m_propertyPanel->capturePanel()->setStructuredOptions(options);
+    // Material scalars belong to the model page now, so a batch run has to put
+    // its command-line material there as well; the scan reads it from the panel.
+    auto material=m_propertyPanel->presentation();
+    material.metallic=options.material.metallic;
+    material.roughness=options.material.roughness;
+    m_propertyPanel->setPresentation(material);
+    m_viewer->setObjectMetallic(material.metallic);
+    m_viewer->setObjectRoughness(material.roughness);
     QEventLoop loop;bool succeeded=false;
     const auto complete=connect(m_captureWorkspace,&CaptureWorkspaceController::structuredCaptureCompleted,&loop,
         [&](const QString&){succeeded=true;loop.quit();});
@@ -737,6 +745,12 @@ void MainWindow::connectUi()
             m_viewer, &VTKViewer::setObjectOpacity);
     connect(m_propertyPanel, &PropertyPanel::objectColorChanged,
             m_viewer, &VTKViewer::setObjectColor);
+    connect(m_propertyPanel, &PropertyPanel::objectMetallicChanged,
+            m_viewer, &VTKViewer::setObjectMetallic);
+    connect(m_propertyPanel, &PropertyPanel::objectRoughnessChanged,
+            m_viewer, &VTKViewer::setObjectRoughness);
+    connect(m_propertyPanel, &PropertyPanel::objectMaterialPreviewChanged,
+            m_viewer, &VTKViewer::setObjectMaterialPreview);
 
     CameraPanel* cameraPanel = m_propertyPanel->cameraPanel();
     connect(cameraPanel, &CameraPanel::applyRequested, m_viewer, &VTKViewer::applyCamera);

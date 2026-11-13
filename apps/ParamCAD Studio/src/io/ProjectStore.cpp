@@ -144,7 +144,10 @@ QJsonObject viewJson(const ProjectViewState& v)
                                    {"visible", v.object.visible},
                                    {"representation", v.object.representation},
                                    {"opacity", v.object.opacity},
-                                   {"color", v.object.color.name(QColor::HexArgb)}}},
+                                   {"color", v.object.color.name(QColor::HexArgb)},
+                                   {"metallic", v.object.metallic},
+                                   {"roughness", v.object.roughness},
+                                   {"materialPreview", v.object.materialPreview}}},
             {"render", QJsonObject{{"background", v.render.background.name(QColor::HexArgb)},
                                    {"background2", v.render.background2.name(QColor::HexArgb)},
                                    {"gradientBackground", v.render.gradientBackground},
@@ -191,6 +194,10 @@ ProjectViewState readView(const QJsonObject& j)
     v.object.representation = integer(o["representation"], 0, 2);
     v.object.opacity = number(o["opacity"], 0, 1);
     v.object.color = color(o["color"]);
+    // Projects written before materials existed keep the defaults.
+    v.object.metallic = o.contains("metallic") ? number(o["metallic"], 0, 1) : 0.9;
+    v.object.roughness = o.contains("roughness") ? number(o["roughness"], 0.04, 1) : 0.4;
+    v.object.materialPreview = o.contains("materialPreview") ? boolean(o["materialPreview"]) : true;
     const auto r = j["render"].toObject();
     v.render.background = color(r["background"]);
     v.render.lighting = boolean(r["lighting"]);

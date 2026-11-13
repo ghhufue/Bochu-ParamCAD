@@ -167,6 +167,9 @@ bool ProjectController::loadFrom(const QString& path, QString& error)
     m_ui.viewer->setObjectRepresentation(v.object.representation);
     m_ui.viewer->setObjectOpacity(v.object.opacity);
     m_ui.viewer->setObjectColor(v.object.color);
+    m_ui.viewer->setObjectMetallic(v.object.metallic);
+    m_ui.viewer->setObjectRoughness(v.object.roughness);
+    m_ui.viewer->setObjectMaterialPreview(v.object.materialPreview);
     m_ui.viewer->clearBodyTexture();
     if (texture)
         m_ui.viewer->setBodyTextureData(texture, v.render.texturePath);

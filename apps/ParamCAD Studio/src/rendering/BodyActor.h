@@ -10,12 +10,15 @@
 
 class TopoDS_Shape;
 class vtkActor;
+class vtkCamera;
 class vtkFeatureEdges;
 class vtkImageReader2;
 class vtkImageData;
 class QImage;
 class vtkPolyData;
 class vtkPolyDataMapper;
+class vtkRenderer;
+class vtkRenderWindow;
 class vtkTexture;
 
 // Owns the VTK pipeline that draws one modeled body: a shaded surface plus a
@@ -42,6 +45,16 @@ public:
     void setOpacity(double opacity);
     void setColor(const QColor& color);
     void setLightingEnabled(bool enabled);
+
+    // Physical surface shown by the material preview. The same values feed the
+    // structured-light capture, so the preview is what the scan will see.
+    void setMetallic(double metallic);
+    void setRoughness(double roughness);
+    void setMaterialPreviewEnabled(bool enabled);
+
+    // Refreshes the preview light and its projector shadow map from the live
+    // camera. A no-op while the preview is off, unlit, or has no shape.
+    void updateMaterialPreview(vtkCamera* camera);
 
     // Casts an image onto the body without unwrapping anything: the texture
     // coordinates are a straight planar projection of the display mesh, so the
@@ -84,6 +97,14 @@ private:
     // the projection direction changes.
     void refreshSurfaceInput();
     void applyActorColor();
+    // Installs or removes the projected-light GGX shader used by the material
+    // preview. Reinstalled whenever the display mesh or its texture changes.
+    void applyMaterialPreviewShader();
+    bool materialPreviewActive() const;
+    void updatePreviewColors();
+    void updatePreviewShadowMap(const double position[3], const double y[3],
+                                const double z[3], double focalLength, double nearPlane,
+                                double farPlane);
     // A copy of the display mesh carrying 2D texture coordinates obtained by
     // projecting every point onto the plane chosen by the given axis.
     vtkSmartPointer<vtkPolyData> projectTextureCoordinates(vtkPolyData* mesh,
@@ -100,6 +121,24 @@ private:
     vtkSmartPointer<vtkImageReader2> m_textureReader;
     vtkSmartPointer<vtkTexture> m_texture;
     vtkSmartPointer<vtkPolyData> m_texturedMesh;
+    // Material preview: a projector light rigidly attached to the viewport
+    // camera plus its depth map, mirroring the structured-light rig.
+    vtkSmartPointer<vtkTexture> m_whiteTexture;
+    vtkSmartPointer<vtkTexture> m_shadowTexture;
+    vtkSmartPointer<vtkImageData> m_shadowData;
+    vtkSmartPointer<vtkRenderer> m_shadowRenderer;
+    vtkSmartPointer<vtkRenderWindow> m_shadowWindow;
+    vtkSmartPointer<vtkActor> m_shadowActor;
+    bool m_previewShaderInstalled = false;
+    bool m_shadowDirty = true;
+    bool m_materialPreview = true;
+    bool m_lightingEnabled = true;
+    double m_metallic = 0.9;
+    double m_roughness = 0.4;
+    double m_shadowViewPosition[3]{0, 0, 0};
+    double m_shadowViewTarget[3]{0, 0, 0};
+    double m_shadowViewUp[3]{0, 0, 1};
+    double m_previewActorMatrix[16]{};
     QColor m_color{71, 145, 214};
     bool m_textureEnabled = false;
     int m_textureAxis = 0;

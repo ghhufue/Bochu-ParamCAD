@@ -199,6 +199,7 @@ qt_add_executable(CadPointCloudClient WIN32
     src/io/CameraInfoBuilder.cpp
     src/rendering/BodyActor.h
     src/rendering/BodyActor.cpp
+    src/rendering/ProjectedMaterialShader.h
     src/rendering/ProjectionPreviewActor.cpp
     src/rendering/BoxReferenceActor.h
     src/rendering/BoxReferenceActor.cpp

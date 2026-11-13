@@ -133,11 +133,9 @@ CapturePanel::CapturePanel(QWidget* parent)
     m_lightIntensity->setValue(2.0);
     m_lightIntensity->setToolTip(tr("参考距离处的投影光强。提高会整体变亮，过高会在高光处饱和；需要保留高动态范围时改用多曝光。"));
     scanForm->addRow(tr("投影光强"),m_lightIntensity);
-    m_metallic=new QDoubleSpinBox(m_structuredGroup);m_metallic->setObjectName("scanMetallic");
-    m_roughness=new QDoubleSpinBox(m_structuredGroup);m_roughness->setObjectName("scanRoughness");
-    m_metallic->setRange(0,1);m_metallic->setSingleStep(.1);m_metallic->setValue(.9);
-    m_roughness->setRange(.04,1);m_roughness->setSingleStep(.05);m_roughness->setValue(.4);
-    scanForm->addRow(tr("材质金属度"),m_metallic);scanForm->addRow(tr("材质粗糙度"),m_roughness);
+    // Metallic and roughness live on the model material page: the same values
+    // light the viewport preview and this capture. Only the decorative maps are
+    // captured here, because they describe the part itself.
     const QStringList mapLabels{tr("材质基色贴图"),tr("金属度贴图"),tr("粗糙度贴图")};
     for(int i=0;i<3;++i) {
         auto* row=new QWidget(m_structuredGroup);auto* rowLayout=new QHBoxLayout(row);rowLayout->setContentsMargins(0,0,0,0);
@@ -156,7 +154,7 @@ CapturePanel::CapturePanel(QWidget* parent)
     auto* scanSingle=new QPushButton(tr("当前视角结构光扫描"),m_structuredGroup);scanSingle->setObjectName("scanSingleButton");
     auto* scanMultiple=new QPushButton(tr("多站结构光扫描"),m_structuredGroup);scanMultiple->setObjectName("scanMultipleButton");
     scanForm->addRow(scanSingle);scanForm->addRow(scanMultiple);
-    auto* scanHint=new QLabel(tr("材质贴图保持固定，编码由投影光产生。VTK 只计算直接光；Mitsuba 需完整离线运行库，最大光路深度为 2 时只含直接光照。"),m_structuredGroup);
+    auto* scanHint=new QLabel(tr("金属度与粗糙度在模型属性页设置，视口预览与拍摄共用。材质贴图保持固定，编码由投影光产生。VTK 只计算直接光；Mitsuba 需完整离线运行库，最大光路深度为 2 时只含直接光照。"),m_structuredGroup);
     scanHint->setWordWrap(true);scanForm->addRow(scanHint);
     layout->addWidget(m_structuredGroup);
     m_scanCancel=new QPushButton(tr("取消结构光拍摄"),this);m_scanCancel->setObjectName("scanCancelButton");m_scanCancel->setEnabled(false);
@@ -236,8 +234,8 @@ capture::ScanOptions CapturePanel::structuredOptions() const {
     result.projectorWidth=m_scanSizes[2]->value();result.projectorHeight=m_scanSizes[3]->value();
     result.stationCount=m_scanSizes[4]->value();result.distance=m_distance->value();
     result.baseline=m_baseline->value();result.lightIntensity=m_lightIntensity->value();
-    result.material.metallic=m_metallic->value();
-    result.material.roughness=m_roughness->value();result.phaseShift=m_phase->isChecked();result.multiExposure=m_hdr->isChecked();
+    result.phaseShift=m_phase->isChecked();
+    result.multiExposure=m_hdr->isChecked();
     result.material.baseColorMap=m_materialMaps[0]->text().trimmed();
     result.material.metallicMap=m_materialMaps[1]->text().trimmed();
     result.material.roughnessMap=m_materialMaps[2]->text().trimmed();
@@ -250,8 +248,7 @@ void CapturePanel::setStructuredOptions(const capture::ScanOptions& options) {
     const int sizes[]{options.cameraWidth,options.cameraHeight,options.projectorWidth,options.projectorHeight,options.stationCount};
     for(int i=0;i<5;++i)m_scanSizes[i]->setValue(sizes[i]);
     m_baseline->setValue(options.baseline);m_lightIntensity->setValue(options.lightIntensity);
-    m_metallic->setValue(options.material.metallic);
-    m_roughness->setValue(options.material.roughness);m_phase->setChecked(options.phaseShift);
+    m_phase->setChecked(options.phaseShift);
     m_hdr->setChecked(options.multiExposure);
     m_materialMaps[0]->setText(options.material.baseColorMap);m_materialMaps[1]->setText(options.material.metallicMap);
     m_materialMaps[2]->setText(options.material.roughnessMap);

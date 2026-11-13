@@ -248,9 +248,32 @@ QWidget* PropertyPanel::createObjectTab()
     displayForm->addRow(tr("不透明度"), m_opacity);
     displayForm->addRow(tr("颜色"), m_colorButton);
 
+    // One material serves the viewport preview and the structured-light
+    // capture, so what is seen on screen is what the scan will be lit with.
+    m_metallic = makeTransformSpinBox(tab, 0.0, 1.0, 0.9, 0.05);
+    m_roughness = makeTransformSpinBox(tab, 0.04, 1.0, 0.4, 0.05);
+    m_metallic->setObjectName("materialMetallic");
+    m_roughness->setObjectName("materialRoughness");
+    m_materialPreview = new QCheckBox(tr("材质打光预览"), tab);
+    m_materialPreview->setObjectName("materialPreview");
+    m_materialPreview->setChecked(true);
+    m_materialPreview->setToolTip(
+        tr("用结构光投影器模型为模型打光；关闭后恢复普通着色。"));
+    auto* materialGroup = new QGroupBox(tr("材质"), tab);
+    auto* materialForm = new QFormLayout(materialGroup);
+    materialForm->addRow(tr("金属度"), m_metallic);
+    materialForm->addRow(tr("粗糙度"), m_roughness);
+    materialForm->addRow(QString(), m_materialPreview);
+    auto* materialHint =
+        new QLabel(tr("基色取上面的对象颜色。这组参数同时用于视口预览和结构光拍摄。"),
+                   materialGroup);
+    materialHint->setWordWrap(true);
+    materialForm->addRow(materialHint);
+
     auto* layout = new QVBoxLayout(tab);
     layout->addWidget(transformGroup);
     layout->addWidget(displayGroup);
+    layout->addWidget(materialGroup);
     layout->addStretch();
 
     const auto connectTransformFields = [this](const auto& fields) {
@@ -269,6 +292,12 @@ QWidget* PropertyPanel::createObjectTab()
     connect(m_opacity, qOverload<double>(&QDoubleSpinBox::valueChanged),
             this, &PropertyPanel::objectOpacityChanged);
     connect(m_colorButton, &QPushButton::clicked, this, &PropertyPanel::chooseObjectColor);
+    connect(m_metallic, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, &PropertyPanel::objectMetallicChanged);
+    connect(m_roughness, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, &PropertyPanel::objectRoughnessChanged);
+    connect(m_materialPreview, &QCheckBox::toggled,
+            this, &PropertyPanel::objectMaterialPreviewChanged);
 
     return tab;
 }
@@ -287,6 +316,9 @@ ObjectPresentation PropertyPanel::presentation() const
     for (size_t i=0;i<3;++i) { state.position[i]=m_position[i]->value(); state.rotation[i]=m_rotation[i]->value(); state.scale[i]=m_scale[i]->value(); }
     state.visible=m_visible->isChecked(); state.representation=m_representation->currentIndex();
     state.opacity=m_opacity->value(); state.color=m_objectColor;
+    if (m_metallic) state.metallic=m_metallic->value();
+    if (m_roughness) state.roughness=m_roughness->value();
+    if (m_materialPreview) state.materialPreview=m_materialPreview->isChecked();
     return state;
 }
 void PropertyPanel::setPresentation(const ObjectPresentation& state)
@@ -295,6 +327,9 @@ void PropertyPanel::setPresentation(const ObjectPresentation& state)
     for (size_t i=0;i<3;++i) { m_position[i]->setValue(state.position[i]); m_rotation[i]->setValue(state.rotation[i]); m_scale[i]->setValue(state.scale[i]); }
     m_visible->setChecked(state.visible); m_representation->setCurrentIndex(state.representation);
     m_opacity->setValue(state.opacity); m_objectColor=state.color; updateColorButton();
+    if (m_metallic) m_metallic->setValue(state.metallic);
+    if (m_roughness) m_roughness->setValue(state.roughness);
+    if (m_materialPreview) m_materialPreview->setChecked(state.materialPreview);
 }
 
 void PropertyPanel::chooseObjectColor()

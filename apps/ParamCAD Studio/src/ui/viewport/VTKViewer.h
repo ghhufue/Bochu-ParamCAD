@@ -183,6 +183,9 @@ public slots:
     void setObjectRepresentation(int representation);
     void setObjectOpacity(double opacity);
     void setObjectColor(const QColor& color);
+    void setObjectMetallic(double metallic);
+    void setObjectRoughness(double roughness);
+    void setObjectMaterialPreview(bool enabled);
     void setBackgroundColor(const QColor& color);
     QColor backgroundColor() const;
     QColor backgroundColor2() const;

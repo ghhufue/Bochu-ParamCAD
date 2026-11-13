@@ -61,6 +61,9 @@ signals:
     void objectRepresentationChanged(int representation);
     void objectOpacityChanged(double opacity);
     void objectColorChanged(const QColor& color);
+    void objectMetallicChanged(double metallic);
+    void objectRoughnessChanged(double roughness);
+    void objectMaterialPreviewChanged(bool enabled);
 
 private:
     QWidget* createObjectTab();
@@ -85,5 +88,8 @@ private:
     QComboBox* m_representation = nullptr;
     QDoubleSpinBox* m_opacity = nullptr;
     QPushButton* m_colorButton = nullptr;
+    QDoubleSpinBox* m_metallic = nullptr;
+    QDoubleSpinBox* m_roughness = nullptr;
+    QCheckBox* m_materialPreview = nullptr;
     QColor m_objectColor{71, 145, 214};
 };
