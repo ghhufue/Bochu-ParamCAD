@@ -14,10 +14,10 @@
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\packaging\package-client.ps1
 ```
 
-默认版本为 `0.3.0`。指定新包版本：
+默认版本为 `0.3.1`。指定新包版本：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\packaging\package-client.ps1 -Version 0.3.0
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\packaging\package-client.ps1 -Version 0.3.1
 ```
 
 `-Version` 设置包名、输出目录和 manifest 的版本，不会修改客户端源码中的产品版本。产品版本有变化时，应同步修改 `apps/ParamCAD Studio/CMakeLists.txt` 的项目版本、`src/main.cpp` 的 applicationVersion、`src/app/MainWindow.cpp` 的 About 显示，以及 `package-client.ps1` 的默认版本。
@@ -99,7 +99,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\packaging\package-clie
 
 | 参数 | 用途 |
 | --- | --- |
-| `-Version` | 包版本，默认 `0.3.0` |
+| `-Version` | 包版本，默认 `0.3.1` |
 | `-BuildDirectory` | 构建目录，默认 `apps/ParamCAD Studio/build/msvc-debug`；实际构建配置始终为 `Release`。缓存设置了 `CMAKE_RUNTIME_OUTPUT_DIRECTORY`（如 cloud-only 验证构建）时，脚本从该目录的 `Release` 子目录取二进制 |
 | `-OutputDirectory` | ZIP 和校验文件的输出目录，必须位于项目目录内 |
 | `-QtRoot`、`-VcpkgRoot`、`-VCRuntimeRoot` | 显式指定打包机工具和运行库来源 |

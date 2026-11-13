@@ -24,7 +24,7 @@ int main(int argc, char* argv[])
     QApplication application(argc, argv);
     QApplication::setApplicationName(QStringLiteral("ParamCAD Studio"));
     QApplication::setOrganizationName(QStringLiteral("ECE4500J"));
-    QApplication::setApplicationVersion(QStringLiteral("0.3.0"));
+    QApplication::setApplicationVersion(QStringLiteral("0.3.1"));
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/paramcad-studio.png")));
 
     QCommandLineParser parser;

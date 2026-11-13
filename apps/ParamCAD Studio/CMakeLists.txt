@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(CadPointCloudClient VERSION 0.3.0 LANGUAGES CXX)
+project(CadPointCloudClient VERSION 0.3.1 LANGUAGES CXX)
 
 option(CAD_CLIENT_BUILD_TESTS "Build ParamCAD Studio I/O tests" OFF)
 option(CAD_CLIENT_BUILD_CAPTURE_TESTS "Build structured-light rendering contract tests" OFF)
