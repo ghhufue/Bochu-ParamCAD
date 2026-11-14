@@ -120,7 +120,7 @@ CapturePanel::CapturePanel(QWidget* parent)
     });
     const QStringList labels{tr("相机宽度"),tr("相机高度"),tr("投影宽度"),tr("投影高度"),tr("扫描站数")};
     const QStringList names{"scanCameraWidth","scanCameraHeight","scanProjectorWidth","scanProjectorHeight","scanStationCount"};
-    const int defaults[]{640,480,256,256,12};
+    const int defaults[]{1280,960,512,512,16};
     for(int i=0;i<5;++i) {
         auto* spin=new QSpinBox(m_structuredGroup);m_scanSizes[i]=spin;spin->setObjectName(names[i]);
         spin->setRange(i==4?1:32,i==4?64:4096);spin->setValue(defaults[i]);scanForm->addRow(labels[i],spin);
@@ -148,7 +148,7 @@ CapturePanel::CapturePanel(QWidget* parent)
             if(!path.isEmpty())m_materialMaps[i]->setText(path);
         });
     }
-    m_phase=new QCheckBox(tr("相移条纹精化"),m_structuredGroup);m_phase->setObjectName("scanPhaseShift");
+    m_phase=new QCheckBox(tr("相移条纹精化"),m_structuredGroup);m_phase->setObjectName("scanPhaseShift");m_phase->setChecked(true);
     m_hdr=new QCheckBox(tr("多曝光采集"),m_structuredGroup);m_hdr->setObjectName("scanMultiExposure");
     scanForm->addRow(m_phase);scanForm->addRow(m_hdr);
     auto* scanSingle=new QPushButton(tr("当前视角结构光扫描"),m_structuredGroup);scanSingle->setObjectName("scanSingleButton");

@@ -3,13 +3,13 @@
 
 namespace capture {
 struct ScanOptions {
-    int cameraWidth=640,cameraHeight=480,projectorWidth=256,projectorHeight=256;
-    int stationCount=12;
-    double baseline=0; // zero selects 10% of scene diagonal
+    int cameraWidth=1280,cameraHeight=960,projectorWidth=512,projectorHeight=512;
+    int stationCount=16;
+    double baseline=0; // zero selects 20% of scene diagonal
     double distance=0; // zero selects a scene-fitting distance
     double lightIntensity=2.0; // projector radiance scale at the reference distance
     double fieldOfViewDegrees=35;
-    bool phaseShift=false;
+    bool phaseShift=true;
     bool multiExposure=false;
     QString renderBackend="vtk";
     int samplesPerPixel=32,maxPathDepth=4,randomSeed=0;

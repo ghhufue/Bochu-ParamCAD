@@ -31,7 +31,7 @@ RenderJob planScan(const Geometry& geometry,const ScanOptions& options,
     if(diagonal<1e-8)throw std::invalid_argument("Scene is degenerate");
     const double radians=options.fieldOfViewDegrees*3.14159265358979323846/180;
     const double distance=options.distance>0?options.distance:diagonal/(1.4*std::tan(radians/2));
-    const double baseline=options.baseline>0?options.baseline:.1*diagonal;
+    const double baseline=options.baseline>0?options.baseline:.2*diagonal;
     RenderJob job;job.geometry=geometry;job.material=options.material;
     job.directory=directory;job.id=QFileInfo(directory).fileName();
     job.camera.width=options.cameraWidth;job.camera.height=options.cameraHeight;

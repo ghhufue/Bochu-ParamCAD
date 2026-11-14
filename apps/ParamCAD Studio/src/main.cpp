@@ -36,10 +36,11 @@ int main(int argc, char* argv[])
         QStringLiteral("Capture a STEP model as a self-contained validation case."),
         QStringLiteral("step-file"));
     const QCommandLineOption structuredCapture("structured-light-capture","Capture a STEP model through the client structured-light workflow.","step-file");
-    const QCommandLineOption scanStations("scan-stations","Number of structured-light scan stations.","count","12");
-    const QCommandLineOption scanSize("scan-size","Camera image dimensions WIDTHxHEIGHT.","size","640x480");
-    const QCommandLineOption projectorSize("projector-size","Projector dimensions WIDTHxHEIGHT.","size","256x256");
+    const QCommandLineOption scanStations("scan-stations","Number of structured-light scan stations.","count","16");
+    const QCommandLineOption scanSize("scan-size","Camera image dimensions WIDTHxHEIGHT.","size","1280x960");
+    const QCommandLineOption projectorSize("projector-size","Projector dimensions WIDTHxHEIGHT.","size","512x512");
     const QCommandLineOption scanPhase("scan-phase-shift","Capture four-step phase refinement patterns.");
+    const QCommandLineOption scanNoPhase("scan-no-phase-shift","Disable four-step phase refinement (enabled by default).");
     const QCommandLineOption scanHdr("scan-multi-exposure","Capture three fixed exposure sequences.");
     const QCommandLineOption scanReconstruct("scan-reconstruct","Also reconstruct and load the resulting point cloud in the client.");
     const QCommandLineOption scanRenderer("scan-renderer","Capture renderer: vtk or mitsuba.","backend","vtk");
@@ -48,6 +49,7 @@ int main(int argc, char* argv[])
     const QCommandLineOption scanMetallic("scan-metallic","Material metallic factor [0,1].","value","0.9");
     const QCommandLineOption scanRoughness("scan-roughness","Material roughness [0.04,1].","value","0.4");
     const QCommandLineOption scanLight("scan-light-intensity","Projector radiance scale at the reference distance.","value","2.0");
+    const QCommandLineOption scanBaseline("scan-baseline","Camera-to-projector baseline in mm; 0 selects 20% of the scene diagonal.","value","0");
     const QCommandLineOption outputDirectory(
         QStringLiteral("output"), QStringLiteral("Validation case directory."),
         QStringLiteral("directory"));
@@ -64,8 +66,8 @@ int main(int argc, char* argv[])
         QStringLiteral("lang"), QStringLiteral("Interface language: zh (default) or en."),
         QStringLiteral("language"));
     parser.addOption(performanceCapture);
-    for(const auto& option:{structuredCapture,scanStations,scanSize,projectorSize,scanPhase,scanHdr,
-                           scanReconstruct,scanMetallic,scanRoughness,scanLight,scanRenderer,scanSamples,scanDepth})parser.addOption(option);
+    for(const auto& option:{structuredCapture,scanStations,scanSize,projectorSize,scanPhase,scanNoPhase,scanHdr,
+                           scanReconstruct,scanMetallic,scanRoughness,scanLight,scanBaseline,scanRenderer,scanSamples,scanDepth})parser.addOption(option);
     parser.addOption(outputDirectory);
     parser.addOption(texture);
     parser.addOption(configDirectory);
@@ -95,7 +97,7 @@ int main(int argc, char* argv[])
             return ok1 && ok2 && width>=32 && height>=32 && width<=4096 && height<=4096;
         };
         capture::ScanOptions options;bool okStations=false,okMetal=false,okRough=false;
-        bool okSamples=false,okDepth=false,okLight=false;
+        bool okSamples=false,okDepth=false,okLight=false,okBaseline=false;
         options.renderBackend=parser.value(scanRenderer);
         options.samplesPerPixel=parser.value(scanSamples).toInt(&okSamples);
         options.maxPathDepth=parser.value(scanDepth).toInt(&okDepth);
@@ -103,16 +105,18 @@ int main(int argc, char* argv[])
         options.material.metallic=parser.value(scanMetallic).toDouble(&okMetal);
         options.material.roughness=parser.value(scanRoughness).toDouble(&okRough);
         options.lightIntensity=parser.value(scanLight).toDouble(&okLight);
-        if(!okStations || !okMetal || !okRough || !okSamples || !okDepth || !okLight || options.stationCount<1 || options.stationCount>64
+        options.baseline=parser.value(scanBaseline).toDouble(&okBaseline);
+        if(!okStations || !okMetal || !okRough || !okSamples || !okDepth || !okLight || !okBaseline || options.stationCount<1 || options.stationCount>64
             || (options.renderBackend!="vtk" && options.renderBackend!="mitsuba")
             || options.samplesPerPixel<1 || options.samplesPerPixel>4096 || options.maxPathDepth<2 || options.maxPathDepth>16
             || !std::isfinite(options.lightIntensity) || options.lightIntensity<.05 || options.lightIntensity>100
+            || !std::isfinite(options.baseline) || options.baseline<0 || options.baseline>10000
             || !std::isfinite(options.material.metallic) || options.material.metallic<0 || options.material.metallic>1
             || !std::isfinite(options.material.roughness) || options.material.roughness<.04 || options.material.roughness>1
             || !parseSize(parser.value(scanSize),options.cameraWidth,options.cameraHeight)
             || !parseSize(parser.value(projectorSize),options.projectorWidth,options.projectorHeight)
             || parser.value(outputDirectory).isEmpty())parser.showHelp(2);
-        options.phaseShift=parser.isSet(scanPhase);options.multiExposure=parser.isSet(scanHdr);
+        options.phaseShift=!parser.isSet(scanNoPhase);options.multiExposure=parser.isSet(scanHdr);
         QString error,cloud;
         const QString output=QFileInfo(parser.value(outputDirectory)).absoluteFilePath();
         const bool success=window.runStructuredCapture(QFileInfo(parser.value(structuredCapture)).absoluteFilePath(),
