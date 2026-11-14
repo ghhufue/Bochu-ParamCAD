@@ -5,6 +5,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
+#include <QDoubleValidator>
 #include <QFileInfo>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
@@ -13,9 +14,11 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QSignalBlocker>
 #include <QVBoxLayout>
 
 ReconstructPanel::ReconstructPanel(QWidget* parent)
@@ -85,11 +88,8 @@ ReconstructPanel::ReconstructPanel(QWidget* parent)
     optionsForm->addRow(QString(), m_useCameraInfo);
     optionsForm->addRow(QString(), m_dense);
     optionsForm->addRow(tr("匹配器"), m_matcher);
-    m_voxelSize=new QDoubleSpinBox(this);m_voxelSize->setObjectName("reconstructVoxelSize");
-    m_voxelSize->setRange(.001,100);m_voxelSize->setDecimals(3);m_voxelSize->setValue(.2);
     m_minContrast=new QDoubleSpinBox(this);m_minContrast->setObjectName("reconstructMinContrast");
     m_minContrast->setRange(.1,253);m_minContrast->setValue(8);
-    optionsForm->addRow(tr("结构光融合间距（mm）"),m_voxelSize);
     optionsForm->addRow(tr("结构光最小明暗差"),m_minContrast);
 
     m_runButton = new QPushButton(tr("重建"), this);
@@ -114,6 +114,32 @@ ReconstructPanel::ReconstructPanel(QWidget* parent)
     m_status->setObjectName(QStringLiteral("reconstructStatus"));
     m_status->setWordWrap(true);
 
+    auto* downsample = new QGroupBox(tr("降采样（体素融合）"), this);
+    downsample->setObjectName("downsampleGroup");
+    auto* downsampleForm = new QFormLayout(downsample);
+    m_downsampleSpacing = new QComboBox(downsample);
+    m_downsampleSpacing->setObjectName("downsampleSpacing");
+    m_downsampleSpacing->setEditable(true);
+    m_downsampleSpacing->setInsertPolicy(QComboBox::NoInsert);
+    auto* spacingValidator = new QDoubleValidator(0.001, 1000.0, 3, m_downsampleSpacing);
+    spacingValidator->setNotation(QDoubleValidator::StandardNotation);
+    spacingValidator->setLocale(QLocale::c());
+    m_downsampleSpacing->setValidator(spacingValidator);
+    m_downsampleSpacing->addItem(tr("原始点云（不降采样）"), 0.0);
+    m_downsampleSpacing->addItem(QStringLiteral("10"), 10.0);
+    m_downsampleSpacing->setCurrentIndex(1);
+    downsampleForm->addRow(tr("融合间距（mm）"), m_downsampleSpacing);
+    m_downsampleRun = new QPushButton(tr("运行降采样"), downsample);
+    m_downsampleRun->setObjectName("downsampleRunButton");
+    m_downsampleRun->setEnabled(false);
+    downsampleForm->addRow(m_downsampleRun);
+    m_downsampleStatus = new QLabel(
+        tr("结果按间距缓存在原文件旁的 downsampled 目录；已有尺度可直接选择载入。"), downsample);
+    m_downsampleStatus->setObjectName("downsampleStatus");
+    m_downsampleStatus->setWordWrap(true);
+    downsampleForm->addRow(m_downsampleStatus);
+    m_downsampleGroup = downsample;
+
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(8);
@@ -123,6 +149,7 @@ ReconstructPanel::ReconstructPanel(QWidget* parent)
     layout->addLayout(buttonRow);
     layout->addWidget(m_progress);
     layout->addWidget(m_status);
+    layout->addWidget(downsample);
     layout->addStretch(1);
 
     const QString latest = latestCaptureDirectory();
@@ -135,6 +162,14 @@ ReconstructPanel::ReconstructPanel(QWidget* parent)
     connect(m_useLatestButton, &QPushButton::clicked, this, &ReconstructPanel::useLatestCapture);
     connect(m_runButton, &QPushButton::clicked, this, &ReconstructPanel::startReconstruction);
     connect(m_cancelButton, &QPushButton::clicked, this, &ReconstructPanel::cancelRequested);
+    connect(m_downsampleRun, &QPushButton::clicked, this, [this] {
+        emit downsampleRequested(downsampleSpacing());
+    });
+    connect(m_downsampleSpacing, &QComboBox::activated, this, [this](int index) {
+        bool valid = false;
+        const double value = m_downsampleSpacing->itemData(index).toDouble(&valid);
+        if (valid) emit downsampleRequested(value);
+    });
     connect(m_engine,&QComboBox::currentIndexChanged,this,&ReconstructPanel::updateBackendControls);
     connect(m_imageDirectory,&QLineEdit::textChanged,this,&ReconstructPanel::updateBackendControls);
     updateBackendControls();
@@ -203,7 +238,7 @@ void ReconstructPanel::updateBackendControls() {
         && QFileInfo::exists(QDir(imageDirectory()).filePath("capture.json")));
     m_useCameraInfo->setEnabled(!m_busy && !structured);m_dense->setEnabled(!m_busy && !structured);
     m_matcher->setEnabled(!m_busy && !structured);
-    m_voxelSize->setEnabled(!m_busy && structured);m_minContrast->setEnabled(!m_busy && structured);
+    m_minContrast->setEnabled(!m_busy && structured);
 }
 
 void ReconstructPanel::setProgress(int value, int maximum)
@@ -273,10 +308,62 @@ void ReconstructPanel::startReconstruction()
     request.imageDirectory = imageDirectory();
     request.outputRoot = outputRoot();
     request.engine=m_engine->currentData().toString();
-    request.voxelSizeMm=m_voxelSize->value();request.minContrast=m_minContrast->value();
+    request.voxelSizeMm=0.2;request.minContrast=m_minContrast->value();
     request.useCameraInfo = m_useCameraInfo->isChecked();
     request.dense = m_dense->isChecked();
     request.matcher = m_matcher->currentIndex() == 1 ? QStringLiteral("sequential")
                                                      : QStringLiteral("exhaustive");
     emit reconstructRequested(request);
+}
+
+double ReconstructPanel::downsampleSpacing() const
+{
+    bool valid = false;
+    const double value = m_downsampleSpacing->currentText().trimmed().toDouble(&valid);
+    return valid && value > 0.0 ? value : 0.0;
+}
+
+void ReconstructPanel::setDownsampleScales(const QVector<double>& scales, double currentSpacing)
+{
+    const QSignalBlocker blocker(m_downsampleSpacing);
+    bool typedValid = false;
+    const double typedValue = m_downsampleSpacing->currentText().trimmed().toDouble(&typedValid);
+    m_downsampleSpacing->clear();
+    m_downsampleSpacing->addItem(tr("原始点云（不降采样）"), 0.0);
+    for (double scale : scales)
+        m_downsampleSpacing->addItem(QString::number(scale, 'g', 12), scale);
+    if (currentSpacing > 0.0) {
+        int index = m_downsampleSpacing->findData(currentSpacing);
+        if (index < 0) {
+            m_downsampleSpacing->addItem(QString::number(currentSpacing, 'g', 12), currentSpacing);
+            index = m_downsampleSpacing->count() - 1;
+        }
+        m_downsampleSpacing->setCurrentIndex(index);
+    } else if (typedValid && typedValue > 0.0) {
+        // Keep the spacing the user last worked with instead of snapping back
+        // to "original" whenever a plain cloud is opened.
+        m_downsampleSpacing->setCurrentText(QString::number(typedValue, 'g', 12));
+        m_downsampleSpacing->setCurrentIndex(-1);
+    } else {
+        m_downsampleSpacing->setCurrentIndex(0);
+    }
+}
+
+void ReconstructPanel::setDownsampleStatus(const QString& text)
+{
+    m_downsampleStatus->setText(text);
+}
+
+void ReconstructPanel::setDownsampleAvailable(bool available)
+{
+    m_downsampleAvailable = available;
+    m_downsampleRun->setEnabled(available && !m_downsampleBusy);
+    if (!available) m_downsampleStatus->setText(tr("载入点云后可按间距生成降采样点云。"));
+}
+
+void ReconstructPanel::setDownsampleBusy(bool busy)
+{
+    m_downsampleBusy = busy;
+    m_downsampleSpacing->setEnabled(!busy);
+    m_downsampleRun->setEnabled(m_downsampleAvailable && !busy);
 }

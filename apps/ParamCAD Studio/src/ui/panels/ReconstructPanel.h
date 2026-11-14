@@ -2,6 +2,7 @@
 
 #include "app/ReconstructionController.h"
 
+#include <QVector>
 #include <QWidget>
 
 class QCheckBox;
@@ -35,9 +36,19 @@ public:
     void setBusy(bool busy);
     void setProgress(int value, int maximum);
 
+    // Voxel downsampling reuses the same fusion spacing as a reconstruction and
+    // is exposed below the reconstruction controls.
+    double downsampleSpacing() const;
+    void setDownsampleScales(const QVector<double>& scales, double currentSpacing);
+    void setDownsampleStatus(const QString& text);
+    void setDownsampleAvailable(bool available);
+    void setDownsampleBusy(bool busy);
+
 signals:
     void reconstructRequested(const ReconstructRequest& request);
     void cancelRequested();
+    // Zero restores the original point cloud.
+    void downsampleRequested(double voxelSizeMm);
 
 private:
     void browseForImages();
@@ -61,7 +72,12 @@ private:
     QProgressBar* m_progress = nullptr;
     QLabel* m_status = nullptr;
     QComboBox* m_engine = nullptr;
-    QDoubleSpinBox* m_voxelSize = nullptr;
     QDoubleSpinBox* m_minContrast = nullptr;
+    QWidget* m_downsampleGroup = nullptr;
+    QComboBox* m_downsampleSpacing = nullptr;
+    QPushButton* m_downsampleRun = nullptr;
+    QLabel* m_downsampleStatus = nullptr;
+    bool m_downsampleAvailable = false;
+    bool m_downsampleBusy = false;
     bool m_busy = false;
 };

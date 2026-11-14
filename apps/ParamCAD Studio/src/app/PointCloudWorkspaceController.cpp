@@ -7,6 +7,11 @@
 #include "app/ReconstructionController.h"
 #include "io/PointCloudAdapter.h"
 #include "io/PointCloudAnalysis.h"
+#include "io/PointCloudDownsampleStore.h"
+#include "io/PointCloudDownsampler.h"
+#include "io/PointCloudMetadata.h"
+#include "io/PlyReader.h"
+#include "io/PlyWriter.h"
 #include "ui/panels/ModelingPanel.h"
 #include "ui/panels/CameraPanel.h"
 #include "ui/panels/PropertyPanel.h"
@@ -18,6 +23,7 @@
 #include "ui/viewport/VTKViewer.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -150,6 +156,7 @@ void PointCloudWorkspaceController::connectUi()
         m_guidedQueued = false;
         clearProjectionDebugResult();
         updateCadActions();
+        refreshDownsampleControls();
     });
     PointCloudPanel* cloudPanel = m_ui.propertyPanel->pointCloudPanel();
     const auto refreshCloudPanel = [this, cloudPanel] {
@@ -300,7 +307,16 @@ void PointCloudWorkspaceController::connectUi()
         m_ui.propertyPanel->showReconstructPanel(visible);
     });
     connect(reconstructPanel, &ReconstructPanel::reconstructRequested,
-            this, &PointCloudWorkspaceController::startReconstruction);
+            this, [this, reconstructPanel](ReconstructRequest request) {
+                // The fusion spacing is a point-cloud property now, so both the
+                // in-memory reconstruction fusion and later downsampling share it.
+                const double spacing = reconstructPanel->downsampleSpacing();
+                if (spacing > 0.0) m_lastDownsampleSpacing = spacing;
+                request.voxelSizeMm = m_lastDownsampleSpacing;
+                startReconstruction(request);
+            });
+    connect(reconstructPanel, &ReconstructPanel::downsampleRequested,
+            this, &PointCloudWorkspaceController::applyDownsample);
     connect(reconstructPanel, &ReconstructPanel::cancelRequested,
             m_reconstructionController, &ReconstructionController::cancel);
 
@@ -428,6 +444,121 @@ void PointCloudWorkspaceController::loadPointCloudFromFile(const QString& filePa
                                         ? workspaceTr("正交投影") : workspaceTr("透视投影")));
     emit logInfo(workspaceTr("Point cloud loaded from %1: %2 points").arg(info.fileName()).arg(pointCount));
     m_ui.viewer->setFocus(Qt::OtherFocusReason);
+}
+
+void PointCloudWorkspaceController::refreshDownsampleControls()
+{
+    ReconstructPanel* panel = m_ui.propertyPanel->reconstructPanel();
+    const QString active = m_document->sourcePath();
+    if (active.isEmpty() || !m_document->hasCloud()) {
+        panel->setDownsampleAvailable(false);
+        panel->setDownsampleStatus(workspaceTr("载入点云后可按间距生成降采样点云。"));
+        return;
+    }
+    const QString candidate = pointcloud::rootCloudPath(active);
+    const QString root = QFileInfo::exists(candidate) ? candidate : active;
+    double current = 0.0;
+    pointcloud::isDownsampledCloud(active, &current);
+    panel->setDownsampleScales(pointcloud::existingScales(root), current);
+    panel->setDownsampleAvailable(true);
+}
+
+void PointCloudWorkspaceController::applyDownsample(double voxelSizeMm)
+{
+    ReconstructPanel* panel = m_ui.propertyPanel->reconstructPanel();
+    const QString active = m_document->sourcePath();
+    if (active.isEmpty() || !m_document->hasCloud()) {
+        panel->setDownsampleStatus(workspaceTr("当前没有可降采样的点云。"));
+        return;
+    }
+    const QString candidate = pointcloud::rootCloudPath(active);
+    const QString root = QFileInfo::exists(candidate) ? candidate : active;
+    if (voxelSizeMm <= 0.0) {
+        if (QFileInfo(active).canonicalFilePath() == QFileInfo(root).canonicalFilePath()) {
+            panel->setDownsampleStatus(workspaceTr("当前已经是原始点云。"));
+            return;
+        }
+        QString error;
+        if (!switchActiveCloud(root, error)) {
+            emit logError(error);
+            panel->setDownsampleStatus(error);
+            return;
+        }
+        panel->setDownsampleStatus(workspaceTr("已恢复原始点云：%1 个点")
+                                        .arg(m_document->pointCount()));
+        emit logInfo(workspaceTr("恢复原始点云：%1").arg(QFileInfo(root).fileName()));
+        return;
+    }
+    m_lastDownsampleSpacing = voxelSizeMm;
+    double current = 0.0;
+    if (pointcloud::isDownsampledCloud(active, &current) && qFuzzyCompare(current, voxelSizeMm)) {
+        panel->setDownsampleStatus(workspaceTr("当前已是 %1 mm 的降采样点云。").arg(voxelSizeMm));
+        return;
+    }
+    const QString target = pointcloud::downsamplePath(root, voxelSizeMm);
+    if (!QFileInfo::exists(target)) {
+        panel->setDownsampleBusy(true);
+        panel->setDownsampleStatus(workspaceTr("正在按 %1 mm 融合…").arg(voxelSizeMm));
+        QApplication::setOverrideCursor(Qt::WaitCursor);
+        QString error;
+        bool complete = false;
+        do {
+            PlyCloud source;
+            if (!PlyReader::read(root, source, error)) break;
+            PlyCloud reduced;
+            if (!pointcloud::voxelDownsample(source, voxelSizeMm, reduced, error)) break;
+            if (!QDir().mkpath(pointcloud::downsampleDirectory(root))) {
+                error = workspaceTr("无法创建降采样目录：%1")
+                            .arg(pointcloud::downsampleDirectory(root));
+                break;
+            }
+            if (!PlyWriter::write(reduced, target, error)) break;
+            QString sidecarError;
+            if (!pointcloud::writeUnitSidecar(target, pointCloudUnitName(root), voxelSizeMm,
+                                              sidecarError))
+                emit logWarning(workspaceTr("降采样点云已保存，但单位信息写入失败：%1")
+                                    .arg(sidecarError));
+            complete = true;
+        } while (false);
+        QApplication::restoreOverrideCursor();
+        panel->setDownsampleBusy(false);
+        if (!complete) {
+            emit logError(error);
+            panel->setDownsampleStatus(error);
+            if(!m_dialogParent->property("paramcadBatchCapture").toBool())
+                QMessageBox::warning(m_dialogParent, workspaceTr("降采样"), error);
+            return;
+        }
+    }
+    QString error;
+    if (!switchActiveCloud(target, error)) {
+        emit logError(error);
+        panel->setDownsampleStatus(error);
+        if(!m_dialogParent->property("paramcadBatchCapture").toBool())
+            QMessageBox::warning(m_dialogParent, workspaceTr("降采样"), error);
+        return;
+    }
+    const int count = m_document->pointCount();
+    panel->setDownsampleStatus(
+        workspaceTr("已切换为 %1 mm 降采样点云：%2 个点").arg(voxelSizeMm).arg(count));
+    emit logInfo(workspaceTr("降采样点云 %1 mm：%2 -> %3（%4 个点）")
+                     .arg(voxelSizeMm)
+                     .arg(QFileInfo(root).fileName())
+                     .arg(QFileInfo(target).fileName())
+                     .arg(count));
+    refreshDownsampleControls();
+}
+
+bool PointCloudWorkspaceController::switchActiveCloud(const QString& path, QString& error)
+{
+    if (!m_document->load(path, error)) return false;
+    updateCadActions();
+    const QFileInfo info(path);
+    m_ui.scenePanel->updateNodeLabel(
+        SceneNodeType::PointCloud,
+        QStringLiteral("%1 (%2 points)").arg(info.fileName()).arg(m_document->pointCount()));
+    emit statusTextChanged(workspaceTr("就绪 | 点云：%1").arg(info.fileName()));
+    return true;
 }
 
 void PointCloudWorkspaceController::reconstructCad()

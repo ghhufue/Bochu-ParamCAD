@@ -15,7 +15,8 @@ import numpy as np
 
 from . import StructuredLightError, __version__
 from .capture import load_capture, sha256
-from .geometry import fuse, triangulate
+from .downsample import voxel_downsample
+from .geometry import triangulate
 from .patterns import decode
 
 
@@ -203,7 +204,7 @@ def reconstruct(capture_path: str | Path, output: str | Path, *, options: Option
         check_cancel()
         stage_started = time.monotonic()
         publish("progress", stage="fuse", completed=0, total=1)
-        points, counts = fuse(np.concatenate(all_points), np.concatenate(all_weights), settings.voxel_size_mm)
+        points, counts = voxel_downsample(np.concatenate(all_points), np.concatenate(all_weights), settings.voxel_size_mm)
         if len(points) == 0:
             raise StructuredLightError("no valid points; inspect contrast, exposure, visibility and calibration")
         timings["fuse"] = time.monotonic() - stage_started

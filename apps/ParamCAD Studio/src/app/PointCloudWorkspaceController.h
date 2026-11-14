@@ -71,6 +71,9 @@ private:
     void startReconstruction(const ReconstructRequest& request);
     void onReconstructionFinished(const QString& pointCloudPath, int pointCount,
                                   const QString& cameraMode, bool dense);
+    void refreshDownsampleControls();
+    void applyDownsample(double voxelSizeMm);
+    bool switchActiveCloud(const QString& path, QString& error);
 
     PointCloudDocument* const m_document;
     ModelingController* const m_modelingController;
@@ -92,5 +95,6 @@ private:
     quint64 m_cadBodyRevision = 0;
     modeling::ModelRevision m_cadModelRevision = 0;
     QString m_cadSourcePath;
+    double m_lastDownsampleSpacing = 10.0;
     std::optional<reconstruction::SurfaceAnalysisResult> m_surfaceAnalysis;
 };

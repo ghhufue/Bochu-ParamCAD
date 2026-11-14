@@ -169,6 +169,17 @@ class GeometryTests(unittest.TestCase):
         np.testing.assert_allclose(points, [[.25, .1, .1], [2, 2, 2]])
         np.testing.assert_array_equal(counts, [2, 1])
 
+    def test_shared_voxel_downsample_module(self):
+        from structured_light.downsample import voxel_downsample
+        points, counts = voxel_downsample(np.array([[.1, .1, .1], [.3, .1, .1]]),
+                                          np.array([1, 3]), 1)
+        np.testing.assert_allclose(points, [[.25, .1, .1]])
+        np.testing.assert_array_equal(counts, [2])
+        with self.assertRaises(StructuredLightError):
+            voxel_downsample(points, np.ones(len(points)), 0)
+        with self.assertRaises(StructuredLightError):
+            voxel_downsample(points, np.ones(3), 1)
+
 
 class PipelineTests(unittest.TestCase):
     def test_multistation_phase_hdr_pipeline_preserves_mm_world_plane(self):

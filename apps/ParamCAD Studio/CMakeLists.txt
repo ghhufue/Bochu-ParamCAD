@@ -187,6 +187,10 @@ qt_add_executable(CadPointCloudClient WIN32
     src/io/PointCloudAdapter.h
     src/io/PointCloudAdapter.cpp
     src/io/PointCloudMetadata.h
+    src/io/PointCloudDownsampleStore.h
+    src/io/PointCloudDownsampleStore.cpp
+    src/io/PointCloudDownsampler.h
+    src/io/PointCloudDownsampler.cpp
     src/io/PointCloudAnalysis.h
     src/io/PointCloudAnalysis.cpp
     src/io/StepModelLoader.h
@@ -635,6 +639,20 @@ if(CAD_CLIENT_BUILD_TESTS)
         target_compile_options(point_cloud_io_test PRIVATE /W4 /permissive- /utf-8)
     endif()
     add_test(NAME point_cloud_io_test COMMAND point_cloud_io_test)
+
+    add_executable(point_cloud_downsample_test
+        tests/point_cloud_downsample_test.cpp
+        src/io/PlyReader.cpp
+        src/io/PlyWriter.cpp
+        src/io/PointCloudDownsampler.cpp
+        src/io/PointCloudDownsampleStore.cpp
+    )
+    target_include_directories(point_cloud_downsample_test PRIVATE src)
+    target_link_libraries(point_cloud_downsample_test PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(point_cloud_downsample_test PRIVATE /W4 /permissive- /utf-8)
+    endif()
+    add_test(NAME point_cloud_downsample_test COMMAND point_cloud_downsample_test)
 
     # The STEP importer is a client-side reader, so it is tested where it lives.
     # OpenCASCADE also writes the sample it reads back, which keeps the repository

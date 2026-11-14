@@ -86,6 +86,11 @@ int main(int argc,char** argv) {
         for(int i=0;i<3;++i)require(std::abs(original.position[i]-after.position[i])<1e-8,"capture changed viewport camera");
         reconstructionPanel->setOutputRoot(root+"/reconstructions");
         require(!reconstructionPanel->findChild<QCheckBox*>("reconstructDense")->isEnabled(),"COLMAP controls remained enabled for structured light");
+        // Fusion spacing now belongs to the point-cloud page, so the client
+        // contract fixture pins it dense enough for its point-count assertion.
+        auto* downsampleSpacing=window.findChild<QComboBox*>("downsampleSpacing");
+        require(downsampleSpacing,"point-cloud page exposes the fusion spacing");
+        downsampleSpacing->setCurrentText(QStringLiteral("0.2"));
         QString cloud;
         QObject::connect(reconstruction,&ReconstructionController::finished,&window,
             [&](const QString& path,int count,const QString&,bool){cloud=path;require(count>0,"empty reconstruction result");});

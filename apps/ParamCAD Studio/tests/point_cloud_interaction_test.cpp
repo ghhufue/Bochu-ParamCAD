@@ -12,11 +12,13 @@
 #include <QToolButton>
 #include "ui/panels/PropertyPanel.h"
 #include <QComboBox>
+#include <QDateTime>
 #include <QDoubleSpinBox>
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QImage>
 #include <QLabel>
 #include <QLineEdit>
@@ -348,6 +350,35 @@ int main(int argc, char** argv)
         firstFace->setExpanded(true); tree->setCurrentItem(firstFace);
         pages->setCurrentIndex(1);
         if(argc>1) require(window.grab().save(QString::fromLocal8Bit(argv[1])),"save relationship UI preview");
+        // Voxel downsampling has its own spacing and trigger, caches each scale
+        // beside the source, and switches the active cloud when it finishes.
+        auto* spacing = window.findChild<QComboBox*>("downsampleSpacing");
+        auto* downsample = window.findChild<QPushButton*>("downsampleRunButton");
+        require(spacing && downsample && downsample->isEnabled(),
+                "downsample controls are usable with a loaded cloud");
+        const QString originalPath = document->sourcePath();
+        const int originalCount = document->pointCount();
+        spacing->setCurrentText(QStringLiteral("1"));
+        downsample->click();
+        require(document->sourcePath() != originalPath && document->pointCount() > 0
+                    && document->pointCount() < originalCount,
+                "downsampling reduces the cloud and switches the active file");
+        const QString cached = QFileInfo(originalPath).absolutePath()
+            + QStringLiteral("/downsampled/box_1mm.ply");
+        require(QFile::exists(cached), "downsampled cloud is cached beside its source");
+        require(QFile::exists(QFileInfo(cached).absolutePath() + QStringLiteral("/box_1mm.json")),
+                "downsampled cloud keeps a unit sidecar");
+        const QDateTime written = QFileInfo(cached).lastModified();
+        QThread::msleep(1100);
+        spacing->setCurrentText(QStringLiteral("1"));
+        downsample->click();
+        require(QFileInfo(cached).lastModified() == written,
+                "an existing spacing is reused instead of recomputed");
+        spacing->setCurrentIndex(0);
+        downsample->click();
+        require(document->sourcePath() == originalPath
+                    && document->pointCount() == originalCount,
+                "the original entry restores the source cloud");
         viewer->pointCloudDocument()->clear();
         require(!panel->isEnabled() && !relationships->isEnabled(), "clearing cloud disables both point-cloud panels");
         require(document->sourcePath().isEmpty(), "clear resets the shared source identity");

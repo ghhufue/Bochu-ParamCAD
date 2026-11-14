@@ -90,16 +90,6 @@ def triangulate(camera: Device, projector: Device, camera_uv: np.ndarray,
 
 
 def fuse(points: np.ndarray, weights: np.ndarray, voxel_size: float) -> tuple[np.ndarray, np.ndarray]:
-    if not math.isfinite(voxel_size) or voxel_size <= 0:
-        raise StructuredLightError("voxel_size_mm must be finite and positive")
-    if len(points) == 0:
-        return np.empty((0, 3)), np.empty(0, np.int64)
-    scaled = np.floor(points / voxel_size)
-    if not np.isfinite(scaled).all() or np.abs(scaled).max() >= 2**62:
-        raise StructuredLightError("voxel coordinates overflow; check scale and units")
-    _, indices, counts = np.unique(scaled.astype(np.int64), axis=0,
-                                   return_inverse=True, return_counts=True)
-    sums = np.bincount(indices, weights=np.maximum(weights, 1e-12))
-    merged = np.column_stack([np.bincount(indices, weights=points[:, axis] * np.maximum(weights, 1e-12))
-                              / sums for axis in range(3)])
-    return merged, counts
+    """Backward-compatible entry point; the rule lives in ``downsample``."""
+    from .downsample import voxel_downsample
+    return voxel_downsample(points, weights, voxel_size)
