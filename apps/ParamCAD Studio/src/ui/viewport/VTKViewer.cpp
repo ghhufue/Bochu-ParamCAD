@@ -1,6 +1,8 @@
 #include "ui/viewport/VTKViewer.h"
+#include <cstdint>
 #include <map>
 #include <set>
+#include <vector>
 
 #include <QByteArray>
 #include <QSize>
@@ -52,12 +54,18 @@ capture::Geometry VTKViewer::captureGeometry() const
     vtkNew<vtkMatrix4x4> normalTransform;
     vtkMatrix4x4::Invert(transform,normalTransform);normalTransform->Transpose();
     double bounds[6];mesh->GetBounds(bounds);
+    // Real drawings contain degenerate faces whose points end up without a
+    // usable normal. Drop those points and the triangles that reference them
+    // instead of discarding the whole body.
+    constexpr std::uint32_t invalid=~std::uint32_t{0};
+    std::vector<std::uint32_t> remap(static_cast<std::size_t>(mesh->GetNumberOfPoints()),invalid);
     for(vtkIdType i=0;i<mesh->GetNumberOfPoints();++i) {
         double p[4]{0,0,0,1},world[4],n[4]{0,0,0,0},normal[4];
         mesh->GetPoint(i,p);transform->MultiplyPoint(p,world);
         mesh->GetPointData()->GetNormals()->GetTuple(i,n);normalTransform->MultiplyPoint(n,normal);
         const double length=std::sqrt(normal[0]*normal[0]+normal[1]*normal[1]+normal[2]*normal[2]);
-        if(length<=0)return {};
+        if(!std::isfinite(length) || length<=0)continue;
+        remap[static_cast<std::size_t>(i)]=static_cast<std::uint32_t>(result.positions.size());
         result.positions.push_back({world[0],world[1],world[2]});
         result.normals.push_back({normal[0]/length,normal[1]/length,normal[2]/length});
         int axis=0;for(int j=1;j<3;++j)if(std::abs(n[j])>std::abs(n[axis]))axis=j;
@@ -69,9 +77,11 @@ capture::Geometry VTKViewer::captureGeometry() const
     mesh->GetPolys()->InitTraversal();
     while(mesh->GetPolys()->GetNextCell(count,indices)) {
         if(count!=3)return {};
-        result.triangles.push_back({static_cast<std::uint32_t>(indices[0]),
-                                   static_cast<std::uint32_t>(indices[1]),
-                                   static_cast<std::uint32_t>(indices[2])});
+        const auto a=remap[static_cast<std::size_t>(indices[0])];
+        const auto b=remap[static_cast<std::size_t>(indices[1])];
+        const auto c=remap[static_cast<std::size_t>(indices[2])];
+        if(a==invalid || b==invalid || c==invalid)continue;
+        result.triangles.push_back({a,b,c});
     }
     return result;
 }
