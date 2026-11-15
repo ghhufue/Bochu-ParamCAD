@@ -10,6 +10,7 @@
 | --- | --- |
 | [开发环境与代码布局](/development/developer-setup) | 说明仓库目录、第三方 SDK 要求、客户端与核心库的构建目标，以及本地测试和常见故障。 |
 | [超参数配置与 CLI](/development/configuration-cli) | 说明 7 份 `.conf` 的覆盖顺序、模块命令行入口、诊断报告和 `--print-config` 的用途。 |
+| [性能调优](/performance/) | 分主题查看性能收益、渲染与识别优化、并发/串行状态，以及基准和正确性验证。 |
 | [贡献指南与文档维护](/development/contributing) | 说明分支与 PR 规则、代码/测试/文档同步要求，以及本地预览和 GitHub Pages 发布方式。 |
 | [设计决策](/development/design-decisions) | 给出可复用的决策记录格式，并列出从代码可验证的当前架构选择及其影响。 |
 | [多视角图片转点云扩展方案](/development/multiview-reconstruction-extension) | 规划编码结构光、Python 算法验证、现有客户端调控与后续 COLMAP 结合的阶段安排；范围截止于点云。 |

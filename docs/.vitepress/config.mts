@@ -81,6 +81,19 @@ const sections = [
     ],
   },
   {
+    text: '性能调优',
+    link: '/performance/',
+    collapsed: false,
+    items: [
+      { text: '优化总览', link: '/performance/' },
+      { text: '并发与串行状态', link: '/performance/execution-model' },
+      { text: '渲染与交互', link: '/performance/rendering' },
+      { text: '预处理与曲面识别', link: '/performance/preprocessing-recognition' },
+      { text: '结构光与 Python', link: '/performance/structured-light-python' },
+      { text: '性能基准与正确性验证', link: '/performance/benchmarks' },
+    ],
+  },
+  {
     text: '开发维护',
     link: '/development/',
     collapsed: true,

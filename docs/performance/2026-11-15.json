@@ -1,0 +1,190 @@
+{
+  "date": "2026-11-15",
+  "baseline_commit": "1ce2478929a9edfc9600f8d5161aee116ce4036f",
+  "machine": {
+    "cpu": "Intel Core i7-14700KF",
+    "physical_cores": 20,
+    "logical_processors": 28,
+    "cpp": "MSVC 2022 x64 Release",
+    "python": "3.13.10 (tags/v3.13.10:4fd8843, Dec  2 2025, 15:08:18) [MSC v.1944 64 bit (AMD64)]",
+    "numpy": "2.3.5"
+  },
+  "native": {
+    "before": {
+      "preprocessing": [
+        {
+          "input_points": 100000,
+          "median_ms": 1015.0432,
+          "output_points": 99899,
+          "fingerprint": "2541753342490021172",
+          "estimated_normals": 79920,
+          "unoriented_normals": 0
+        },
+        {
+          "input_points": 400000,
+          "median_ms": 5155.3276,
+          "output_points": 399598,
+          "fingerprint": "4109516387864629273",
+          "estimated_normals": 319679,
+          "unoriented_normals": 0
+        }
+      ],
+      "cad_six_holes": {
+        "median_ms": 26.1753,
+        "volume_mm3": 89968.1421051
+      }
+    },
+    "after": {
+      "preprocessing": [
+        {
+          "input_points": 100000,
+          "median_ms": 559.9749,
+          "output_points": 99899,
+          "fingerprint": "2541753342490021172",
+          "estimated_normals": 79920,
+          "unoriented_normals": 0
+        },
+        {
+          "input_points": 400000,
+          "median_ms": 3191.8824,
+          "output_points": 399598,
+          "fingerprint": "4109516387864629273",
+          "estimated_normals": 319679,
+          "unoriented_normals": 0
+        }
+      ],
+      "cad_six_holes": {
+        "median_ms": 17.6347,
+        "volume_mm3": 89968.1421051
+      }
+    }
+  },
+  "organized_normals": [
+    {
+      "size": [
+        512,
+        384
+      ],
+      "mode": "baseline",
+      "workers": 0,
+      "median_seconds": 0.7064131000006455,
+      "peak_process_bytes": 405311488,
+      "sha256": "b57f969a162d4630220c2f66cec4590f3cee2ec9b3335927dcfdd323a3a5e8c7",
+      "numpy": "2.3.5"
+    },
+    {
+      "size": [
+        512,
+        384
+      ],
+      "mode": "optimized",
+      "workers": 1,
+      "median_seconds": 0.6957249000006414,
+      "peak_process_bytes": 111902720,
+      "sha256": "b57f969a162d4630220c2f66cec4590f3cee2ec9b3335927dcfdd323a3a5e8c7",
+      "numpy": "2.3.5"
+    },
+    {
+      "size": [
+        512,
+        384
+      ],
+      "mode": "optimized",
+      "workers": 0,
+      "median_seconds": 0.2549082000005001,
+      "peak_process_bytes": 273530880,
+      "sha256": "b57f969a162d4630220c2f66cec4590f3cee2ec9b3335927dcfdd323a3a5e8c7",
+      "numpy": "2.3.5"
+    },
+    {
+      "size": [
+        1280,
+        960
+      ],
+      "mode": "baseline",
+      "workers": 0,
+      "median_seconds": 4.9584087999974145,
+      "peak_process_bytes": 2375954432,
+      "sha256": "85aeb417977553f036235d973064bc294018e4d3bc1aa3e71f3d291a4b9e50bd",
+      "numpy": "2.3.5"
+    },
+    {
+      "size": [
+        1280,
+        960
+      ],
+      "mode": "optimized",
+      "workers": 1,
+      "median_seconds": 4.891870099996595,
+      "peak_process_bytes": 265580544,
+      "sha256": "85aeb417977553f036235d973064bc294018e4d3bc1aa3e71f3d291a4b9e50bd",
+      "numpy": "2.3.5"
+    },
+    {
+      "size": [
+        1280,
+        960
+      ],
+      "mode": "optimized",
+      "workers": 0,
+      "median_seconds": 1.5363500999992539,
+      "peak_process_bytes": 569761792,
+      "sha256": "85aeb417977553f036235d973064bc294018e4d3bc1aa3e71f3d291a4b9e50bd",
+      "numpy": "2.3.5"
+    }
+  ],
+  "rendering": {
+    "before": {
+      "frames": 40,
+      "p50_ms": 11.0472,
+      "p95_ms": 11.8306
+    },
+    "interactive_after": {
+      "frames": 40,
+      "p50_ms": 3.0429,
+      "p95_ms": 3.6921,
+      "interactive_mean_rgb_difference": 0,
+      "restored_pixels_exact": true
+    },
+    "full_quality_after": {
+      "frames": 40,
+      "p50_ms": 10.9448,
+      "p95_ms": 11.3502,
+      "interactive_mean_rgb_difference": 0,
+      "restored_pixels_exact": true
+    },
+    "viewport": [
+      800,
+      600
+    ],
+    "interactive_shadow": [
+      512,
+      512
+    ],
+    "static_shadow": [
+      1024,
+      1024
+    ]
+  },
+  "scanned_cloud": {
+    "points": 79372,
+    "sha256": "93a2dc97c8d207c8c2d7087776ec4d1f28dbcd86f24ff796bfe653f26fc9bfcd",
+    "paired_medians_seconds": {
+      "baseline": 1.3107075000007171,
+      "optimized": 1.2509183999973175
+    },
+    "significant_end_to_end_speedup_claimed": false
+  },
+  "verification": {
+    "cpp_tests": 38,
+    "cpp_failures": 0,
+    "python_tests": 28,
+    "python_failures": 0,
+    "point_fingerprints_equal": true,
+    "normal_hashes_equal": true,
+    "restored_render_pixels_equal": true,
+    "scanned_ply_bytes_equal": true,
+    "legacy_ui_test_failures_reproduced_on_baseline": 4
+  },
+  "raw_artifacts": "artifacts/performance-optimization-20261115"
+}

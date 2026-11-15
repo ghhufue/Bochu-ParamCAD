@@ -25,4 +25,7 @@ features:
   - title: 开发维护
     details: 文档预览、发布和后续维护入口。
     link: /development/
+  - title: 性能调优
+    details: 优化前后实测、各阶段并发与串行状态，以及正确性验证。
+    link: /performance/
 ---
