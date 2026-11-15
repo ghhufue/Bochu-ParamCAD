@@ -62,7 +62,7 @@ const sections = [
     items: [
       { text: '多视角重建与相机几何', link: '/algorithms/multiview-geometry' },
       { text: '点云采样与法向估计', link: '/algorithms/point-cloud-processing' },
-      { text: '解析曲面拟合', link: '/algorithms/primitive-fitting' },
+      { text: '解析曲面拟合和连通扩展', link: '/algorithms/primitive-fitting' },
       { text: '特征识别与几何判定', link: '/algorithms/feature-inference' },
       { text: '装配分组与壳闭合', link: '/algorithms/shell-closure' },
       { text: '二维轮廓与投影评分', link: '/algorithms/projection-scoring' },

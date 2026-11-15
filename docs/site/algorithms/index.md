@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | [多视角重建与相机几何](/algorithms/multiview-geometry) | 相机模型、位姿约定、匹配与三角化、稠密重建 | 说明图像如何变成带尺度语义的观测快照 |
 | [点云采样与法向估计](/algorithms/point-cloud-processing) | 体素降采样、统计离群过滤、PCA 法向与定向传播 | 说明工作点如何保留源点 ID 并建立材料方向 |
-| [解析曲面拟合](/algorithms/primitive-fitting) | 五类解析基元的参数、Efficient RANSAC、候选精修 | 说明曲面证据如何从点集变成带参数的候选 |
+| [解析曲面拟合和连通扩展](/algorithms/primitive-fitting) | 五类解析基元的参数、Efficient RANSAC、平面支持连通扩展、候选精修 | 说明曲面证据如何从点集变成带参数的候选 |
 | [特征识别与几何判定](/algorithms/feature-inference) | 箱体、组合体、通孔、曲面实体与人工约束 | 说明几何判定在哪些观测条件下成立或拒绝 |
 | [装配分组与壳闭合](/algorithms/shell-closure) | 装配面片连接、点归属、有限边界、壳闭合 | 说明多体如何分组、闭合，以及开放结果如何保留 |
 | [二维轮廓与投影评分](/algorithms/projection-scoring) | 候选轴、截面轮廓、操作提案、试建评分 | 说明未闭合部件如何用二维投影回退为挤出程序 |
