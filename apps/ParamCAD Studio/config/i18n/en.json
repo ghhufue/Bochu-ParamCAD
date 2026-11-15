@@ -23,6 +23,7 @@
     }
   },
   "groups": {
+    "执行": "Execution",
     "两轴求交": "Two-axis intersection",
     "关系优化": "Relation refinement",
     "关系推断": "Relation inference",
@@ -60,6 +61,7 @@
     "面片与闭合": "Patches and closure"
   },
   "fields": {
+    "worker_count": "Preprocessing workers, 0 = auto, 1 = serial",
     "voxel_size_mm": "Voxel size (mm), 0 = auto",
     "voxel_diagonal_fraction": "Automatic voxel size as a fraction of the bounding-box diagonal",
     "remove_statistical_outliers": "Enable statistical outlier removal",

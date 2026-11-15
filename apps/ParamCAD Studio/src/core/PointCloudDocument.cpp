@@ -169,6 +169,12 @@ void PointCloudDocument::inferRelations(double distanceTolerance, double angleDe
     m_selection.inferRelations(distanceTolerance, angleDegrees, recordUndo);
     notifyEdit();
 }
+
+void PointCloudDocument::applyInferredRelations(const std::vector<reconstruction::SurfaceRelation>& inferred, bool recordUndo)
+{
+    m_selection.applyInferredRelations(inferred, recordUndo);
+    notifyEdit();
+}
 void PointCloudDocument::addSurfaces(const std::vector<DetectedPointCloudSurface>& surfaces, bool recordUndo)
 {
     m_selection.addSurfaces(surfaces, recordUndo);

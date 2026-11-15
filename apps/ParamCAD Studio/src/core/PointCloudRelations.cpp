@@ -59,26 +59,41 @@ void PointCloudSelection::removeRelation(int id)
 
 void PointCloudSelection::inferRelations(double tolerance, double angleDegrees, bool recordUndo)
 {
+    std::vector<reconstruction::SurfaceRelation> inferred;
+    std::string error;
+    if (computeRelations(relationSnapshot(), tolerance, angleDegrees, inferred, error))
+        applyInferredRelations(inferred, recordUndo);
+}
+
+PointCloudSelection::RelationSnapshot PointCloudSelection::relationSnapshot() const
+{
+    return {m_sourceCloud.positions, m_memberships, m_deleted, m_regions};
+}
+
+bool PointCloudSelection::computeRelations(const RelationSnapshot& snapshot, double tolerance, double angleDegrees,
+    std::vector<reconstruction::SurfaceRelation>& inferred, std::string& error)
+{
+    inferred.clear();error.clear();
     if (!std::isfinite(tolerance) || tolerance <= 0 || !std::isfinite(angleDegrees)
-        || angleDegrees <= 0 || angleDegrees > 30) return;
-    checkpoint(recordUndo);
-    std::map<QString, int> previousIds;
-    for (const auto& r : m_relations) previousIds[key(r.first, r.second, r.type)] = r.id;
-    m_relations.erase(std::remove_if(m_relations.begin(), m_relations.end(),
-                                   [](const auto& r) { return r.automatic; }), m_relations.end());
+        || angleDegrees <= 0 || angleDegrees > 30) {error="Invalid relation tolerances";return false;}
+    const auto& memberships = snapshot.memberships;
+    const auto& deleted = snapshot.deleted;
+    if (memberships.size()!=snapshot.positions.size() || deleted.size()!=memberships.size()) {
+        error="Relation snapshot arrays are misaligned";return false;
+    }
     std::map<int, std::vector<vtkIdType>> points;
-    for (size_t i = 0; i < m_memberships.size(); ++i) {
-        if (!m_deleted[i] && m_memberships[i]) points[m_memberships[i]].push_back(static_cast<vtkIdType>(i));
+    for (size_t i = 0; i < memberships.size(); ++i) {
+        if (!deleted[i] && memberships[i]) points[memberships[i]].push_back(static_cast<vtkIdType>(i));
     }
     std::vector<reconstruction::PointSample> observations;
-    for (size_t i=0; i<m_memberships.size(); ++i) {
-        if (m_deleted[i]) continue;
-        double p[3]; m_data->GetPoint(static_cast<vtkIdType>(i), p);
+    for (size_t i=0; i<memberships.size(); ++i) {
+        if (deleted[i]) continue;
+        const auto& p = snapshot.positions[i];
         reconstruction::PointSample sample; sample.id=i+1; sample.position={p[0],p[1],p[2]};
         observations.push_back(sample);
     }
     std::vector<reconstruction::RelationSurface> nodes;
-    for (const auto& region : m_regions) {
+    for (const auto& region : snapshot.regions) {
         reconstruction::RelationSurface node;
         node.id=region.id; node.evidence=regionEvidence(region);
         for(auto id : points[region.id]) node.supportPointIds.push_back(id+1);
@@ -87,10 +102,17 @@ void PointCloudSelection::inferRelations(double tolerance, double angleDegrees, 
     reconstruction::SurfaceRelationOptions options;
     options.distanceTolerance=tolerance;
     options.angularToleranceRadians=angleDegrees*3.14159265358979323846/180;
-    std::vector<reconstruction::SurfaceRelation> inferred;
-    std::string error;
-    if(!reconstruction::inferSurfaceRelations(reconstruction::PointStore(std::move(observations)),
-            nodes,options,inferred,error)) return;
+    return reconstruction::inferSurfaceRelations(reconstruction::PointStore(std::move(observations)),
+            nodes,options,inferred,error);
+}
+
+void PointCloudSelection::applyInferredRelations(const std::vector<reconstruction::SurfaceRelation>& inferred, bool recordUndo)
+{
+    checkpoint(recordUndo);
+    std::map<QString, int> previousIds;
+    for (const auto& r : m_relations) previousIds[key(r.first, r.second, r.type)] = r.id;
+    m_relations.erase(std::remove_if(m_relations.begin(), m_relations.end(),
+                                   [](const auto& r) { return r.automatic; }), m_relations.end());
     // Relation count can reach tens of thousands after surface analysis. A linear
     // duplicate scan inside the append loop is quadratic and stalls the UI thread.
     QSet<QString> suppressedKeys;

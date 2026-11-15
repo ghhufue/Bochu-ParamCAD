@@ -124,6 +124,11 @@ PointCloudWorkspaceController::~PointCloudWorkspaceController()
     // Join both workers before the window destroys borrowed views.
     disconnect(m_cadTask, nullptr, this, nullptr);
     delete m_cadTask;
+    if (m_downsampleThread) {
+        disconnect(m_downsampleThread, nullptr, this, nullptr);
+        m_downsampleThread->requestInterruption();
+        m_downsampleThread->wait();
+    }
     if (m_analysisThread) {
         disconnect(m_analysisThread, nullptr, this, nullptr);
         m_analysisThread->requestInterruption();
@@ -277,8 +282,7 @@ void PointCloudWorkspaceController::connectUi()
         m_document->lockTemplate(id); requestGuidedReconstruction();
     });
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::inferRequested, this, [this] {
-        m_document->inferRelations(m_ui.relationsPanel->relationTolerance(), m_ui.relationsPanel->angleTolerance());
-        m_ui.relationsPanel->setStatus(workspaceTr("已按当前容差更新自动关系。手动关系与已删除的关系记录保持有效。"));
+        startRelationInference();
     });
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::exportRequested, this, [this] {
         const QFileInfo source(m_document->sourcePath());
@@ -466,6 +470,7 @@ void PointCloudWorkspaceController::refreshDownsampleControls()
 void PointCloudWorkspaceController::applyDownsample(double voxelSizeMm)
 {
     ReconstructPanel* panel = m_ui.propertyPanel->reconstructPanel();
+    if (m_downsampleThread || m_analysisThread || m_cadTask->isRunning() || m_startingCad) return;
     const QString active = m_document->sourcePath();
     if (active.isEmpty() || !m_document->hasCloud()) {
         panel->setDownsampleStatus(workspaceTr("当前没有可降采样的点云。"));
@@ -499,37 +504,61 @@ void PointCloudWorkspaceController::applyDownsample(double voxelSizeMm)
     if (!QFileInfo::exists(target)) {
         panel->setDownsampleBusy(true);
         panel->setDownsampleStatus(workspaceTr("正在按 %1 mm 融合…").arg(voxelSizeMm));
-        QApplication::setOverrideCursor(Qt::WaitCursor);
-        QString error;
-        bool complete = false;
-        do {
-            PlyCloud source;
-            if (!PlyReader::read(root, source, error)) break;
-            PlyCloud reduced;
-            if (!pointcloud::voxelDownsample(source, voxelSizeMm, reduced, error)) break;
-            if (!QDir().mkpath(pointcloud::downsampleDirectory(root))) {
-                error = workspaceTr("无法创建降采样目录：%1")
-                            .arg(pointcloud::downsampleDirectory(root));
-                break;
+        struct Result { QString error, warning; bool cancelled = false; };
+        auto result = std::make_shared<Result>();
+        const auto revision = m_document->revision();
+        m_downsampleThread = QThread::create([root, target, voxelSizeMm, result] {
+            const auto cancelled = [&] {
+                result->cancelled = QThread::currentThread()->isInterruptionRequested();
+                return result->cancelled;
+            };
+            try {
+                PlyCloud source, reduced;
+                if (cancelled() || !PlyReader::read(root, source, result->error) || cancelled()) return;
+                if (!pointcloud::voxelDownsample(source, voxelSizeMm, reduced, result->error) || cancelled()) return;
+                if (!QDir().mkpath(pointcloud::downsampleDirectory(root))) {
+                    result->error = workspaceTr("无法创建降采样目录：%1").arg(pointcloud::downsampleDirectory(root));
+                    return;
+                }
+                if (!PlyWriter::write(reduced, target, result->error)) return;
+                pointcloud::writeUnitSidecar(target, pointCloudUnitName(root), voxelSizeMm, result->warning);
+                cancelled();
+            } catch (const std::exception& error) { result->error = QString::fromUtf8(error.what()); }
+        });
+        auto* thread = m_downsampleThread;
+        thread->setParent(this);
+        connect(thread, &QThread::finished, this, [this, panel, thread, root, target, voxelSizeMm, revision, result] {
+            m_downsampleThread = nullptr;
+            panel->setDownsampleBusy(false);
+            updateCadActions();
+            const auto resume = qScopeGuard([this] {
+                if (m_guidedQueued) QTimer::singleShot(0, this, &PointCloudWorkspaceController::startQueuedReconstruction);
+            });
+            if (result->cancelled || thread->isInterruptionRequested() || m_document->revision() != revision) {
+                panel->setDownsampleStatus(workspaceTr("点云已修改或任务已取消，本轮降采样未应用。"));
+                return;
             }
-            if (!PlyWriter::write(reduced, target, error)) break;
-            QString sidecarError;
-            if (!pointcloud::writeUnitSidecar(target, pointCloudUnitName(root), voxelSizeMm,
-                                              sidecarError))
-                emit logWarning(workspaceTr("降采样点云已保存，但单位信息写入失败：%1")
-                                    .arg(sidecarError));
-            complete = true;
-        } while (false);
-        QApplication::restoreOverrideCursor();
-        panel->setDownsampleBusy(false);
-        if (!complete) {
-            emit logError(error);
-            panel->setDownsampleStatus(error);
-            if(!m_dialogParent->property("paramcadBatchCapture").toBool())
-                QMessageBox::warning(m_dialogParent, workspaceTr("降采样"), error);
-            return;
-        }
+            if (!result->error.isEmpty()) {
+                emit logError(result->error);
+                panel->setDownsampleStatus(result->error);
+                if (!m_dialogParent->property("paramcadBatchCapture").toBool())
+                    QMessageBox::warning(m_dialogParent, workspaceTr("降采样"), result->error);
+                return;
+            }
+            if (!result->warning.isEmpty()) emit logWarning(result->warning);
+            finishDownsample(root, target, voxelSizeMm);
+        });
+        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+        updateCadActions();
+        thread->start();
+        return;
     }
+    finishDownsample(root, target, voxelSizeMm);
+}
+
+void PointCloudWorkspaceController::finishDownsample(const QString& root, const QString& target, double voxelSizeMm)
+{
+    auto* panel = m_ui.propertyPanel->reconstructPanel();
     QString error;
     if (!switchActiveCloud(target, error)) {
         emit logError(error);
@@ -689,7 +718,7 @@ void PointCloudWorkspaceController::startProjectionDebug(reconstruction::Project
 
 void PointCloudWorkspaceController::startCadReconstruction(bool projectionFallback)
 {
-    if (m_cadTask->isRunning() || m_startingCad || m_analysisThread) return;
+    if (m_cadTask->isRunning() || m_startingCad || m_analysisThread || m_downsampleThread) return;
     if (m_document->sourcePath().isEmpty()) {
         emit logWarning(workspaceTr("Load a point cloud before reconstructing a model."));
         emit statusMessage(workspaceTr("尚未载入点云"), 3500);
@@ -792,7 +821,7 @@ void PointCloudWorkspaceController::requestGuidedReconstruction()
 
 void PointCloudWorkspaceController::startQueuedReconstruction()
 {
-    if (!m_guidedQueued || m_cadTask->isRunning() || m_analysisThread || m_startingCad) return;
+    if (!m_guidedQueued || m_cadTask->isRunning() || m_analysisThread || m_downsampleThread || m_startingCad) return;
     m_guidedQueued = false;
     if (m_modelingController->hasProtectedReconstruction()) return;
     if (m_document->hasCloud()) reconstructCad();
@@ -800,12 +829,15 @@ void PointCloudWorkspaceController::startQueuedReconstruction()
 
 void PointCloudWorkspaceController::cancelCadReconstruction()
 {
+    if (m_downsampleThread) m_downsampleThread->requestInterruption();
+    if (m_analysisThread) m_analysisThread->requestInterruption();
     m_guidedQueued = false;
     m_cadTask->cancel();
 }
 
 void PointCloudWorkspaceController::prepareProjectReplacement()
 {
+    if (m_downsampleThread) m_downsampleThread->requestInterruption();
     m_analyseAfterCad = false;
     cancelCadReconstruction();
     if (m_analysisThread) m_analysisThread->requestInterruption();
@@ -814,7 +846,7 @@ void PointCloudWorkspaceController::prepareProjectReplacement()
 void PointCloudWorkspaceController::updateCadActions()
 {
     const bool running = m_cadTask->isRunning();
-    const bool busy = running || m_startingCad || m_analysisThread;
+    const bool busy = running || m_startingCad || m_analysisThread || m_downsampleThread;
     m_ui.reconstructCadAction->setText(workspaceTr("重建 CAD"));
     m_ui.reconstructCadAction->setToolTip(workspaceTr("仅使用点云的位置、法向和用户模板拟合 CAD，不读取源模型或拓扑对应表。"));
     m_ui.reconstructCadAction->setEnabled(!busy && m_document->hasCloud()
@@ -829,7 +861,9 @@ void PointCloudWorkspaceController::updateCadActions()
         m_inspectProjection->setEnabled(m_ui.projectionDebugAction->isEnabled());
     }
     if (m_projectionMode) m_projectionMode->setEnabled(!busy);
-    m_ui.cancelCadAction->setEnabled(running && !m_cadTask->isCancellationRequested());
+    m_ui.cancelCadAction->setEnabled((running && !m_cadTask->isCancellationRequested()) ||
+        (m_downsampleThread && !m_downsampleThread->isInterruptionRequested()) ||
+        (m_analysisThread && !m_analysisThread->isInterruptionRequested()));
     m_ui.relationsPanel->setBusy(busy);
     m_ui.relationsPanel->setCadReconstructionBusy(running, m_ui.cancelCadAction->isEnabled());
 }
@@ -1126,9 +1160,9 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
 
 void PointCloudWorkspaceController::startPointCloudAnalysis(int regionId, bool recordUndo)
 {
-    if (m_analysisThread || m_startingCad || m_cadTask->isRunning() || !m_document->hasCloud()) return;
+    if (m_analysisThread || m_downsampleThread || m_startingCad || m_cadTask->isRunning() || !m_document->hasCloud()) return;
     std::vector<vtkIdType> ids;
-    const auto cloud = m_document->workingCloud(&ids, regionId == 0, regionId == 0 ? -1 : regionId);
+    auto cloud = m_document->workingCloud(&ids, regionId == 0, regionId == 0 ? -1 : regionId);
     const auto* region = m_document->selection().region(regionId);
     const QString geometry = region ? region->geometry : QString();
     if (regionId && (!region || geometry == "cuboid")) return;
@@ -1138,17 +1172,21 @@ void PointCloudWorkspaceController::startPointCloudAnalysis(int regionId, bool r
     auto result = std::make_shared<PointCloudAnalysisResult>();
     m_ui.relationsPanel->setStatus(regionId ? workspaceTr("正在后台重拟合集合…") : workspaceTr("正在后台识别表面，并映射回原始点…"));
     const auto sourceUnit=cloudUnit(*m_document);
-    m_analysisThread = QThread::create([cloud, ids, geometry, tolerance, result, sourceUnit] {
+    const auto cloudCount = cloud.positions.size();
+    m_analysisThread = QThread::create([cloud = std::move(cloud), ids = std::move(ids), geometry, tolerance, result, sourceUnit] {
         try { *result = analysePointCloud(cloud, ids, tolerance, geometry,sourceUnit); }
         catch (const std::exception& error) { result->error = QString::fromUtf8(error.what()); }
     });
     auto* thread = m_analysisThread;
     thread->setParent(this);
     updateCadActions();
-    connect(thread, &QThread::finished, this, [this, result, revision, regionId, recordUndo, count = cloud.positions.size()] {
+    connect(thread, &QThread::finished, this, [this, thread, result, revision, regionId, recordUndo, count = cloudCount] {
         m_analysisThread = nullptr;
         updateCadActions();
         if(m_guidedQueued) { startQueuedReconstruction(); return; }
+        if (thread->isInterruptionRequested()) {
+            m_ui.relationsPanel->setStatus(workspaceTr("识别已取消。"));return;
+        }
         if (m_document->revision() != revision) {
             m_ui.relationsPanel->setStatus(workspaceTr("工作点云或关系已被修改，本轮识别结果未应用；可重新识别。")); return;
         }
@@ -1165,13 +1203,46 @@ void PointCloudWorkspaceController::startPointCloudAnalysis(int regionId, bool r
             }
             m_document->updateRegionFit(regionId, best->surface, recordUndo);
         } else m_document->addSurfaces(result->surfaces, recordUndo);
-        m_document->inferRelations(m_ui.relationsPanel->relationTolerance(), m_ui.relationsPanel->angleTolerance(), recordUndo);
         m_ui.relationsPanel->setStatus(workspaceTr("识别完成：%1 个表面，归属 %2 / %3 个原始点。未归属点已保留。")
             .arg(result->surfaces.size()).arg(result->assignedPoints).arg(count));
         emit logInfo(workspaceTr("Surface analysis completed: %1 surfaces, %2 source points assigned")
             .arg(result->surfaces.size()).arg(result->assignedPoints));
+        startRelationInference(recordUndo);
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
+}
+
+void PointCloudWorkspaceController::startRelationInference(bool recordUndo)
+{
+    if (m_analysisThread || m_downsampleThread || m_startingCad || m_cadTask->isRunning() || !m_document->hasCloud()) return;
+    const auto revision = m_document->revision();
+    const double tolerance = m_ui.relationsPanel->relationTolerance();
+    const double angle = m_ui.relationsPanel->angleTolerance();
+    auto snapshot = m_document->selection().relationSnapshot();
+    struct Result { std::vector<reconstruction::SurfaceRelation> relations; std::string error; };
+    auto result = std::make_shared<Result>();
+    m_analysisThread = QThread::create([snapshot = std::move(snapshot), tolerance, angle, result] {
+        try { PointCloudSelection::computeRelations(snapshot, tolerance, angle, result->relations, result->error); }
+        catch (const std::exception& error) { result->error = error.what(); }
+    });
+    auto* thread = m_analysisThread;
+    thread->setParent(this);
+    connect(thread, &QThread::finished, this, [this, thread, revision, tolerance, angle, result, recordUndo] {
+        m_analysisThread = nullptr;updateCadActions();
+        if (m_guidedQueued) { startQueuedReconstruction();return; }
+        if (thread->isInterruptionRequested() || m_document->revision()!=revision ||
+            tolerance!=m_ui.relationsPanel->relationTolerance() || angle!=m_ui.relationsPanel->angleTolerance()) {
+            m_ui.relationsPanel->setStatus(workspaceTr("点云或容差已修改，本轮自动关系未应用。"));return;
+        }
+        if (!result->error.empty()) {
+            m_ui.relationsPanel->setStatus(QString::fromStdString(result->error));return;
+        }
+        m_document->applyInferredRelations(result->relations, recordUndo);
+        m_ui.relationsPanel->setStatus(workspaceTr("已按当前容差更新自动关系。手动关系与已删除的关系记录保持有效。"));
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    m_ui.relationsPanel->setStatus(workspaceTr("正在后台推断曲面关系…"));
+    updateCadActions();thread->start();
 }
 

@@ -410,10 +410,12 @@ void MainWindow::createActions()
     // will use is picked by clicking a datum plane or a planar face in the
     // viewport, so the action stays inert until such a selection exists.
     m_newSketchAction = new QAction(tr("新建草图"), this);
+    m_newSketchAction->setObjectName(QStringLiteral("newSketchAction"));
     m_newSketchAction->setToolTip(
         tr("在选定的基准面或平面上创建草图"));
     m_newSketchAction->setEnabled(false);
     m_closeAction = new QAction(tr("关闭模型"), this);
+    m_closeAction->setObjectName(QStringLiteral("closeModelAction"));
     m_saveAction = new QAction(style()->standardIcon(QStyle::SP_DialogSaveButton), tr("保存"), this);
     m_saveAction->setShortcut(QKeySequence::Save);
     m_saveAction->setObjectName(QStringLiteral("saveProjectAction"));
@@ -439,6 +441,7 @@ void MainWindow::createActions()
     m_bottomViewAction = new QAction(tr("底视图"), this);
 
     m_datumPlanesAction = new QAction(tr("基准面"), this);
+    m_datumPlanesAction->setObjectName(QStringLiteral("datumPlanesAction"));
     m_datumPlanesAction->setCheckable(true);
     // The planes are drawn from the first frame of the 3D view, so the entry
     // starts checked and always reflects what the viewport shows.

@@ -1,4 +1,5 @@
 #include "app/MainWindow.h"
+#include "app/PointCloudWorkspaceController.h"
 #include "app/CaptureController.h"
 #include "app/CaptureWorkspaceController.h"
 #include "app/ReconstructionController.h"
@@ -106,6 +107,27 @@ int main(int argc,char** argv) {
         require(document->sourceUnit()=="mm","structured-light output lost its physical unit");
         const auto result=readJson(reconstruction->runDirectory()+"/result.json");
         require(result["status"].toString()=="complete" && result["valid_stations"].toInt()==6,"multi-station reconstruction incomplete");
+        // Fusion reads, sorts and writes on a worker. The old cloud remains
+        // active until the revision-checked completion is delivered.
+        auto* downsampleRun=window.findChild<QPushButton*>("downsampleRunButton");
+        require(downsampleRun,"downsample action exists");
+        const auto rawCloud=document->sourcePath();const auto rawCount=document->pointCount();
+        downsampleSpacing->setCurrentText(QStringLiteral("0.4"));downsampleRun->click();
+        require(!downsampleRun->isEnabled() && document->sourcePath()==rawCloud,"downsample must return before applying results");
+        waitFor([&]{return downsampleRun->isEnabled();});
+        require(document->sourcePath()!=rawCloud && document->pointCount()<=rawCount && document->sourceUnit()=="mm",
+                "background downsample must retain metric units and reduce the cloud");
+        downsampleSpacing->setCurrentText(QStringLiteral("0"));downsampleRun->click();
+        require(document->sourcePath()==rawCloud && document->pointCount()==rawCount,"restore original cloud after background fusion");
+        downsampleSpacing->setCurrentText(QStringLiteral("0.6"));downsampleRun->click();
+        document->select({0});document->assignRegion("plane","edit during fusion");
+        waitFor([&]{return downsampleRun->isEnabled();});
+        require(document->sourcePath()==rawCloud && !document->selection().regions().empty(),"stale fusion must not overwrite cloud edits");
+        downsampleSpacing->setCurrentText(QStringLiteral("0.8"));downsampleRun->click();
+        auto* workspace=window.findChild<PointCloudWorkspaceController*>();
+        require(workspace,"workspace controller");workspace->cancelCadReconstruction();
+        waitFor([&]{return downsampleRun->isEnabled();});
+        require(document->sourcePath()==rawCloud,"cancelled fusion must not replace the active cloud");
         std::cout<<"client reconstructed and loaded "<<document->pointCount()<<" points: "<<cloud.toStdString()<<std::endl;
         const auto oldPath=document->sourcePath();const int oldCount=document->pointCount();
         error.clear();reconstructionPanel->findChild<QPushButton*>("reconstructRunButton")->click();

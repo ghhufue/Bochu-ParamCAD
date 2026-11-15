@@ -59,6 +59,21 @@ void testAdjacencyToleranceBoundary()
     PointCloudSelection document;
     document.setCloud(cloud);
     document.addSurfaces({{region, {0}}, {region, {1}}});
+    const auto snapshot = document.relationSnapshot();
+    std::vector<reconstruction::SurfaceRelation> inferred;
+    std::string error;
+    require(PointCloudSelection::computeRelations(snapshot, .125, 2, inferred, error),"snapshot inference succeeds");
+    require(document.relations().empty(),"background computation never mutates the document");
+    document.applyInferredRelations(inferred);
+    require(hasRelation(document,1,2,"adjacent"),"snapshot relations can be committed independently");
+    document.select({0});document.deleteSelectedPoints();
+    std::vector<reconstruction::SurfaceRelation> repeated;
+    require(PointCloudSelection::computeRelations(snapshot,.125,2,repeated,error) && repeated.size()==inferred.size(),
+        "snapshot inference remains independent of subsequent source edits");
+    require(document.undo(),"restore deleted point");
+    auto invalid = snapshot;invalid.positions.clear();
+    require(!PointCloudSelection::computeRelations(invalid,.125,2,repeated,error) && !error.empty(),
+        "misaligned snapshots are rejected before indexing");
     document.inferRelations(0.125, 2);
     require(hasRelation(document, 1, 2, "adjacent"), "adjacency includes points exactly at tolerance");
     document.inferRelations(0.12, 2);

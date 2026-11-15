@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable
+import os
+
 import numpy as np
 
 
-def oriented_normals(points: np.ndarray, camera_position: np.ndarray) -> np.ndarray:
+def oriented_normals(points: np.ndarray, camera_position: np.ndarray, *, workers: int = 0,
+                     check_cancel: Callable[[], None] | None = None) -> np.ndarray:
     """Return unit normals facing the camera; zero means insufficient evidence.
 
     Fit a local plane to a 5x5 image window. Missing pixels, depth jumps,
     grazing views and neighborhoods without a stable planar direction do not
     supply signed normal seeds. No scene geometry is consulted.
+
+    Row tiles carry a two-row halo, preserving the exact 5x5 neighborhoods.
+    At most four workers bound temporary memory; workers=1 runs tiles serially.
+    Cancellation is checked on the calling thread between completed tiles.
     """
     points = np.asarray(points, dtype=np.float64)
     camera_position = np.asarray(camera_position, dtype=np.float64)
@@ -18,6 +27,43 @@ def oriented_normals(points: np.ndarray, camera_position: np.ndarray) -> np.ndar
         raise ValueError("normal estimation needs an HxWx3 point image and a camera position")
     if not np.isfinite(camera_position).all():
         raise ValueError("camera position must be finite")
+    if not isinstance(workers, int) or workers < 0:
+        raise ValueError("normal worker count must be a nonnegative integer")
+    if check_cancel:
+        check_cancel()
+    if min(points.shape[:2]) < 3 or points.shape[0] <= 64 or points.shape[0] * points.shape[1] < 65536:
+        return _normal_tile(points, camera_position)
+    height, width = points.shape[:2]
+    tile_rows = max(1, min(64, 65536 // width))
+    starts = range(0, height, tile_rows)
+    count = min(workers or (os.cpu_count() or 1), 4, len(starts))
+    result = np.empty_like(points)
+
+    def tile(start: int) -> tuple[int, int, np.ndarray]:
+        end = min(start + tile_rows, height)
+        lo, hi = max(0, start - 2), min(height, end + 2)
+        normals = _normal_tile(points[lo:hi], camera_position)
+        return start, end, normals[start - lo:end - lo]
+
+    def collect(tiles):
+        for start, end, normals in tiles:
+            if check_cancel:
+                check_cancel()
+            result[start:end] = normals
+
+    if count == 1:
+        collect(map(tile, starts))
+    else:
+        pool = ThreadPoolExecutor(max_workers=count, thread_name_prefix="pcad-normal")
+        try:
+            collect(pool.map(tile, starts))
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)
+    return result
+
+
+def _normal_tile(points: np.ndarray, camera_position: np.ndarray) -> np.ndarray:
+    """Unchanged local PCA arithmetic; called only with validated arrays."""
     result = np.zeros_like(points)
     if min(points.shape[:2]) < 3:
         return result

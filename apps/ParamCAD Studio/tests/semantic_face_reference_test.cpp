@@ -123,8 +123,7 @@ void nativePickAndSave() {
     const auto* display=renderer->GetDisplayPoint(); auto* interactor=viewer->renderWindow()->GetInteractor();
     interactor->SetEventInformation(static_cast<int>(std::round(display[0])),static_cast<int>(std::round(display[1])));
     interactor->LeftButtonPressEvent(); interactor->LeftButtonReleaseEvent();
-    QAction* newSketch=nullptr;
-    for (auto* action:window.findChildren<QAction*>()) if (action->text()=="New Sketch") newSketch=action;
+    auto* newSketch=window.findChild<QAction*>("newSketchAction");
     require(newSketch && newSketch->isEnabled(),"native face pick enables sketch creation"); newSketch->trigger();
     const auto sketchId=model->features().back().id;
     const auto* params=model->sketchParams(sketchId);

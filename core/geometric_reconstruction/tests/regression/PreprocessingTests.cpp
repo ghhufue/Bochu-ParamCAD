@@ -1,6 +1,45 @@
 #include "TestSupport.h"
+#include <tuple>
 
 namespace regression {
+void testParallelPreprocessingMatchesSerial() {
+    std::vector<reconstruction::PointSample> samples;
+    for (int y=0;y<120;++y) for(int x=0;x<120;++x) {
+        reconstruction::PointSample p;
+        p.id=samples.size()+1;p.position={x*.05,y*.05,.01*std::sin(x*.02)};
+        if(p.id%5==0)p.normal=modeling::Vec3{0,0,-2};
+        if(p.id%997==0)p.position.z+=20;
+        samples.push_back(p);
+    }
+    for (int ordering=0;ordering<2;++ordering) {
+        const reconstruction::PointStore source(samples);
+        reconstruction::PointCloudPreprocessingOptions options;options.workerCount=1;
+        reconstruction::PointStore serial({});
+        reconstruction::PointCloudPreprocessingReport expected;std::string error;
+        require(reconstruction::preprocessPointCloud(source,options,serial,expected,error),error);
+        require(expected.removedAsOutliers>0 && expected.normalsEstimated>0 && expected.estimatedNormalsOriented>0,
+            "Parallel fixture must exercise outlier rejection, PCA and signed propagation");
+        for (const auto workers : {4U,0U}) {
+            options.workerCount=workers;reconstruction::PointStore parallel({});
+            reconstruction::PointCloudPreprocessingReport actual;
+            require(reconstruction::preprocessPointCloud(source,options,parallel,actual,error),error);
+            require(reconstruction::pointStoreFingerprint(serial)==reconstruction::pointStoreFingerprint(parallel),
+                "Parallel preprocessing must preserve exact observations, order and normal orientation");
+            for(std::size_t i=0;i<serial.size();++i)
+                require(serial.points()[i].curvature==parallel.points()[i].curvature,"Parallel PCA curvature must be exact");
+            const auto stats=[](const auto& r) {
+                return std::make_tuple(r.inputPointCount,r.voxelPointCount,r.outputPointCount,r.removedByVoxel,
+                    r.removedAsOutliers,r.normalsFromInput,r.normalsEstimated,r.estimatedNormalsOriented,
+                    r.normalsWithoutOrientation,r.degenerateNeighborhoods,r.pointsWithCurvature,
+                    r.appliedScaleToMillimeters,r.outlierMeanNeighborDistance,r.outlierMedianNeighborDistance,
+                    r.outlierDistanceThreshold);
+            };
+            require(stats(actual)==stats(expected),"Parallel statistics and rejection thresholds must be exact");
+        }
+        std::reverse(samples.begin(),samples.end());
+    }
+}
+
 void testPreprocessingPreservesNormalOrientation() {
     reconstruction::SyntheticBoxRequest request;
     request.box.sizeX=30;request.box.sizeY=20;request.box.sizeZ=10;

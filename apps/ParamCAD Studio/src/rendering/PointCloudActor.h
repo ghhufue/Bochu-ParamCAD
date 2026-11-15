@@ -33,6 +33,7 @@ public:
     void bounds(double out[6]) const;
 
     vtkActor* actor() const noexcept;
+    vtkActor* selectionActor() const noexcept;
 
 private:
     vtkSmartPointer<vtkPoints> m_points;
@@ -41,6 +42,13 @@ private:
     vtkSmartPointer<vtkPolyData> m_polyData;
     vtkSmartPointer<vtkPolyDataMapper> m_mapper;
     vtkSmartPointer<vtkActor> m_actor;
+    vtkSmartPointer<vtkPoints> m_selectionPoints;
+    vtkSmartPointer<vtkCellArray> m_selectionVertices;
+    vtkSmartPointer<vtkPolyData> m_selectionData;
+    vtkSmartPointer<vtkActor> m_selectionActor;
+    const PointCloudSelection* m_annotationSelection = nullptr;
+    quint64 m_annotationRevision = 0;
+    bool m_baseColorsReady = false;
     bool m_hasCloud = false;
     bool m_visible = true;
     std::vector<std::array<unsigned char, 3>> m_sourceColors;

@@ -20,6 +20,7 @@ from structured_light.geometry import Device, fuse, triangulate
 from structured_light.patterns import decode, image, sequence
 from structured_light.pipeline import Options, reconstruct, write_json
 from structured_light.normals import oriented_normals
+from structured_light.normals import _normal_tile
 
 
 def save_image(path: Path, data: np.ndarray) -> None:
@@ -183,6 +184,38 @@ class GeometryTests(unittest.TestCase):
 
 
 class NormalTests(unittest.TestCase):
+    def test_parallel_tiles_preserve_halos_missing_pixels_and_depth_edges(self):
+        yy, xx = np.mgrid[:259, :263]
+        points = np.stack((xx * .05, yy * .05, 10 + xx * .001 + yy * .002), axis=-1)
+        points[:, 131:, 2] += 2
+        points[62:67, 30:37] = np.nan
+        points[127:130, 170:180] = np.inf
+        before = points.copy()
+        camera = np.array([5., 6., 100.])
+        expected = _normal_tile(points, camera)
+        self.assertGreater(np.count_nonzero(expected), 0)
+        for workers in (1, 4, 0):
+            with self.subTest(workers=workers):
+                np.testing.assert_array_equal(oriented_normals(points, camera, workers=workers), expected)
+        np.testing.assert_array_equal(points, before)
+
+    def test_normal_tiles_cancel_and_validate_worker_count(self):
+        points = np.zeros((257, 257, 3))
+        checks = 0
+        def cancel():
+            nonlocal checks
+            checks += 1
+            if checks == 2:
+                raise StructuredLightError("cancelled during normals")
+        with self.assertRaisesRegex(StructuredLightError, "cancelled during normals"):
+            oriented_normals(points, np.array([0, 0, 1]), check_cancel=cancel)
+        for workers in (-1, 1.5):
+            with self.assertRaisesRegex(ValueError, "worker"):
+                oriented_normals(points, np.array([0, 0, 1]), workers=workers)
+        for shape in ((0, 5, 3), (2, 5, 3), (257, 257, 3)):
+            points = np.full(shape, np.nan)
+            np.testing.assert_array_equal(oriented_normals(points, np.array([0, 0, 1])), np.zeros(shape))
+
     def test_measured_plane_normals_follow_rotated_camera(self):
         yy, xx = np.mgrid[:12, :16]
         local = np.stack((xx - 8, yy - 6, np.full(xx.shape, 100)), axis=-1).astype(float)

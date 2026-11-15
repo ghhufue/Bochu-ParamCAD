@@ -308,7 +308,7 @@ int main(int argc, char** argv)
         QByteArray corrupt = original;
         corrupt[corrupt.size() - 1] = static_cast<char>(corrupt.back() ^ 1);
         write(bad, corrupt);
-        require(!ProjectStore::load(bad, error) && error.contains("checksum"),
+        require(!ProjectStore::load(bad, error) && error.contains(QCoreApplication::translate("ProjectStore", "项目资源校验和不匹配")),
                 "corrupt asset rejected");
         auto metadata = manifest(original);
         require(metadata["version"] == 2, "new saves use version 2");
@@ -317,7 +317,7 @@ int main(int argc, char** argv)
         require(ProjectStore::load(bad, error) != nullptr, "version 1 projects remain readable");
         metadata["version"] = 4;
         write(bad, withManifest(original, metadata));
-        require(!ProjectStore::load(bad, error) && error.contains("version"),
+        require(!ProjectStore::load(bad, error) && error.contains(QCoreApplication::translate("ProjectStore", "不支持的项目格式/版本")),
                 "future version rejected");
         metadata = manifest(original);
         metadata["cloudName"] = "../escape.ply";

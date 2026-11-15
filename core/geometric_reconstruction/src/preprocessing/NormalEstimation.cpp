@@ -1,4 +1,5 @@
 #include "detail/KdTree.h"
+#include "common/Parallel.h"
 
 namespace reconstruction::detail::preprocessing {
 void estimateNormalsAndCurvature(
@@ -26,65 +27,73 @@ void estimateNormalsAndCurvature(
         options.normalNeighborCount, points.size() - 1U);
     const KdTree tree(points);
     std::vector<double> spacing(points.size(), 0.0);
-    for (std::size_t index = 0; index < points.size(); ++index) {
-        PointSample& sample = points[index];
+    std::vector<unsigned char> attributes(points.size(), 0);
+    reconstruction::detail::parallelRanges(points.size(), options.workerCount, [&](std::size_t begin, std::size_t end) {
+        for (std::size_t index = begin; index < end; ++index) {
+            PointSample& sample = points[index];
 
-        const auto neighbors = tree.nearest(index, neighborCount);
-        for (const auto& neighbor : neighbors) {
-            if (neighbor.first > 1.0e-24) {
-                spacing[index] = std::sqrt(neighbor.first);
-                break;
-            }
-        }
-        if (neighbors.size() < 3U) {
-            continue;
-        }
-        Vec3 centroid = sample.position;
-        for (const auto& neighbor : neighbors) {
-            centroid = math3::add(centroid, points[neighbor.second].position);
-        }
-        centroid = math3::scale(
-            centroid, 1.0 / static_cast<double>(neighbors.size() + 1U));
-
-        std::array<std::array<double, 3>, 3> covariance{};
-        const auto accumulate = [&covariance, &centroid](const Vec3& position) {
-            const Vec3 delta = math3::subtract(position, centroid);
-            const std::array<double, 3> values{{delta.x, delta.y, delta.z}};
-            for (int row = 0; row < 3; ++row) {
-                for (int column = 0; column < 3; ++column) {
-                    covariance[row][column] += values[row] * values[column];
+            const auto neighbors = tree.nearest(index, neighborCount);
+            for (const auto& neighbor : neighbors) {
+                if (neighbor.first > 1.0e-24) {
+                    spacing[index] = std::sqrt(neighbor.first);
+                    break;
                 }
             }
-        };
-        accumulate(sample.position);
-        for (const auto& neighbor : neighbors) {
-            accumulate(points[neighbor.second].position);
-        }
-
-        try {
-            const math3::SymmetricEigenResult eigen =
-                math3::symmetricEigenDecomposition(covariance);
-            const double sum = eigen.values[0] + eigen.values[1] +
-                eigen.values[2];
-            // Rank-one lines and coincident samples have no surface normal,
-            // even though the eigensolver returns a valid unit eigenvector.
-            if (eigen.values[1] <= std::max(1.0e-18, eigen.values[2] * 1.0e-8)) {
-                ++report.degenerateNeighborhoods;
+            if (neighbors.size() < 3U) {
                 continue;
             }
-            if (sum > 1.0e-18) {
-                sample.curvature = eigen.values[0] / sum;
-                ++report.pointsWithCurvature;
+            Vec3 centroid = sample.position;
+            for (const auto& neighbor : neighbors) {
+                centroid = math3::add(centroid, points[neighbor.second].position);
             }
-            if (!sample.normal.has_value() && options.estimateMissingNormals) {
-                sample.normal = eigen.vectors[0];
-                sample.normalOrientationKnown = false;
-                ++report.normalsEstimated;
+            centroid = math3::scale(
+                centroid, 1.0 / static_cast<double>(neighbors.size() + 1U));
+
+            std::array<std::array<double, 3>, 3> covariance{};
+            const auto accumulate = [&covariance, &centroid](const Vec3& position) {
+                const Vec3 delta = math3::subtract(position, centroid);
+                const std::array<double, 3> values{{delta.x, delta.y, delta.z}};
+                for (int row = 0; row < 3; ++row) {
+                    for (int column = 0; column < 3; ++column) {
+                        covariance[row][column] += values[row] * values[column];
+                    }
+                }
+            };
+            accumulate(sample.position);
+            for (const auto& neighbor : neighbors) {
+                accumulate(points[neighbor.second].position);
             }
-        } catch (const std::invalid_argument&) {
-            // A coincident or collinear neighbourhood has no stable surface
-            // normal. Preserve the point and leave its attributes absent.
+
+            try {
+                const math3::SymmetricEigenResult eigen =
+                    math3::symmetricEigenDecomposition(covariance);
+                const double sum = eigen.values[0] + eigen.values[1] +
+                    eigen.values[2];
+                // Rank-one lines and coincident samples have no surface normal,
+                // even though the eigensolver returns a valid unit eigenvector.
+                if (eigen.values[1] <= std::max(1.0e-18, eigen.values[2] * 1.0e-8)) {
+                    attributes[index] |= 1;
+                    continue;
+                }
+                if (sum > 1.0e-18) {
+                    sample.curvature = eigen.values[0] / sum;
+                    attributes[index] |= 2;
+                }
+                if (!sample.normal.has_value() && options.estimateMissingNormals) {
+                    sample.normal = eigen.vectors[0];
+                    sample.normalOrientationKnown = false;
+                    attributes[index] |= 4;
+                }
+            } catch (const std::invalid_argument&) {
+                // A coincident or collinear neighbourhood has no stable surface
+                // normal. Preserve the point and leave its attributes absent.
+            }
         }
+    });
+    for (const auto flags : attributes) {
+        report.degenerateNeighborhoods += (flags & 1) != 0;
+        report.pointsWithCurvature += (flags & 2) != 0;
+        report.normalsEstimated += (flags & 4) != 0;
     }
 
     if (std::none_of(points.begin(), points.end(), [](const PointSample& point) {

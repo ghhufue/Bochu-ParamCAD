@@ -194,7 +194,7 @@ def reconstruct(capture_path: str | Path, output: str | Path, *, options: Option
                 errors.extend(quality["reprojection_error"][valid].tolist())
             points = np.concatenate(station_points) if station_points else np.empty((0, 3))
             weights = np.concatenate(station_weights) if station_weights else np.empty(0)
-            normal_image = oriented_normals(point_image, station.camera.to_world[:3, 3])
+            normal_image = oriented_normals(point_image, station.camera.to_world[:3, 3], check_cancel=check_cancel)
             # Triangulation chunks preserve the row-major decoded pixel order.
             normals = normal_image[mask.astype(bool)]
             write_ply(station_root / "cloud.ply", points, normals)

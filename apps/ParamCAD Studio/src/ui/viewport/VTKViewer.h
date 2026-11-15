@@ -233,6 +233,7 @@ signals:
     void sketchDeleteRequested();
 
 private:
+    void renderFrame(bool interacting);
     void refreshAssemblyBoundaries();
     static void onCameraModified(vtkObject* caller, unsigned long eventId,
                                  void* clientData, void* callData);
@@ -301,6 +302,7 @@ private:
     QTimer m_renderTimer;
     bool m_cameraDirty = false;
     bool m_cameraInteracting = false;
+    bool m_interactionFrameRendered = false;
 
     ViewportTool m_tool = ViewportTool::Select;
     bool m_sketchInteraction = false;

@@ -1,4 +1,5 @@
 #include "occt/Builders.h"
+#include "occt/BooleanInputs.h"
 #include "occt/OcctError.h"
 
 #include <BRepAlgoAPI_Cut.hxx>
@@ -48,7 +49,8 @@ bool buildCut(
             return false;
         }
 
-        BRepAlgoAPI_Cut cut(body, prism.Shape());
+        BRepAlgoAPI_Cut cut;
+        setBooleanInputs(cut, body, prism.Shape());
         cut.SetRunParallel(false);
         cut.Build();
         if (!cut.IsDone()) {

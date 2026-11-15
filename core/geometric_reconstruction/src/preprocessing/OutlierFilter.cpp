@@ -1,4 +1,5 @@
 #include "detail/KdTree.h"
+#include "common/Parallel.h"
 
 namespace reconstruction::detail::preprocessing {
 std::vector<PointSample> removeOutliers(
@@ -16,17 +17,20 @@ std::vector<PointSample> removeOutliers(
     const KdTree tree(points);
     std::vector<double> meanDistances(points.size(), 0.0);
     double globalMean = 0.0;
-    for (std::size_t index = 0; index < points.size(); ++index) {
-        const auto neighbors = tree.nearest(index, neighborCount);
-        double total = 0.0;
-        for (const auto& neighbor : neighbors) {
-            total += std::sqrt(neighbor.first);
+    reconstruction::detail::parallelRanges(points.size(), options.workerCount, [&](std::size_t begin, std::size_t end) {
+        for (std::size_t index = begin; index < end; ++index) {
+            const auto neighbors = tree.nearest(index, neighborCount);
+            double total = 0.0;
+            for (const auto& neighbor : neighbors) {
+                total += std::sqrt(neighbor.first);
+            }
+            meanDistances[index] = neighbors.empty()
+                ? 0.0
+                : total / static_cast<double>(neighbors.size());
         }
-        meanDistances[index] = neighbors.empty()
-            ? 0.0
-            : total / static_cast<double>(neighbors.size());
-        globalMean += meanDistances[index];
-    }
+    });
+    // Preserve the serial summation order and therefore the rejection threshold.
+    for (const double distance : meanDistances) globalMean += distance;
     globalMean /= static_cast<double>(meanDistances.size());
 
     double variance = 0.0;

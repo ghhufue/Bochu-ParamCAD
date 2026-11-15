@@ -154,15 +154,15 @@ vtkSmartPointer<vtkMatrix4x4> poseMatrix(const double position[3], const double 
 
 void applyProjectorCamera(vtkCamera* camera, const double position[3], const double y[3],
                           const double z[3], double focalLength, double nearPlane,
-                          double farPlane)
+                          double farPlane, int shadowSize)
 {
     camera->SetPosition(position[0], position[1], position[2]);
     camera->SetFocalPoint(position[0] + z[0], position[1] + z[1], position[2] + z[2]);
     // The rig's Y axis runs down the image, so the camera up vector is -Y.
     camera->SetViewUp(-y[0], -y[1], -y[2]);
     camera->SetClippingRange(nearPlane, farPlane);
-    const double width = kPreviewShadowSize;
-    const double height = kPreviewShadowSize;
+    const double width = shadowSize;
+    const double height = shadowSize;
     const double center = 0.5 * width;
     vtkNew<vtkMatrix4x4> projection;
     projection->Zero();
@@ -460,7 +460,7 @@ void BodyActor::updatePreviewColors()
 
 void BodyActor::updatePreviewShadowMap(const double position[3], const double y[3],
                                        const double z[3], double focalLength,
-                                       double nearPlane, double farPlane)
+                                       double nearPlane, double farPlane, int shadowSize)
 {
     if (m_shadowRenderer == nullptr) {
         m_shadowRenderer = vtkSmartPointer<vtkRenderer>::New();
@@ -472,8 +472,13 @@ void BodyActor::updatePreviewShadowMap(const double position[3], const double y[
         m_shadowWindow = vtkSmartPointer<vtkRenderWindow>::New();
         m_shadowWindow->SetOffScreenRendering(1);
         m_shadowWindow->SetMultiSamples(0);
-        m_shadowWindow->SetSize(kPreviewShadowSize, kPreviewShadowSize);
+        m_shadowWindow->SetSize(shadowSize, shadowSize);
         m_shadowWindow->AddRenderer(m_shadowRenderer);
+    }
+    m_shadowWindow->SetSize(shadowSize, shadowSize);
+    if (m_shadowData->GetDimensions()[0] != shadowSize) {
+        m_shadowData->SetDimensions(shadowSize, shadowSize, 1);
+        m_shadowData->AllocateScalars(VTK_UNSIGNED_CHAR, 3);
     }
     auto* mapper = vtkPolyDataMapper::SafeDownCast(m_shadowActor->GetMapper());
     if (mapper == nullptr || m_surfaceMapper->GetInput() == nullptr) {
@@ -487,7 +492,7 @@ void BodyActor::updatePreviewShadowMap(const double position[3], const double y[
     m_shadowActor->SetUserMatrix(transform);
 
     applyProjectorCamera(m_shadowRenderer->GetActiveCamera(), position, y, z, focalLength,
-                         nearPlane, farPlane);
+                         nearPlane, farPlane, shadowSize);
     m_shadowWindow->Render();
     vtkNew<vtkWindowToImageFilter> depth;
     depth->SetInput(m_shadowWindow);
@@ -497,7 +502,7 @@ void BodyActor::updatePreviewShadowMap(const double position[3], const double y[
     depth->Update();
     const auto* source = static_cast<float*>(depth->GetOutput()->GetScalarPointer());
     auto* destination = static_cast<unsigned char*>(m_shadowData->GetScalarPointer());
-    for (int i = 0; i < kPreviewShadowSize * kPreviewShadowSize; ++i) {
+    for (int i = 0; i < shadowSize * shadowSize; ++i) {
         // Three bytes hold the depth exactly; a normalized texture would lose
         // precision in the driver and the bias could no longer be trusted.
         const auto packed =
@@ -509,11 +514,12 @@ void BodyActor::updatePreviewShadowMap(const double position[3], const double y[
     m_shadowData->Modified();
 }
 
-void BodyActor::updateMaterialPreview(vtkCamera* camera)
+void BodyActor::updateMaterialPreview(vtkCamera* camera, bool interacting)
 {
     if (!materialPreviewActive() || !m_previewShaderInstalled || camera == nullptr) {
         return;
     }
+    const int shadowSize = interacting ? 512 : kPreviewShadowSize;
     double cameraPosition[3];
     double cameraTarget[3];
     double cameraUp[3];
@@ -559,7 +565,7 @@ void BodyActor::updateMaterialPreview(vtkCamera* camera)
     // spend almost every texel on empty space and the remaining few would
     // self-shadow the surface.
     halfAngle = clampValue(halfAngle * 1.25, 0.002, 0.9);
-    const double focalLength = (kPreviewShadowSize * 0.5) / std::tan(halfAngle);
+    const double focalLength = (shadowSize * 0.5) / std::tan(halfAngle);
     const double nearPlane = std::max(1.0e-3, lightDistance - radius * 1.6);
     const double farPlane = lightDistance + radius * 1.6;
 
@@ -576,14 +582,14 @@ void BodyActor::updateMaterialPreview(vtkCamera* camera)
         }
     }
     const bool stale =
-        m_shadowDirty ||
+        m_shadowDirty || m_shadowData->GetDimensions()[0] != shadowSize ||
         std::memcmp(lightPosition, m_shadowViewPosition, sizeof(m_shadowViewPosition)) != 0 ||
         std::memcmp(center, m_shadowViewTarget, sizeof(m_shadowViewTarget)) != 0 ||
         std::memcmp(lightY, m_shadowViewUp, sizeof(m_shadowViewUp)) != 0 ||
         std::memcmp(actorMatrix, m_previewActorMatrix, sizeof(m_previewActorMatrix)) != 0;
     if (stale) {
         updatePreviewShadowMap(lightPosition, lightY, lightZ, focalLength, nearPlane,
-                               farPlane);
+                               farPlane, shadowSize);
         std::copy(lightPosition, lightPosition + 3, m_shadowViewPosition);
         std::copy(center, center + 3, m_shadowViewTarget);
         std::copy(lightY, lightY + 3, m_shadowViewUp);
@@ -613,10 +619,10 @@ void BodyActor::updateMaterialPreview(vtkCamera* camera)
     uniforms->SetUniformf("slFx", static_cast<float>(focalLength));
     uniforms->SetUniformf("slFy", static_cast<float>(focalLength));
     uniforms->SetUniformf("slShadowFy", static_cast<float>(focalLength));
-    uniforms->SetUniformf("slCx", kPreviewShadowSize * 0.5f);
-    uniforms->SetUniformf("slCy", kPreviewShadowSize * 0.5f);
-    uniforms->SetUniformf("slWidth", static_cast<float>(kPreviewShadowSize));
-    uniforms->SetUniformf("slHeight", static_cast<float>(kPreviewShadowSize));
+    uniforms->SetUniformf("slCx", shadowSize * 0.5f);
+    uniforms->SetUniformf("slCy", shadowSize * 0.5f);
+    uniforms->SetUniformf("slWidth", static_cast<float>(shadowSize));
+    uniforms->SetUniformf("slHeight", static_cast<float>(shadowSize));
     uniforms->SetUniformf("slNear", static_cast<float>(nearPlane));
     uniforms->SetUniformf("slFar", static_cast<float>(farPlane));
 }

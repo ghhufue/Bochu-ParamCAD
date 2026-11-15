@@ -68,11 +68,13 @@ private:
     void startQueuedReconstruction();
     void onCadReconstructionFinished(const CadReconstructionResult& result);
     void startPointCloudAnalysis(int regionId = 0, bool recordUndo = true);
+    void startRelationInference(bool recordUndo = true);
     void startReconstruction(const ReconstructRequest& request);
     void onReconstructionFinished(const QString& pointCloudPath, int pointCount,
                                   const QString& cameraMode, bool dense);
     void refreshDownsampleControls();
     void applyDownsample(double voxelSizeMm);
+    void finishDownsample(const QString& root, const QString& target, double voxelSizeMm);
     bool switchActiveCloud(const QString& path, QString& error);
 
     PointCloudDocument* const m_document;
@@ -80,6 +82,7 @@ private:
     ReconstructionController* const m_reconstructionController;
     const PointCloudWorkspaceUi m_ui;
     QThread* m_analysisThread = nullptr;
+    QThread* m_downsampleThread = nullptr;
     CadReconstructionTask* m_cadTask;
     QPointer<QWidget> m_projectionPage;
     QPointer<QWidget> m_projectionReport;

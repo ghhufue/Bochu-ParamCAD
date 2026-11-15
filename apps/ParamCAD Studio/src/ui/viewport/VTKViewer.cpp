@@ -192,6 +192,7 @@ VTKViewer::VTKViewer(QWidget* parent, PointCloudDocument* document)
     m_renderer->AddActor(m_bodyActor.edgeActor());
     m_renderer->AddActor(m_bodyActor.highlightActor());
     m_renderer->AddActor(m_pointCloudActor.actor());
+    m_renderer->AddActor(m_pointCloudActor.selectionActor());
     m_assemblyBoundaryActor=vtkSmartPointer<vtkActor>::New();m_assemblyBoundaryActor->SetPickable(false);
     m_assemblyBoundaryActor->GetProperty()->SetLineWidth(1.5);m_assemblyBoundaryActor->GetProperty()->LightingOff();
     m_assemblyBoundaryActor->SetVisibility(false);m_renderer->AddActor(m_assemblyBoundaryActor);
@@ -329,10 +330,16 @@ void VTKViewer::endBoxReferenceSelection()
 
 void VTKViewer::renderNow()
 {
+    renderFrame(m_cameraInteracting);
+}
+
+void VTKViewer::renderFrame(bool interacting)
+{
     m_renderTimer.stop();
     // The preview light rides on the camera, so its pose and shadow map are
     // refreshed from the pose the frame is about to be drawn with.
-    m_bodyActor.updateMaterialPreview(m_renderer->GetActiveCamera());
+    m_bodyActor.updateMaterialPreview(m_renderer->GetActiveCamera(), interacting);
+    m_interactionFrameRendered = interacting;
     m_renderWindow->Render();
 }
 
@@ -364,7 +371,7 @@ void VTKViewer::endCameraInteraction()
     // Deliver the exact final pose and image even for a gesture shorter than
     // either timer interval. renderNow/captureImage also cancel stale frames.
     if (m_cameraDirty) publishCameraChange();
-    if (m_renderTimer.isActive()) renderNow();
+    if (m_renderTimer.isActive() || m_interactionFrameRendered) renderNow();
 }
 
 double VTKViewer::parallelScale() const { return m_renderer->GetActiveCamera()->GetParallelScale(); }
@@ -906,12 +913,13 @@ bool VTKViewer::captureImage(const QString& filePath, int width, int height)
         m_orientationWidget->SetEnabled(0);
     }
 
-    renderNow();
+    renderFrame(false);
 
     vtkNew<vtkWindowToImageFilter> windowCapture;
     windowCapture->SetInput(m_renderWindow);
     windowCapture->SetInputBufferTypeToRGB();
     windowCapture->ReadFrontBufferOff();
+    windowCapture->ShouldRerenderOff();
     windowCapture->Update();
 
     vtkNew<vtkImageResize> resize;
@@ -949,12 +957,13 @@ bool VTKViewer::captureViewport(const QString& filePath)
         return false;
     }
 
-    renderNow();
+    renderFrame(false);
 
     vtkNew<vtkWindowToImageFilter> windowCapture;
     windowCapture->SetInput(m_renderWindow);
     windowCapture->SetInputBufferTypeToRGB();
     windowCapture->ReadFrontBufferOff();
+    windowCapture->ShouldRerenderOff();
     windowCapture->Update();
 
     vtkNew<vtkPNGWriter> writer;
@@ -1172,7 +1181,7 @@ void VTKViewer::refreshPointCloudSelection()
     m_pointCloudActor.setAnnotations(&pointCloudSelection());
     if(!m_assemblyBoundaryLines.empty())refreshAssemblyBoundaries();
     emit pointCloudSelectionChanged();
-    renderNow();
+    requestRender();
 }
 
 void VTKViewer::setPointCloudPointSize(double size)

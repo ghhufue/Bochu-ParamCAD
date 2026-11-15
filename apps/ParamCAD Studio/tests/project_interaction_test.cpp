@@ -41,11 +41,9 @@ double volume(const TopoDS_Shape& shape)
     BRepGProp::VolumeProperties(shape, p);
     return p.Mass();
 }
-QAction* action(MainWindow& window, const QString& text)
+QAction* action(MainWindow& window, const QString& name)
 {
-    for (auto* a : window.findChildren<QAction*>())
-        if (a->text() == text)
-            return a;
+    if (auto* result = window.findChild<QAction*>(name)) return result;
     throw std::runtime_error("missing project action");
 }
 void choose(MainWindow& window, QAction* command, const QString& path)
@@ -156,7 +154,7 @@ int main(int argc, char** argv)
         viewer->setObjectColor(Qt::yellow);
         viewer->setPointCloudPointSize(5);
         viewer->setPointCloudSelectionMode(2);
-        action(window, "Datum Planes")->setChecked(false);
+        action(window, "datumPlanesAction")->setChecked(false);
         panel->cameraPanel()->setOriginLock(false);
         CameraParameters camera;
         camera.position[0] = 42;
@@ -169,7 +167,7 @@ int main(int argc, char** argv)
         viewer->applyCamera(camera);
         viewer->setParallelScale(17.321);
         const auto projectPath = temp.filePath(QStringLiteral("可编辑项目.pcad"));
-        choose(window, action(window, "Save"), projectPath);
+        choose(window, action(window, "saveProjectAction"), projectPath);
         if (!warning.isEmpty())
             throw std::runtime_error(warning.toStdString());
         require(project->projectPath() == projectPath && QFile::exists(projectPath),
@@ -195,14 +193,14 @@ int main(int argc, char** argv)
         auto* restoredBody = restored.findChild<ModelViewController*>();
         auto* restoredCloud = restoredViewer->pointCloudDocument();
         auto* restoredPanel = restored.findChild<PropertyPanel*>();
-        choose(restored, action(restored, "Open Project..."), projectPath);
+        choose(restored, action(restored, "openProjectAction"), projectPath);
         if (!warning.isEmpty())
             throw std::runtime_error(warning.toStdString());
         require(restoredModel->features().size() == 2 &&
                     std::abs(volume(restoredModel->bodyShape()) - 480) < 1e-6,
                 "project opens editable history through window action");
         require(std::abs(volume(restoredBody->currentBody()) - 24) < 1e-6 &&
-                    action(restored, "Export STEP...")->isEnabled(),
+                    action(restored, "exportStepAction")->isEnabled(),
                 "active native body is restored independently and export becomes available");
         require(restoredCloud->pointCount() == 599 && !restoredCloud->selection().active(599) &&
                     restoredCloud->selection().relation(relation) &&
@@ -239,12 +237,12 @@ int main(int argc, char** argv)
         require(restoredModel->editSketch(sketchId, sketch) &&
                     std::abs(volume(restoredBody->currentBody()) - 576) < 1e-6,
                 "restored history can be edited and republishes current body");
-        action(restored, "Save")->trigger();
+        action(restored, "saveProjectAction")->trigger();
         auto edited = ProjectStore::load(projectPath, error);
         require(edited && std::abs(volume(edited->model.bodyShape()) - 576) < 1e-6,
                 "subsequent Save writes existing path without dialog");
         const auto asPath = temp.filePath("copied.pcad");
-        choose(restored, action(restored, "Save Project As..."), asPath);
+        choose(restored, action(restored, "saveProjectAsAction"), asPath);
         require(restoredProject->projectPath() == asPath,
                 "Save As changes subsequent save destination");
         bool cancelled = false;
@@ -254,14 +252,14 @@ int main(int argc, char** argv)
                 dialog->reject();
             }
         });
-        action(restored, "Save Project As...")->trigger();
+        action(restored, "saveProjectAsAction")->trigger();
         require(cancelled && restoredProject->projectPath() == asPath,
                 "cancelled Save As preserves destination");
 
         // Exercise an active sketch and a failed load: neither the editing
         // session nor the live documents should be touched by invalid input.
         restoredViewer->datumPlanePicked(modeling::DatumPlane::XY);
-        action(restored, "New Sketch")->trigger();
+        action(restored, "newSketchAction")->trigger();
         require(restoredViewer->sketchInteractionEnabled(), "enter sketch before failed load");
         const auto beforeModel = restoredModel->revision(), beforeCloud = restoredCloud->revision(),
                    beforeBody = restoredViewer->bodyRevision();
@@ -284,7 +282,7 @@ int main(int argc, char** argv)
                     restoredProject->projectPath() == asPath,
                 "failed save preserves current project destination");
         restoredProject->setCaptureBusy(true);
-        require(!action(restored, "Save")->isEnabled() &&
+        require(!action(restored, "saveProjectAction")->isEnabled() &&
                     !restoredProject->loadFrom(projectPath, error),
                 "capture prevents project replacement");
         restoredProject->setCaptureBusy(false);
@@ -295,7 +293,7 @@ int main(int argc, char** argv)
         // Queue a worker result against the old document and immediately replace
         // it. Cancellation and revisions must both keep the new project intact.
         auto* task = restored.findChild<CadReconstructionTask*>();
-        action(restored, "Reconstruct CAD")->trigger();
+        action(restored, "reconstructCadAction")->trigger();
         require(task->isRunning(), "CAD worker launched from restored metric cloud");
         require(restoredProject->loadFrom(projectPath, error),
                 "project opens while CAD task is pending");
@@ -304,10 +302,10 @@ int main(int argc, char** argv)
         require(restoredModel->revision() == loadedRevision &&
                     std::abs(volume(restoredBody->currentBody()) - 576) < 1e-6,
                 "old CAD completion cannot overwrite restored project");
-        action(restored, "Close Model")->trigger();
+        action(restored, "closeModelAction")->trigger();
         require(restoredProject->saveTo(asPath, error) &&
                     restoredProject->loadFrom(asPath, error) && !restoredViewer->hasBody() &&
-                    !action(restored, "Export STEP...")->isEnabled() &&
+                    !action(restored, "exportStepAction")->isEnabled() &&
                     restoredModel->features().size() == 2,
                 "closed body remains closed while feature graph is retained");
         ProjectSnapshot empty;

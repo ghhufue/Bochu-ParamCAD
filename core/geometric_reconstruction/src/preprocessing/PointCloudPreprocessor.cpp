@@ -4,6 +4,10 @@ namespace reconstruction::detail::preprocessing {
 bool validOptions(
     const PointCloudPreprocessingOptions& options,
     std::string& error) {
+    if (options.workerCount > 32) {
+        error = "Preprocessing worker count must be between 0 and 32";
+        return false;
+    }
     if (!std::isfinite(options.voxelSize) || options.voxelSize < 0.0) {
         error = "Voxel size must be finite and non-negative";
         return false;

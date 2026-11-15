@@ -3,6 +3,7 @@
 #include "modeling/PartDocument.h"
 #include "modeling/SemanticFaces.h"
 #include "occt/Builders.h"
+#include "occt/BooleanInputs.h"
 #include "occt/OcctError.h"
 
 #include <BRepAlgoAPI_Common.hxx>
@@ -121,7 +122,8 @@ bool applyExtrudeOperation(
         TopoDS_Shape result;
         switch (params.operation) {
         case ExtrudeOperation::Join: {
-            BRepAlgoAPI_Fuse operation(currentBody, tool);
+            BRepAlgoAPI_Fuse operation;
+            occt::setBooleanInputs(operation, currentBody, tool);
             operation.SetRunParallel(false);
             operation.Build();
             if (!operation.IsDone()) {
@@ -132,7 +134,8 @@ bool applyExtrudeOperation(
             break;
         }
         case ExtrudeOperation::Cut: {
-            BRepAlgoAPI_Cut operation(currentBody, tool);
+            BRepAlgoAPI_Cut operation;
+            occt::setBooleanInputs(operation, currentBody, tool);
             operation.SetRunParallel(false);
             operation.Build();
             if (!operation.IsDone()) {
@@ -143,7 +146,8 @@ bool applyExtrudeOperation(
             break;
         }
         case ExtrudeOperation::Intersect: {
-            BRepAlgoAPI_Common operation(currentBody, tool);
+            BRepAlgoAPI_Common operation;
+            occt::setBooleanInputs(operation, currentBody, tool);
             operation.SetRunParallel(false);
             operation.Build();
             if (!operation.IsDone()) {

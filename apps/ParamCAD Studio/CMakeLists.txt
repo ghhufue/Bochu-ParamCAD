@@ -44,6 +44,9 @@ add_subdirectory(
 )
 if(CAD_CLIENT_BUILD_TESTS)
     enable_testing()
+    add_executable(native_performance_benchmark ../../tools/benchmarks/native_performance.cpp)
+    target_link_libraries(native_performance_benchmark PRIVATE GeometricReconstruction::GeometricReconstruction)
+    target_link_directories(native_performance_benchmark PRIVATE ${OpenCASCADE_LIBRARY_DIR})
     add_executable(surface_analysis_test ../../core/geometric_reconstruction/tests/analysis/surface_analysis_test.cpp)
     target_link_libraries(surface_analysis_test PRIVATE GeometricReconstruction::GeometricReconstruction)
     target_include_directories(surface_analysis_test PRIVATE ${OpenCASCADE_INCLUDE_DIR} "${CMAKE_CURRENT_SOURCE_DIR}/../../core/geometric_reconstruction/src")
@@ -90,6 +93,30 @@ find_package(VTK REQUIRED COMPONENTS
     RenderingCore
     RenderingOpenGL2
 )
+
+if(CAD_CLIENT_BUILD_TESTS)
+    add_executable(rendering_performance_benchmark ../../tools/benchmarks/rendering_performance.cpp
+        src/rendering/BodyActor.cpp src/rendering/OcctShapeTessellator.cpp)
+    target_include_directories(rendering_performance_benchmark PRIVATE src)
+    target_link_directories(rendering_performance_benchmark PRIVATE ${OpenCASCADE_LIBRARY_DIR})
+    target_link_libraries(rendering_performance_benchmark PRIVATE Qt6::Widgets ${VTK_LIBRARIES}
+        CadModelCore::CadModelCore TKMesh)
+    vtk_module_autoinit(TARGETS rendering_performance_benchmark MODULES ${VTK_LIBRARIES})
+    add_test(NAME rendering_quality_test COMMAND rendering_performance_benchmark full)
+    set_tests_properties(rendering_quality_test PROPERTIES TIMEOUT 90
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:CadPointCloudClient>")
+    add_executable(point_cloud_rendering_test tests/point_cloud_rendering_test.cpp
+        src/rendering/PointCloudActor.cpp src/core/PointCloudSelection.cpp
+        src/core/PointCloudEdits.cpp src/core/PointCloudRelations.cpp src/io/PlyWriter.cpp)
+    target_include_directories(point_cloud_rendering_test PRIVATE src)
+    target_link_directories(point_cloud_rendering_test PRIVATE ${OpenCASCADE_LIBRARY_DIR})
+    target_link_libraries(point_cloud_rendering_test PRIVATE Qt6::Core ${VTK_LIBRARIES}
+        GeometricReconstruction::GeometricReconstruction)
+    vtk_module_autoinit(TARGETS point_cloud_rendering_test MODULES ${VTK_LIBRARIES})
+    add_test(NAME point_cloud_rendering_test COMMAND point_cloud_rendering_test)
+    set_tests_properties(point_cloud_rendering_test PROPERTIES TIMEOUT 60
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:CadPointCloudClient>")
+endif()
 
 add_library(ParamCADCapture STATIC
     src/capture/CaptureJob.h src/capture/CaptureJob.cpp

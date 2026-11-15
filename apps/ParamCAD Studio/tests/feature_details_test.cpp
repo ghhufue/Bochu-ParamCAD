@@ -75,7 +75,7 @@ int main(int argc, char** argv)
                 "face sketch resolves the end of the reversed extrusion");
         features.back().params = SketchFeatureParams{offsetDatumPlane(DatumPlane::XZ,5),{}};
         details.setFeature(features,7);
-        require(text().contains("XZ Plane") && text().contains("(0, -5, 0)"), "offset follows datum normal, including XZ negative Y");
+        require(text().contains(QCoreApplication::translate("SketchFrame", "XZ 平面")) && text().contains("(0, -5, 0)"), "offset follows datum normal, including XZ negative Y");
         features[3].params = ExtrudeFeatureParams{999,8,false,ExtrudeOperation::Join};
         details.setFeature(features,4);
         require(text().contains("引用不存在") && !text().contains("(36, 48, 8)"), "lost sketch clears old contour instead of inventing a plane");

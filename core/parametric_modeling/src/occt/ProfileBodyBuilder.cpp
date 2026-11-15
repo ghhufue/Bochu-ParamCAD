@@ -1,6 +1,7 @@
 #include "modeling/ProfileBody.h"
 #include "modeling/PrimitiveEditing.h"
 #include "occt/Builders.h"
+#include "occt/BooleanInputs.h"
 #include "occt/OcctError.h"
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -227,7 +228,7 @@ bool buildProfileBody(const ProfileBodyParams& p,TopoDS_Shape& output,std::strin
             for(const auto& s:p.envelope) {
                 const auto solid=section(s);
                 if(body.IsNull())body=solid;
-                else {BRepAlgoAPI_Fuse fuse(body,solid);fuse.SetFuzzyValue(1e-7);fuse.Build();
+                else {BRepAlgoAPI_Fuse fuse;occt::setBooleanInputs(fuse,body,solid);fuse.SetFuzzyValue(1e-7);fuse.Build();
                     if(!fuse.IsDone()){error="Profile envelope union failed";return false;}body=fuse.Shape();}
             }
         } else {

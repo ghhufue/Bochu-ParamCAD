@@ -35,6 +35,7 @@ double volumeOf(const TopoDS_Shape& shape);
 void testSyntheticBoxToCad(const std::filesystem::path& outputDirectory);
 
 void testPreprocessingPreservesNormalOrientation();
+void testParallelPreprocessingMatchesSerial();
 
 void testMissingNormalsFollowSignedObservations();
 

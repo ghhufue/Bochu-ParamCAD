@@ -1,6 +1,7 @@
 #pragma once
 
 #include "io/PlyReader.h"
+#include <reconstruction/analysis/SurfaceAnalysis.h>
 
 #include <QString>
 #include <QJsonObject>
@@ -47,6 +48,16 @@ struct DetectedPointCloudSurface
 class PointCloudSelection
 {
 public:
+    struct RelationSnapshot {
+        std::vector<std::array<float, 3>> positions;
+        std::vector<int> memberships;
+        std::vector<unsigned char> deleted;
+        std::vector<PointCloudRegion> regions;
+    };
+    RelationSnapshot relationSnapshot() const;
+    static bool computeRelations(const RelationSnapshot& snapshot, double tolerance, double angleDegrees,
+        std::vector<reconstruction::SurfaceRelation>& inferred, std::string& error);
+    void applyInferredRelations(const std::vector<reconstruction::SurfaceRelation>& inferred, bool recordUndo = true);
     PointCloudSelection();
     void setCloud(const PlyCloud& cloud);
     void adoptProject(PointCloudSelection&& prepared);

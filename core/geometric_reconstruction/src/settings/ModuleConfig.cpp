@@ -38,6 +38,7 @@ const std::vector<settings::Setting<PreprocessingSettings>>& preprocessingSchema
     using S = PreprocessingSettings;
     using T = settings::Setting<S>;
     static const std::vector<T> values{
+        INT(options.workerCount, "worker_count", "执行", "预处理线程数，0 为自动，1 为串行", 0, 32),
         REAL(voxelSizeMm, "voxel_size_mm", "降采样", "体素尺寸 mm，0 为自动", 0, 10000),
         REAL(voxelDiagonalFraction, "voxel_diagonal_fraction", "降采样", "自动体素尺寸占包围盒对角线比例", 0.000001, 0.5),
         BOOL(options.removeStatisticalOutliers, "remove_statistical_outliers", "离群过滤", "启用统计离群过滤"),

@@ -33,6 +33,21 @@ PointCloudActor::PointCloudActor()
     // An unoriented cloud has no normals, so lighting would only darken it.
     m_actor->GetProperty()->LightingOff();
     m_actor->SetVisibility(0);
+    m_selectionPoints = vtkSmartPointer<vtkPoints>::New();
+    m_selectionVertices = vtkSmartPointer<vtkCellArray>::New();
+    m_selectionData = vtkSmartPointer<vtkPolyData>::New();
+    m_selectionData->SetPoints(m_selectionPoints);
+    m_selectionData->SetVerts(m_selectionVertices);
+    auto selectedMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    selectedMapper->SetInputData(m_selectionData);
+    selectedMapper->ScalarVisibilityOff();
+    m_selectionActor = vtkSmartPointer<vtkActor>::New();
+    m_selectionActor->SetMapper(selectedMapper);
+    m_selectionActor->GetProperty()->SetColor(1., 145./255., 35./255.);
+    m_selectionActor->GetProperty()->SetPointSize(3.);
+    m_selectionActor->GetProperty()->LightingOff();
+    m_selectionActor->PickableOff();
+    m_selectionActor->SetVisibility(0);
 }
 
 bool PointCloudActor::setCloud(const PlyCloud& cloud)
@@ -43,6 +58,10 @@ bool PointCloudActor::setCloud(const PlyCloud& cloud)
     }
 
     const auto count = static_cast<vtkIdType>(cloud.positions.size());
+    m_baseColorsReady = false;
+    m_selectionPoints->Initialize();
+    m_selectionVertices->Initialize();
+    m_selectionActor->SetVisibility(0);
     m_deleted.assign(cloud.positions.size(), 0);
     m_sourceColors = cloud.colors;
 
@@ -95,6 +114,11 @@ bool PointCloudActor::setCloud(const PlyCloud& cloud)
 
 void PointCloudActor::clear()
 {
+    m_baseColorsReady = false;
+    m_annotationSelection = nullptr;
+    m_selectionPoints->Initialize();
+    m_selectionVertices->Initialize();
+    m_selectionActor->SetVisibility(0);
     m_deleted.clear();
     m_sourceColors.clear();
     m_points->Initialize();
@@ -125,11 +149,13 @@ void PointCloudActor::setVisible(bool visible)
 {
     m_visible = visible;
     m_actor->SetVisibility(m_visible && m_hasCloud && pointCount() > 0 ? 1 : 0);
+    m_selectionActor->SetVisibility(m_visible && m_hasCloud && m_selectionPoints->GetNumberOfPoints() > 0);
 }
 
 void PointCloudActor::setPointSize(double size)
 {
     m_actor->GetProperty()->SetPointSize(std::clamp(size, 0.5, 20.0));
+    m_selectionActor->GetProperty()->SetPointSize(std::clamp(size, 0.5, 20.0) + 1.0);
 }
 
 void PointCloudActor::bounds(double out[6]) const
@@ -159,6 +185,8 @@ vtkActor* PointCloudActor::actor() const noexcept
     return m_actor;
 }
 
+vtkActor* PointCloudActor::selectionActor() const noexcept { return m_selectionActor; }
+
 void PointCloudActor::setPointMask(const std::vector<unsigned char>& deleted)
 {
     if (deleted.size() != static_cast<size_t>(m_points->GetNumberOfPoints())) return;
@@ -179,6 +207,24 @@ void PointCloudActor::setAnnotations(const PointCloudSelection* selection)
 {
     if (!m_hasCloud) return;
     const vtkIdType count = m_points->GetNumberOfPoints();
+    const auto revision = selection ? selection->revision() : 0;
+    const bool refreshColors = !m_baseColorsReady || m_annotationSelection != selection || m_annotationRevision != revision;
+    m_selectionPoints->Initialize();
+    m_selectionVertices->Initialize();
+    if (selection) for (const auto id : selection->selected()) {
+        if (id < 0 || id >= count || m_deleted[static_cast<size_t>(id)]) continue;
+        double point[3]; m_points->GetPoint(id, point);
+        const auto vertex = m_selectionPoints->InsertNextPoint(point);
+        m_selectionVertices->InsertNextCell(1, &vertex);
+    }
+    m_selectionPoints->Modified();
+    m_selectionVertices->Modified();
+    m_selectionData->Modified();
+    m_selectionActor->SetVisibility(m_visible && m_selectionPoints->GetNumberOfPoints() > 0);
+    if (!refreshColors) return;
+    m_annotationSelection = selection;
+    m_annotationRevision = revision;
+    m_baseColorsReady = true;
     if (!m_colors) {
         m_colors = vtkSmartPointer<vtkUnsignedCharArray>::New();
         m_colors->SetName("Colors");
@@ -196,12 +242,6 @@ void PointCloudActor::setAnnotations(const PointCloudSelection* selection)
             if (region > 0) color = palette[static_cast<size_t>(region - 1) % palette.size()];
         }
         m_colors->SetTypedTuple(i, color.data());
-    }
-    if (selection) {
-        const unsigned char orange[3]{255, 145, 35};
-        for (vtkIdType id : selection->selected()) {
-            if (id >= 0 && id < count) m_colors->SetTypedTuple(id, orange);
-        }
     }
     m_colors->Modified();
     m_polyData->GetPointData()->SetScalars(m_colors);

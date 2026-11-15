@@ -8,6 +8,9 @@
 namespace reconstruction {
 
 struct PointCloudPreprocessingOptions {
+    // 0 selects up to eight workers; 1 keeps execution serial. Output order,
+    // floating-point reductions and normal orientation are unchanged.
+    std::size_t workerCount = 0;
     // Zero disables voxel downsampling. The representative is an original
     // observation nearest the voxel centre, so its PointId remains valid.
     double voxelSize = 0.0;

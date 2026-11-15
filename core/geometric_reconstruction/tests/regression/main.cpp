@@ -5,6 +5,7 @@ int main() {
     try {
         testSyntheticBoxToCad(RECONSTRUCTION_TEST_OUTPUT_DIR);
         testPreprocessingPreservesNormalOrientation();
+        testParallelPreprocessingMatchesSerial();
         testMissingNormalsFollowSignedObservations();
         testUnanchoredThinWallIsNotInvented();
         testDegenerateNeighborhoodsHaveNoNormals();

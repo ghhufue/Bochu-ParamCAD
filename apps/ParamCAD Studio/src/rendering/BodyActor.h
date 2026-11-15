@@ -54,7 +54,7 @@ public:
 
     // Refreshes the preview light and its projector shadow map from the live
     // camera. A no-op while the preview is off, unlit, or has no shape.
-    void updateMaterialPreview(vtkCamera* camera);
+    void updateMaterialPreview(vtkCamera* camera, bool interacting = false);
 
     // Casts an image onto the body without unwrapping anything: the texture
     // coordinates are a straight planar projection of the display mesh, so the
@@ -104,7 +104,7 @@ private:
     void updatePreviewColors();
     void updatePreviewShadowMap(const double position[3], const double y[3],
                                 const double z[3], double focalLength, double nearPlane,
-                                double farPlane);
+                                double farPlane, int shadowSize);
     // A copy of the display mesh carrying 2D texture coordinates obtained by
     // projecting every point onto the plane chosen by the given axis.
     vtkSmartPointer<vtkPolyData> projectTextureCoordinates(vtkPolyData* mesh,

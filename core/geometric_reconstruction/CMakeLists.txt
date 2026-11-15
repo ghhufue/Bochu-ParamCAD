@@ -12,6 +12,7 @@ option(GEOMETRIC_RECONSTRUCTION_BUILD_TESTS
 find_package(OpenCASCADE REQUIRED)
 find_package(CGAL CONFIG REQUIRED)
 find_package(Eigen3 CONFIG REQUIRED)
+find_package(Threads REQUIRED)
 
 if(NOT TARGET ContourFitting::ContourFitting)
     add_subdirectory(
@@ -109,6 +110,7 @@ target_link_libraries(GeometricReconstruction PUBLIC
     ContourFitting::ContourFitting
     CGAL::CGAL
     Eigen3::Eigen
+    Threads::Threads
 )
 
 if(MSVC)

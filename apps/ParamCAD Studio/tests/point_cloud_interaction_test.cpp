@@ -360,6 +360,13 @@ int main(int argc, char** argv)
         const int originalCount = document->pointCount();
         spacing->setCurrentText(QStringLiteral("1"));
         downsample->click();
+        require(document->sourcePath() == originalPath && !downsample->isEnabled(),
+                "fusion runs in the background before a revision-checked commit");
+        QElapsedTimer fusion;fusion.start();
+        while (!downsample->isEnabled() && fusion.elapsed()<30000) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents,50);QThread::msleep(5);
+        }
+        require(downsample->isEnabled(),"background fusion finished within deadline");
         require(document->sourcePath() != originalPath && document->pointCount() > 0
                     && document->pointCount() < originalCount,
                 "downsampling reduces the cloud and switches the active file");
