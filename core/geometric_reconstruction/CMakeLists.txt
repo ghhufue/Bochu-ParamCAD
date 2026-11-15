@@ -40,6 +40,7 @@ add_library(GeometricReconstruction
     src/analysis/SurfaceRelations.cpp
     src/data/PointStore.cpp
     src/detection/PrimitiveDetector.cpp
+    src/detection/PlaneSupportRecovery.cpp
     src/detection/MultiScaleDetector.cpp
     src/detection/cgal/CgalEfficientRansacDetector.cpp
     src/detection/cgal/CurvedEvidence.cpp

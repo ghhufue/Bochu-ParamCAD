@@ -15,6 +15,21 @@ int main(int argc, char** argv)
 {
     QCoreApplication application(argc,argv);
     try {
+        PlyCloud largePlane;
+        std::vector<vtkIdType> planeIds;
+        for(int x=0;x<120;++x) for(int y=0;y<60;++y) {
+            largePlane.positions.push_back({float(x*10),float(y*10),0});
+            largePlane.normals.push_back(x>40 && x<80?std::array<float,3>{0,1,0}:
+                (x>90?std::array<float,3>{0,0,0}:std::array<float,3>{0,0,1}));
+            const auto row=largePlane.positions.size()*3+20;
+            largePlane.sourceRows.push_back(row);planeIds.push_back(vtkIdType(row));
+        }
+        const auto wholePlane=analysePointCloud(largePlane,planeIds,.05,"plane",reconstruction::LengthUnit::Millimeter);
+        require(wholePlane.error.isEmpty() && wholePlane.surfaces.size()==1
+            && wholePlane.assignedPoints==largePlane.positions.size(),
+            "grown plane ownership is not clipped by the old display halo or re-filtered by inconsistent source normals");
+        require(wholePlane.surfaces[0].points.front()==planeIds.front() && wholePlane.surfaces[0].points.back()==planeIds.back(),
+            "large-plane expansion retains sparse original document row IDs");
         PlyCloud cloud;
         for (int axis=0; axis<3; ++axis) for (float sign : {-1.0F,1.0F}) {
             for (int i=0;i<20;++i) for (int j=0;j<20;++j) {
@@ -93,6 +108,14 @@ int main(int argc, char** argv)
         plane.meanAbsoluteResidual = 2;
         fit.surface = plane;
         auto annotation = describeTemplateFit(fit, 1000);
+        reconstruction::SurfaceAnalysisResult retained;
+        plane.id=1;retained.surfaces.push_back(plane);
+        reconstruction::SurfacePatch patch;patch.id=1;patch.surfaceId=1;patch.supportPointIds={1,3,999};
+        retained.patches.push_back(patch);
+        const auto displayed=describeAnalysisPatches(retained,10,1000);
+        require(displayed.size()==1 && displayed[0].points==std::vector<vtkIdType>{0,2}
+            && displayed[0].surface.geometry=="plane" && displayed[0].surface.parameters["offset"].toDouble()==-3
+            && !displayed[0].surface.templateLocked,"failed CAD analysis maps stable source rows and source units without inventing template constraints");
         require(annotation.parameters["offset"].toDouble() == -3 && annotation.residual == 0.002,
                 "template plane equations and residuals return to source meter units");
         fit.surface.reset(); fit.box = reconstruction::BoxCandidate{};

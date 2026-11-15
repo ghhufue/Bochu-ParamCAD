@@ -50,6 +50,9 @@ struct CompoundCandidate {
     std::size_t gridCells = 0;
     std::size_t searchNodes = 0;
     bool minimumBoxCountProven = false;
+    // Observations in independent components that could not be reconstructed.
+    // A nonempty list explicitly identifies a partial result.
+    std::vector<PointId> unresolvedPointIds;
 };
 // Closed, metrically scaled surface cloud with outward normals. Selects the
 // smallest exact box cover of observed material cells; oblique cells become

@@ -1052,6 +1052,22 @@
 <context>
     <name>MainWindow</name>
     <message>
+        <source>已重建部分独立部件；不确定部件仍保留在点云中。</source>
+        <translation>Some independent components were reconstructed; uncertain components remain in the point cloud.</translation>
+    </message>
+    <message>
+        <source>CAD 未闭合，已保留并显示 %1 个检测面片。</source>
+        <translation>CAD closure failed; %1 detected surface patches have been retained and displayed.</translation>
+    </message>
+    <message>
+        <source> 已显示检测面片；表面检测成功，实体闭合未通过。</source>
+        <translation> Detected surface patches are displayed; surface detection succeeded, but solid closure failed.</translation>
+    </message>
+    <message>
+        <source>已重建有充分支持的独立部件；另有 %1 个观测点所属部件尚未重建。</source>
+        <translation>Supported independent components were reconstructed; components containing %1 observations remain unresolved.</translation>
+    </message>
+    <message>
         <location filename="../src/app/MainWindow.cpp" line="114"/>
         <source>Application started</source>
         <translation>Application started</translation>

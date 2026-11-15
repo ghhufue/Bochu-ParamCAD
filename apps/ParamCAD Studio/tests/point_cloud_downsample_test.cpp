@@ -62,6 +62,21 @@ void testInvalidSpacing()
     require(!error.isEmpty(), "rejection must carry a reason");
 }
 
+void testThinWallsRemainDistinct()
+{
+    PlyCloud source;
+    source.positions={{.1F,.1F,.1F},{.2F,.1F,.1F},{.1F,.1F,.8F},{.2F,.1F,.8F},{.3F,.1F,.1F}};
+    source.normals={{0,0,-1},{0,0,-2},{0,0,1},{0,0,1},{0,0,0}};
+    PlyCloud result; QString error;
+    require(pointcloud::voxelDownsample(source,1,result,error),error.toStdString());
+    require(result.positions.size()==3 && result.normals.size()==3,"opposite walls and unknown normals have separate representatives");
+    require(result.normals[0][2]<-.99F && std::abs(result.positions[0][2]-.1F)<1e-6F,"front wall retains its observed position and sign");
+    require(result.normals[1][2]>.99F && std::abs(result.positions[1][2]-.8F)<1e-6F,"back wall retains its observed position and sign");
+    for(auto& n:source.normals) if(n[2]!=0) n={0,0,1};
+    require(pointcloud::voxelDownsample(source,1,result,error) && result.positions.size()==3,
+        "separated parallel layers must not be averaged even with matching signs");
+}
+
 void testCacheLayout()
 {
     QTemporaryDir temporary;
@@ -109,6 +124,7 @@ int main()
     try {
         testVoxelAverage();
         testInvalidSpacing();
+        testThinWallsRemainDistinct();
         testCacheLayout();
         testUnitSidecar();
         std::cout << "point cloud downsampling contracts passed" << std::endl;

@@ -129,6 +129,21 @@ void invalidAndCancel() {
     try{rejected=!reconstruction::reconstructAssembly(PointStore(points),options,result,error);}catch(const std::invalid_argument&){rejected=true;}
     require(rejected,"duplicate point identity is rejected");
 }
+void mergeCoplanarFragmentsWithoutJoiningWalls() {
+    std::vector<PointSample> points;
+    const double angle=.03490658503988659;
+    for(int layer=0;layer<2;++layer) for(int x=0;x<20;++x) for(int y=0;y<20;++y) {
+        PointSample p;p.id=points.size()+1;p.position={double(x),double(y),layer*.3};
+        p.normal=Vec3{std::sin(angle),0,(layer?1:-1)*std::cos(angle)};
+        points.push_back(p);
+    }
+    reconstruction::AssemblyOptions options;options.distanceTolerance=.05;
+    const auto extraction=reconstruction::detail::assembly::extractPatches(PointStore(points),options,{});
+    require(extraction.patches.size()==2,"adjacent coplanar strips merge before closure while opposite thin walls stay distinct");
+    size_t total=0;
+    for(const auto& p:extraction.patches) {require(p.planar && p.orientationKnown,"merged faces retain signed planar evidence");total+=p.workingPointIds.size();}
+    require(total==points.size(),"coplanar consolidation preserves every original working observation");
+}
 void curvedParts() {
     std::vector<PointSample> points;const double pi=std::acos(-1.0);
     auto append=[&](Vec3 p,Vec3 n){PointSample sample;sample.id=points.size()+1;sample.position=p;sample.normal=n;points.push_back(sample);};
@@ -622,5 +637,5 @@ void safeBoundaryRecovery() {
     require(sameBoundaryTopology({outer,hole},{outer,hole}),"unchanged inner holes retain their topology");
 }
 }
-int main(){try{safeBoundaryRecovery();separatedAndRotated();stagedAssembly();missingFaceAndPartial();finiteConcavityAndHole();noiseAndGaps();curvedParts();nonorthogonalFaces();drilledProfiles();profileCutouts();countersunkProfile();steppedProfile();annularTube();drilledCircularSlab();circularSlabContact();roundedProfile();invalidAndCancel();std::cout<<"Assembly reconstruction tests passed\n";return 0;}
+int main(){try{safeBoundaryRecovery();separatedAndRotated();stagedAssembly();missingFaceAndPartial();finiteConcavityAndHole();noiseAndGaps();curvedParts();nonorthogonalFaces();drilledProfiles();profileCutouts();countersunkProfile();steppedProfile();annularTube();drilledCircularSlab();circularSlabContact();roundedProfile();invalidAndCancel();mergeCoplanarFragmentsWithoutJoiningWalls();std::cout<<"Assembly reconstruction tests passed\n";return 0;}
 catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

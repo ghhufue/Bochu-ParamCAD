@@ -282,8 +282,8 @@ void testCadReconstruction(MainWindow& window, const QString& cloudPath)
     reconstruct->trigger();
     window.findChild<ReconstructionController*>()->finished(cloudPath, 600, "fixed", false);
     waitForCad(window, true);
-    require(model->revision() == editedRevision && viewer->pointCloudDocument()->selection().regions().size() == 6,
-            "new photo reconstruction defers automatic analysis until the old CAD job drains");
+    require(model->revision() == editedRevision && viewer->pointCloudDocument()->selection().regions().empty(),
+            "loading a new photo cloud discards stale CAD analysis and leaves surface recognition explicit");
 
     reconstruct->trigger();
     viewer->setBodyShape(BRepPrimAPI_MakeBox(2, 3, 4).Shape());
@@ -485,6 +485,33 @@ void testGuidedReconstruction(const QString& cloudPath)
     rebuild->click(); waitForCad(window, true);
     require(accepted && model->revision() > beforeScale && model->features().size() == 2,
             "explicit guided scale confirmation completes whole reconstruction");
+}
+}
+
+namespace {
+void failedCadRetainsDetectedPlanes()
+{
+    QTemporaryDir directory;
+    require(directory.isValid(),"create planar CAD failure fixture");
+    const auto path=directory.filePath("open-plane.ply");
+    QFile cloud(path);
+    require(cloud.open(QIODevice::WriteOnly),"write planar CAD failure fixture");
+    cloud.write("ply\nformat ascii 1.0\nelement vertex 100\nproperty float x\nproperty float y\nproperty float z\nend_header\n");
+    for(int x=0;x<10;++x) for(int y=0;y<10;++y) cloud.write(QStringLiteral("%1 %2 0\n").arg(x).arg(y).toUtf8());
+    cloud.close();
+    QFile metadata(directory.filePath("open-plane.json"));
+    require(metadata.open(QIODevice::WriteOnly),"write planar metric metadata");
+    metadata.write("{\"unit\":\"mm\"}");metadata.close();
+    MainWindow window;window.setAttribute(Qt::WA_DontShowOnScreen);
+    auto* document=window.findChild<PointCloudDocument*>();QString error;
+    require(document->load(path,error),error.toStdString().c_str());
+    action(window,"Reconstruct CAD")->trigger();waitForCad(window);
+    require(window.findChild<ModelingController*>()->features().empty(),"an open unsigned plane must not fabricate a solid");
+    const auto& regions=document->selection().regions();
+    require(std::any_of(regions.begin(),regions.end(),[](const auto& r) {
+        return r.geometry=="plane" && r.source=="detected" && !r.templateLocked;
+    }),"CAD failure exposes detected planes without creating manual constraints");
+    require(document->pointCount()==100,"displaying failed-CAD surface evidence retains all source observations");
 }
 }
 
@@ -702,6 +729,7 @@ int main(int argc, char** argv)
         units.write("{\"unit\":\"mm\"}"); units.close();
         testCadReconstruction(window, cadCloudPath);
         testGuidedReconstruction(cadCloudPath);
+        failedCadRetainsDetectedPlanes();
 
         // Start analysis and destroy the window immediately, before queued results
         // are delivered. This verifies the workspace's worker/view lifetime boundary.

@@ -141,6 +141,7 @@ void validatePointCloudCad(const QStringList& args,QJsonObject& report) {
     case Branch::Assembly: report["recognition_branch"] = "assembly"; break;
     }
     report["detected_surface_patches"]=double(result->analysis.patches.size());
+    report["unresolved_component_points"]=double(result->candidate.unresolvedPointIds.size());
     if(result->assembly){stage("writing_separation_diagnostics");report["assembly"]=writeAssemblyDiagnostics(args[3],cloud,*result->assembly,report["unit"].toString());}
     if(result->outcome!=CadReconstructionResult::Outcome::Success) {
         report["status"]=result->outcome==CadReconstructionResult::Outcome::Unsupported?"unsupported":"failed";

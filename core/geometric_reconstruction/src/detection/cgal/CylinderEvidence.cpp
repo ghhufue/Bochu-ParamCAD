@@ -29,6 +29,11 @@ void refineCylinderRadiusAndAxis(CylinderEquation& cylinder, const InputRange& i
     using Vector = Eigen::Matrix<double, 5, 1>;
     const auto eigen = [](const modeling::Vec3& p) { return Eigen::Vector3d(p.x,p.y,p.z); };
     Eigen::Vector3d axis = eigen(cylinder.axisDirection), origin = eigen(cylinder.axisPoint);
+    // Exact radial normal observations determine the axis independently of
+    // position noise. Do not tilt that established direction to fit noise.
+    const bool fixedAxis = std::all_of(support.begin(),support.end(),[&](auto index) {
+        return std::abs(eigen(toVec3(std::get<1>(input[index]))).dot(axis)) < 1e-10;
+    });
     const auto centroid = eigen(centroidOf(input, support));
     origin += (centroid-origin).dot(axis)*axis;
     double radius = cylinder.radius;
@@ -53,10 +58,11 @@ void refineCylinderRadiusAndAxis(CylinderEquation& cylinder, const InputRange& i
             const double weight = 1/std::hypot(1,residual/scale);
             const double du = -radial.dot(u)/r, dv = -radial.dot(v)/r;
             Vector derivative;
-            derivative << du, dv, du*z/lengthScale, dv*z/lengthScale, -1;
+            derivative << du, dv, fixedAxis?0:du*z/lengthScale, fixedAxis?0:dv*z/lengthScale, -1;
             matrix.noalias() += weight*derivative*derivative.transpose();
             rhs.noalias() -= weight*derivative*residual;
         }
+        if (fixedAxis) { matrix(2,2)=1; matrix(3,3)=1; }
         const auto solver = matrix.fullPivLu();
         if (!solver.isInvertible() || solver.rcond()<1e-8) return;
         const Vector step = solver.solve(rhs);

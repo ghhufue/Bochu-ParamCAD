@@ -25,6 +25,7 @@ struct VoxelKeyHash {
 struct VoxelRepresentative {
     std::size_t pointIndex = 0;
     double squaredDistanceToCenter = std::numeric_limits<double>::infinity();
+    std::size_t seedIndex = 0;
 };
 
 std::vector<PointSample> voxelDownsample(
@@ -35,7 +36,7 @@ std::vector<PointSample> voxelDownsample(
         return points;
     }
 
-    std::unordered_map<VoxelKey, VoxelRepresentative, VoxelKeyHash> voxels;
+    std::unordered_map<VoxelKey, std::vector<VoxelRepresentative>, VoxelKeyHash> voxels;
     std::vector<std::size_t> selected;
     voxels.reserve(points.size());
     for (std::size_t index = 0; index < points.size(); ++index) {
@@ -68,18 +69,35 @@ std::vector<PointSample> voxelDownsample(
             (static_cast<double>(key.z) + 0.5) * voxelSize,
         };
         const double distance = squaredDistance(point, center);
-        auto [entry, inserted] = voxels.emplace(
-            key, VoxelRepresentative{index, distance});
-        if (!inserted && (distance < entry->second.squaredDistanceToCenter ||
-            (distance == entry->second.squaredDistanceToCenter &&
-             points[index].id < points[entry->second.pointIndex].id))) {
-            entry->second = VoxelRepresentative{index, distance};
-        }
+        auto& representatives = voxels[key];
+        const auto direction = [](const PointSample& sample) -> std::optional<Vec3> {
+            if (!sample.normal || !std::isfinite(math3::length(*sample.normal))
+                || math3::length(*sample.normal) <= 1e-12) return std::nullopt;
+            return math3::normalized(*sample.normal);
+        };
+        const auto normal = direction(points[index]);
+        auto compatible = [&](const VoxelRepresentative& representative) {
+            const auto& seed = points[representative.seedIndex];
+            const auto other = direction(seed);
+            if (bool(normal) != bool(other)) return false;
+            if (!normal) return true;
+            if (points[index].normalOrientationKnown != seed.normalOrientationKnown) return false;
+            double alignment = math3::dot(*normal, *other);
+            if (!seed.normalOrientationKnown) alignment = std::abs(alignment);
+            const auto delta = math3::subtract(point, seed.position);
+            return alignment >= 0.8660254037844386 &&
+                std::max(std::abs(math3::dot(delta, *normal)), std::abs(math3::dot(delta, *other))) <= voxelSize * .25;
+        };
+        auto representative = std::find_if(representatives.begin(), representatives.end(), compatible);
+        if (representative == representatives.end()) representatives.push_back({index, distance, index});
+        else if (distance < representative->squaredDistanceToCenter ||
+            (distance == representative->squaredDistanceToCenter && points[index].id < points[representative->pointIndex].id))
+            *representative = {index, distance, representative->seedIndex};
     }
 
     selected.reserve(selected.size() + voxels.size());
     for (const auto& entry : voxels) {
-        selected.push_back(entry.second.pointIndex);
+        for (const auto& representative : entry.second) selected.push_back(representative.pointIndex);
     }
     // Preserve source order and deterministic PointId ordering regardless of
     // unordered_map bucket layout.

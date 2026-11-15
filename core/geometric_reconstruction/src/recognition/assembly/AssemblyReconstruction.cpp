@@ -9,12 +9,32 @@
 #include <numeric>
 #include <unordered_set>
 #include <stdexcept>
+#include <set>
 
 namespace reconstruction {
 namespace {
 using namespace detail::assembly;
 double quantile(std::vector<double> values,double fraction){if(values.empty())return 0;const auto i=std::min(values.size()-1,size_t(fraction*(values.size()-1)));std::nth_element(values.begin(),values.begin()+i,values.end());return values[i];}
 bool finite(Vec3 p){return std::isfinite(p.x)&&std::isfinite(p.y)&&std::isfinite(p.z);}
+bool refitGrowingPlane(const std::vector<PointSample>& points,const std::vector<size_t>& support,
+    double tolerance,double initialAngle,Vec3& normal,Vec3& origin,std::optional<Vec3>& anchor) {
+    Vec3 center{};for(auto i:support) center=add(center,points[i].position);
+    center=scale(center,1.0/support.size());
+    Eigen::Matrix3d covariance=Eigen::Matrix3d::Zero();
+    for(auto i:support) {
+        const auto d=subtract(points[i].position,center);const Eigen::Vector3d v(d.x,d.y,d.z);
+        covariance+=v*v.transpose();
+    }
+    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> eigen(covariance);
+    if(eigen.info()!=Eigen::Success || eigen.eigenvalues()[1]<=std::max(1e-18,eigen.eigenvalues()[2]*1e-8)) return false;
+    const auto n=eigen.eigenvectors().col(0);Vec3 proposed{n[0],n[1],n[2]};
+    if(dot(proposed,normal)<0) proposed=scale(proposed,-1);
+    if(dot(proposed,anchor?*anchor:normal)<std::cos(anchor?.03490658503988659:initialAngle)) return false;
+    for(auto i:support) if(std::abs(dot(subtract(points[i].position,center),proposed))>tolerance) return false;
+    const bool changed=dot(normal,proposed)<1-1e-12 || std::abs(dot(subtract(center,origin),proposed))>tolerance*1e-4;
+    normal=proposed;origin=center;if(!anchor) anchor=normal;
+    return changed;
+}
 std::uint64_t sampleKey(const PointSample& p){std::uint64_t h=1469598103934665603ULL;for(double x:{p.position.x,p.position.y,p.position.z}){std::uint64_t bits=0;std::memcpy(&bits,&x,8);h^=bits;h*=1099511628211ULL;h^=h>>29;}return h;}
 void checkCancel(const std::function<bool()>& cancelled){if(cancelled&&cancelled())throw std::runtime_error("Cancelled");}
 
@@ -132,16 +152,22 @@ PatchExtraction extractPatches(const PointStore& source, const AssemblyOptions& 
     data.labels.assign(count,-1);
     for(size_t seed=0;seed<count;++seed) {
         if(data.labels[seed]!=-1||!data.points[seed].normal)continue;checkCancel(cancelled);
-        const int label=int(patches.size());const auto normal=*data.points[seed].normal,origin=data.points[seed].position;
+        const int label=int(patches.size());auto normal=*data.points[seed].normal,origin=data.points[seed].position;
+        std::optional<Vec3> fittedAnchor;size_t nextRefit=12;
         std::vector<size_t> queue{seed};data.labels[seed]=label;
-        for(size_t head=0;head<queue.size();++head){const auto i=queue[head];for(const auto& pair:data.neighbors[i]){
+        for(size_t head=0;head<queue.size();){const auto i=queue[head++];for(const auto& pair:data.neighbors[i]){
             const auto j=pair.second;const auto& p=data.points[j];if(data.labels[j]!=-1||!p.normal)continue;
             const double alignment=dot(normal,*p.normal);if((data.points[seed].normalOrientationKnown&&p.normalOrientationKnown?alignment:std::abs(alignment))<angleCos)continue;
             const double reach=options.connectivityFactor*std::max(data.spacing[i],data.spacing[j]);
             if(pair.first>reach*reach || std::abs(dot(subtract(p.position,origin),normal))>data.tolerance)continue;
             if(crossesObservedBoundary(data,options,i,j))continue;
             data.labels[j]=label;queue.push_back(j);
-        }}
+        }
+            if(queue.size()>=nextRefit) {
+                if(refitGrowingPlane(data.points,queue,data.tolerance,options.normalAngleRadians,normal,origin,fittedAnchor)) head=0;
+                nextRefit=std::max(queue.size()+32,queue.size()+queue.size()/2);
+            }
+        }
         if(queue.size()<options.minimumPatchPoints){for(auto i:queue)data.labels[i]=-2;continue;}
         FiniteSurfacePatch patch;patch.id=patches.size()+1;patch.orientationKnown=true;
         Vec3 meanNormal{};std::vector<double> spacing;
@@ -186,6 +212,68 @@ PatchExtraction extractPatches(const PointStore& source, const AssemblyOptions& 
         patch.origin=scale(patch.origin,1.0/queue.size());patch.spacing=quantile(std::move(spacing),.5);
         patches.push_back(std::move(patch));data.groups.push_back(std::move(queue));
     }
+    // Consolidate adjacent coplanar fragments before constructing boundaries.
+    // Test all support against both planes so a chain of locally flat curved
+    // bands cannot gradually become one fictitious face.
+    std::set<std::pair<size_t,size_t>> coplanarNeighbors;
+    for (size_t i=0; i<count; ++i) if (data.labels[i]>=0)
+        for (const auto& neighbor:data.neighbors[i]) {
+            const auto j=neighbor.second;
+            if (data.labels[j]<0 || data.labels[i]==data.labels[j]) continue;
+            const double reach=options.connectivityFactor*std::min(data.spacing[i],data.spacing[j]);
+            if (neighbor.first<=reach*reach && !crossesObservedBoundary(data,options,i,j))
+                coplanarNeighbors.insert(std::minmax(size_t(data.labels[i]),size_t(data.labels[j])));
+        }
+    UnionFind coplanar(patches.size());
+    for (const auto& pair:coplanarNeighbors) {
+        const auto a=coplanar.root(pair.first), b=coplanar.root(pair.second);
+        if(a==b) continue;
+        const auto& first=patches[a]; const auto& second=patches[b];
+        if(!first.planar || !second.planar || first.orientationKnown!=second.orientationKnown) continue;
+        double alignment=dot(first.normal,second.normal);
+        if(!first.orientationKnown) alignment=std::abs(alignment);
+        if(alignment<std::cos(std::min(options.normalAngleRadians,.03490658503988659))) continue;
+        const auto supported=[&](size_t group,const FiniteSurfacePatch& plane) {
+            return std::all_of(data.groups[group].begin(),data.groups[group].end(),[&](auto i) {
+                return std::abs(dot(subtract(data.points[i].position,plane.origin),plane.normal))<=data.tolerance;
+            });
+        };
+        if(!supported(a,second) || !supported(b,first)) continue;
+        coplanar.join(a,b);
+        const auto owner=coplanar.root(a), donor=owner==a?b:a;
+        data.groups[owner].insert(data.groups[owner].end(),data.groups[donor].begin(),data.groups[donor].end());
+        data.groups[donor].clear();
+    }
+    std::vector<FiniteSurfacePatch> mergedPatches;
+    std::vector<std::vector<size_t>> mergedGroups;
+    for (size_t old=0; old<patches.size(); ++old) if (!data.groups[old].empty()) {
+        auto patch=patches[old]; patch.id=mergedPatches.size()+1;
+        patch.origin={}; patch.lower=patch.upper=data.points[data.groups[old].front()].position;
+        std::vector<double> spacing;
+        for(auto i:data.groups[old]) {
+            const auto p=data.points[i].position;
+            data.labels[i]=int(mergedPatches.size()); patch.origin=add(patch.origin,p);
+            patch.lower={std::min(patch.lower.x,p.x),std::min(patch.lower.y,p.y),std::min(patch.lower.z,p.z)};
+            patch.upper={std::max(patch.upper.x,p.x),std::max(patch.upper.y,p.y),std::max(patch.upper.z,p.z)};
+            spacing.push_back(data.spacing[i]);
+        }
+        // Preserve the supported seed equation (and sign) instead of refitting
+        // a broader plane that might absorb a nearby thin wall.
+        patch.origin=scale(patch.origin,1.0/data.groups[old].size());
+        const double offset=dot(subtract(patch.origin,patches[old].origin),patch.normal);
+        patch.origin=subtract(patch.origin,scale(patch.normal,offset));
+        if(patch.planar) {
+            double squared=0;
+            for(auto i:data.groups[old]) {
+                const double residual=dot(subtract(data.points[i].position,patch.origin),patch.normal);
+                squared+=residual*residual;
+            }
+            patch.residual=std::sqrt(squared/data.groups[old].size());
+        }
+        patch.spacing=quantile(std::move(spacing),.5);
+        mergedPatches.push_back(std::move(patch)); mergedGroups.push_back(std::move(data.groups[old]));
+    }
+    patches=std::move(mergedPatches); data.groups=std::move(mergedGroups);
     for (std::size_t index = 0; index < patches.size(); ++index)
         for (const auto sample : data.groups[index])
             patches[index].workingPointIds.push_back(data.points[sample].id);

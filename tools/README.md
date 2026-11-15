@@ -159,6 +159,23 @@ python -m tools.reconstruction.run_point_cloud_cad --mode projection `
 
 ## 安装与使用
 
+桌面快捷方式可使用 `tools/launch_paramcad_latest.ps1` 作为稳定入口。它按文件修改时间选择最新 Release 构建，包含 `Release/plane-growth` 等变体子目录及 CMake 配置的输出目录；只有路径与构建时间均匹配时才复用已有窗口，旧版窗口保留，新版另行启动。脚本默认从自身位置解析仓库根目录，也可传入 `-RepositoryRoot`。
+
+只检查将要启动的程序而不启动或切换窗口：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/launch_paramcad_latest.ps1 -ResolveOnly
+```
+
+诊断大平面仅识别局部时，可用同一输入比较关闭/开启支持扩展的结果，并检查最大残差及客户端实际归属：
+
+```powershell
+& 'artifacts/build-structured-light/Release/cad_reconstruction_validation.exe' `
+  analyze-plane-growth path/to/cloud.ply report.json
+```
+
+输入需要毫米单位元数据。报告的 `baseline` 与 `expanded` 使用相同工作点、种子和容差；`client` 为真实表面识别入口的点归属统计。支持率是检测证据覆盖率，不等同于 CAD 召回率或实体闭合成功率。
+
 在仓库根目录运行一次，将 `tools` 加入当前用户的 PATH，无需管理员权限：
 
 ```powershell

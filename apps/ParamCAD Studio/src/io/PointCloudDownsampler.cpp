@@ -16,7 +16,15 @@ struct VoxelEntry
     long long y;
     long long z;
     std::uint32_t index;
+    std::size_t surface = 0;
 };
+
+std::array<double, 3> unitNormal(const std::array<float, 3>& value)
+{
+    const double length = std::hypot(double(value[0]), double(value[1]), double(value[2]));
+    if (!std::isfinite(length) || length <= 1e-12) return {};
+    return {value[0] / length, value[1] / length, value[2] / length};
+}
 
 bool voxelKey(const std::array<float, 3>& position, double voxelSize, long long key[3])
 {
@@ -62,11 +70,45 @@ bool voxelDownsample(const PlyCloud& source, double voxelSize, PlyCloud& result,
     std::sort(entries.begin(), entries.end(), [](const VoxelEntry& left, const VoxelEntry& right) {
         if (left.x != right.x) return left.x < right.x;
         if (left.y != right.y) return left.y < right.y;
-        return left.z < right.z;
+        if (left.z != right.z) return left.z < right.z;
+        return left.index < right.index;
     });
 
     const bool hasNormals = source.normals.size() == source.positions.size();
     const bool hasColors = source.colors.size() == source.positions.size();
+    if (hasNormals) {
+        for (std::size_t begin = 0; begin < entries.size();) {
+            std::size_t end = begin + 1;
+            while (end < entries.size() && entries[end].x == entries[begin].x
+                   && entries[end].y == entries[begin].y && entries[end].z == entries[begin].z) ++end;
+            std::vector<std::uint32_t> seeds;
+            for (auto i = begin; i < end; ++i) {
+                const auto index = entries[i].index;
+                const auto normal = unitNormal(source.normals[index]);
+                std::size_t group = 0;
+                for (; group < seeds.size(); ++group) {
+                    const auto seed = seeds[group];
+                    const auto other = unitNormal(source.normals[seed]);
+                    double alignment = 0, firstDistance = 0, secondDistance = 0;
+                    for (int axis = 0; axis < 3; ++axis) {
+                        alignment += normal[axis] * other[axis];
+                        const double delta = double(source.positions[index][axis]) - source.positions[seed][axis];
+                        firstDistance += delta * normal[axis];
+                        secondDistance += delta * other[axis];
+                    }
+                    const bool known = normal != std::array<double, 3>{};
+                    const bool seedKnown = other != std::array<double, 3>{};
+                    if (known == seedKnown && (!known || (alignment >= 0.8660254037844386
+                        && std::max(std::abs(firstDistance), std::abs(secondDistance)) <= voxelSize * .25))) break;
+                }
+                if (group == seeds.size()) seeds.push_back(index);
+                entries[i].surface = group;
+            }
+            std::stable_sort(entries.begin() + begin, entries.begin() + end,
+                [](const auto& a, const auto& b) { return a.surface < b.surface; });
+            begin = end;
+        }
+    }
     result = PlyCloud{};
     result.positions.reserve(entries.size());
     if (hasNormals) result.normals.reserve(entries.size());
@@ -76,7 +118,8 @@ bool voxelDownsample(const PlyCloud& source, double voxelSize, PlyCloud& result,
     while (begin < entries.size()) {
         std::size_t end = begin + 1;
         while (end < entries.size() && entries[end].x == entries[begin].x
-               && entries[end].y == entries[begin].y && entries[end].z == entries[begin].z) {
+               && entries[end].y == entries[begin].y && entries[end].z == entries[begin].z
+               && entries[end].surface == entries[begin].surface) {
             ++end;
         }
         double position[3]{0.0, 0.0, 0.0};
@@ -84,9 +127,10 @@ bool voxelDownsample(const PlyCloud& source, double voxelSize, PlyCloud& result,
         double color[3]{0.0, 0.0, 0.0};
         for (std::size_t i = begin; i < end; ++i) {
             const auto index = entries[i].index;
+            const auto direction = hasNormals ? unitNormal(source.normals[index]) : std::array<double, 3>{};
             for (int axis = 0; axis < 3; ++axis) {
                 position[axis] += source.positions[index][axis];
-                if (hasNormals) normal[axis] += source.normals[index][axis];
+                if (hasNormals) normal[axis] += direction[axis];
                 if (hasColors) color[axis] += source.colors[index][axis];
             }
         }
@@ -102,9 +146,6 @@ bool voxelDownsample(const PlyCloud& source, double voxelSize, PlyCloud& result,
                 value = {static_cast<float>(normal[0] / length),
                          static_cast<float>(normal[1] / length),
                          static_cast<float>(normal[2] / length)};
-            } else {
-                // Opposing normals cancel; keep a representative orientation.
-                value = source.normals[entries[begin].index];
             }
             result.normals.push_back(value);
         }

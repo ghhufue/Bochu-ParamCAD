@@ -20,3 +20,7 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
     const QString& geometry = QString(),
     reconstruction::LengthUnit unit = reconstruction::LengthUnit::Arbitrary);
 PointCloudRegion describeTemplateFit(const reconstruction::TemplateFit& fit, double scaleToMillimeters);
+// Display the retained analysis without rerunning detection after CAD failure.
+std::vector<DetectedPointCloudSurface> describeAnalysisPatches(
+    const reconstruction::SurfaceAnalysisResult& analysis, std::size_t sourcePointCount,
+    double scaleToMillimeters);

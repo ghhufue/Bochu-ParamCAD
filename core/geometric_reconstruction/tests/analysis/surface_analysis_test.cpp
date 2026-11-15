@@ -414,8 +414,38 @@ void coincidentPrimitiveObservations() {
                 && error == "Primitive detection requires distinct positions with valid normals"
                 && result.evidence.empty(), "coincident observations cannot enter CGAL octree refinement");
 }
+
+void orientedAndUncertainComponents() {
+    SyntheticBoxRequest request; request.box.sizeX=30;request.box.sizeY=20;request.box.sizeZ=10;
+    request.samplesPerEdge=12;
+    const auto box=makeSyntheticBoxSurface(request);
+    auto samples=box.points();
+    std::vector<PointId> uncertain;
+    for(int x=0;x<10;++x) for(int y=0;y<10;++y) {
+        PointSample p; p.id=samples.size()+1;p.position={200.0+x,double(y),0};
+        p.normal=modeling::Vec3{0,0,1};p.normalOrientationKnown=false;
+        uncertain.push_back(p.id);samples.push_back(p);
+    }
+    PointStore points(samples);
+    PlaneDetectionOptions planes;planes.distanceThreshold=.02;planes.minimumSupportPoints=20;
+    auto options=recognitionAnalysisOptions(points,planes,{});
+    options.detection.detectCylinders=options.detection.detectSpheres=options.detection.detectCones=options.detection.detectTori=false;
+    SurfaceAnalysisResult analysis;std::string error;
+    require(analyzeSurfaces(points,options,analysis,error),error);
+    CompoundCandidate candidate;
+    std::vector<LocalAnalysisFailure> failures;
+    require(recognizeParametricSolidFromAnalysis(points,analysis,candidate,error,&failures),error);
+    require(candidate.boxes.size()==1 && candidate.unresolvedPointIds==uncertain && !failures.empty(),
+        "a disconnected uncertain patch preserves the supported box and explicit unresolved point IDs");
+    require(candidate.surfaceCoverage<1 && candidate.surfaceCoverage>.8,"partial coverage uses the entire input as denominator");
+    for(auto& p:samples) p.normalOrientationKnown=false;
+    PointStore unknown(samples);
+    require(analyzeSurfaces(unknown,options,analysis,error),error);
+    require(!recognizeParametricSolidFromAnalysis(unknown,analysis,candidate,error) && error.find("orientation")!=std::string::npos,
+        "unsigned components never become material occupancy");
+}
 }
 int main() {
-    try {snapshotsAndPatches();sharedBox();attachedBossAndHole();adaptiveRegions();localRecoveryAndConstraints();extendedRelations();tiltedCavityWalls();smallConeBands();coincidentPrimitiveObservations();std::cout<<"Shared surface analysis tests passed\n";return 0;}
+    try {snapshotsAndPatches();sharedBox();attachedBossAndHole();adaptiveRegions();localRecoveryAndConstraints();extendedRelations();tiltedCavityWalls();smallConeBands();coincidentPrimitiveObservations();orientedAndUncertainComponents();std::cout<<"Shared surface analysis tests passed\n";return 0;}
     catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

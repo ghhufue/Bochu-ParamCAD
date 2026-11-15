@@ -135,6 +135,7 @@ void runCadWork(const CadWork& input, CadReconstructionResult& result,
         return;
     }
     result.candidate=std::move(guided.candidate);
+    result.partialAssembly = !result.candidate.unresolvedPointIds.empty();
     result.analysis=std::move(guided.analysis);
     result.analysisReused=guided.analysisReused;
     result.templateFits=std::move(guided.fits);

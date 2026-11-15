@@ -19,6 +19,7 @@ from structured_light.capture import PIXEL_CONVENTION, load_capture, sha256
 from structured_light.geometry import Device, fuse, triangulate
 from structured_light.patterns import decode, image, sequence
 from structured_light.pipeline import Options, reconstruct, write_json
+from structured_light.normals import oriented_normals
 
 
 def save_image(path: Path, data: np.ndarray) -> None:
@@ -181,6 +182,45 @@ class GeometryTests(unittest.TestCase):
             voxel_downsample(points, np.ones(3), 1)
 
 
+class NormalTests(unittest.TestCase):
+    def test_measured_plane_normals_follow_rotated_camera(self):
+        yy, xx = np.mgrid[:12, :16]
+        local = np.stack((xx - 8, yy - 6, np.full(xx.shape, 100)), axis=-1).astype(float)
+        rotation = np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]])
+        camera = np.array([20, 30, 40])
+        world = local @ rotation.T + camera
+        normals = oriented_normals(world, camera)
+        np.testing.assert_allclose(normals[1:-1, 1:-1], np.broadcast_to([-1, 0, 0], (10, 14, 3)))
+        self.assertTrue((normals[[0, -1]] == 0).all())
+        world[5, 5] = np.nan
+        normals = oriented_normals(world, camera)
+        self.assertTrue(np.isfinite(normals).all())
+        np.testing.assert_array_equal(normals[5, 5], 0)
+
+    def test_depth_step_does_not_create_a_diagonal_surface_normal(self):
+        yy, xx = np.mgrid[:12, :16]
+        points = np.stack((xx, yy, np.where(xx < 8, 100, 120)), axis=-1).astype(float)
+        normals = oriented_normals(points, np.array([8, 6, 0]))
+        nonzero = np.linalg.norm(normals, axis=-1) > 0
+        self.assertGreater(nonzero.sum(), 80)
+        np.testing.assert_allclose(normals[nonzero], np.broadcast_to([0, 0, -1], (nonzero.sum(), 3)))
+
+    def test_fusion_keeps_opposing_parallel_and_unknown_surfaces_separate(self):
+        from structured_light.downsample import voxel_downsample
+        points = np.array([[.1,.1,.1], [.2,.1,.1], [.1,.1,.8], [.2,.1,.8], [.3,.1,.1]])
+        normals = np.array([[0,0,-1], [0,0,-2], [0,0,1], [0,0,1], [0,0,0]], float)
+        merged, counts, directions = voxel_downsample(points, np.ones(5), 1, normals)
+        self.assertEqual(len(merged), 3)
+        np.testing.assert_array_equal(np.sort(counts), [1,2,2])
+        np.testing.assert_allclose(merged[directions[:,2] < -.9], [[.15,.1,.1]])
+        np.testing.assert_allclose(merged[directions[:,2] > .9], [[.15,.1,.8]])
+        # Even similarly oriented, separated layers must not become one face.
+        normals[:4] = [0,0,1]
+        merged, counts, directions = voxel_downsample(points, np.ones(5), 1, normals)
+        self.assertEqual(len(merged), 3)
+        self.assertTrue(np.isfinite(directions).all())
+
+
 class PipelineTests(unittest.TestCase):
     def test_multistation_phase_hdr_pipeline_preserves_mm_world_plane(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -191,6 +231,18 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(state["status"], "complete")
             self.assertGreater(state["point_count"], 1000)
             self.assertEqual(state["valid_stations"], 2)
+            with (root / "run/cloud.ply").open("rb") as stream:
+                header = []
+                while True:
+                    line = stream.readline().decode("ascii").strip()
+                    header.append(line)
+                    if line == "end_header": break
+                self.assertIn("property double nz", header)
+                rows = np.fromfile(stream, dtype="<f8").reshape(-1, 6)
+            known = np.linalg.norm(rows[:, 3:], axis=1) > .5
+            self.assertGreater(known.mean(), .9)
+            np.testing.assert_allclose(np.linalg.norm(rows[known, 3:], axis=1), 1, atol=1e-12)
+            self.assertTrue((rows[known, 5] < -.99).all())
             self.assertEqual(events[-1]["type"], "result")
             for station in ("s0", "s1"):
                 depth = np.load(root / f"run/stations/{station}/depth_camera_z_mm.npy")

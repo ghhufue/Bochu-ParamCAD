@@ -1,5 +1,6 @@
 #include "io/PointCloudAnalysis.h"
 #include "io/PointCloudAdapter.h"
+#include <reconstruction/detection/PlaneSupportRecovery.h>
 
 #include <QJsonArray>
 #include <QThread>
@@ -14,6 +15,7 @@
 #include <limits>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <QCoreApplication>
 
 namespace {
@@ -145,10 +147,22 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
         result.error = QString::fromStdString(error); return result;
     }
     result.analysis = analysis;
+    // Grow on the original observations as well: a one-shot halo around a
+    // downsampled seed cannot recover a long connected face. Keep the processed
+    // analysis fingerprint intact for subsequent CAD cache validation.
+    auto displayEvidence=analysis.surfaces;
+    const auto cancelled=[] { return QThread::currentThread()->isInterruptionRequested(); };
+    if(!reconstruction::recoverPlaneSupport(source,options.plane,displayEvidence,error,{},cancelled)) {
+        result.error=QString::fromStdString(error);return result;
+    }
+    reconstruction::SurfaceAnalysisResult displayAnalysis;
+    if(!reconstruction::indexSurfacePatches(source,displayEvidence,analysisOptions,displayAnalysis,error)) {
+        result.error=QString::fromStdString(error);return result;
+    }
     // Display connected patches independently, even when they share an equation.
     reconstruction::PrimitiveDetectionResult detection;
-    for (const auto& patch : analysis.patches) {
-        auto evidence=analysis.surfaces.at(static_cast<size_t>(patch.surfaceId-1));
+    for (const auto& patch : displayAnalysis.patches) {
+        auto evidence=displayAnalysis.surfaces.at(static_cast<size_t>(patch.surfaceId-1));
         std::visit([&](auto& surface) { surface.supportPointIds=patch.supportPointIds; },evidence);
         detection.evidence.push_back(std::move(evidence));
     }
@@ -156,6 +170,29 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
     positionById.reserve(source.size());
     for (const auto& point : source.points()) positionById.emplace(point.id, &point.position);
     std::vector<vtkSmartPointer<vtkStaticPointLocator>> supports;
+    std::vector<std::unordered_set<reconstruction::PointId>> planeMembers(detection.evidence.size());
+    for(size_t j=0;j<detection.evidence.size();++j)
+        if(const auto* plane=std::get_if<reconstruction::PlaneEvidence>(&detection.evidence[j]))
+            planeMembers[j].insert(plane->supportPointIds.begin(),plane->supportPointIds.end());
+    // Retain typed evidence in the core, but resolve equivalent regions before
+    // assigning individual points. A complete plane must not lose its interior
+    // to smaller coplanar or curved alternatives with slightly lower residuals.
+    std::vector<bool> redundant(detection.evidence.size());
+    for(size_t j=0;j<detection.evidence.size();++j) {
+        const auto& ids=std::visit([](const auto& s)->const std::vector<reconstruction::PointId>& {return s.supportPointIds;},detection.evidence[j]);
+        for(size_t k=0;k<planeMembers.size();++k) {
+            const auto& plane=planeMembers[k];
+            if(k==j || plane.empty() || ids.empty() || plane.size()<ids.size()) continue;
+            if(!planeMembers[j].empty()) {
+                if(plane.size()==ids.size() && k>j) continue;
+                const auto a=std::get<reconstruction::PlaneEvidence>(detection.evidence[j]).plane.normal;
+                const auto b=std::get<reconstruction::PlaneEvidence>(detection.evidence[k]).plane.normal;
+                if(std::abs(a.x*b.x+a.y*b.y+a.z*b.z)<std::cos(.03490658503988659)) continue;
+            }
+            size_t shared=0;for(auto id:ids) shared+=plane.count(id);
+            if(shared>=ids.size()*.98) {redundant[j]=true;break;}
+        }
+    }
     std::vector<std::vector<vtkIdType>> owners(detection.evidence.size());
     for (const auto& evidence : detection.evidence) {
         vtkNew<vtkPoints> coordinates;
@@ -183,15 +220,19 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
         const auto& coordinate = cloud.positions[i];
         if(!std::isfinite(coordinate[0]) || !std::isfinite(coordinate[1]) || !std::isfinite(coordinate[2])) continue;
         Vec point{coordinate[0], coordinate[1], coordinate[2]};
+        const auto pointId=cloud.sourceRows.empty()?reconstruction::PointId(i+1):reconstruction::PointId(cloud.sourceRows[i]+1);
         double best = distanceTolerance*1.5;
         size_t chosen = owners.size();
         for (size_t j = 0; j < detection.evidence.size(); ++j) {
-            const auto& patch=analysis.patches[j];
+            if(redundant[j]) continue;
+            const bool isPlane=!planeMembers[j].empty();
+            if(isPlane && !planeMembers[j].count(pointId)) continue;
+            const auto& patch=displayAnalysis.patches[j];
             if(point.x<patch.lower.x-supportRadius || point.x>patch.upper.x+supportRadius ||
                point.y<patch.lower.y-supportRadius || point.y>patch.upper.y+supportRadius ||
                point.z<patch.lower.z-supportRadius || point.z>patch.upper.z+supportRadius)continue;
             double distance = reconstruction::surfaceResidual(detection.evidence[j], point);
-            if(cloud.normals.size()==cloud.positions.size()) {
+            if(!isPlane && cloud.normals.size()==cloud.positions.size()) {
                 const auto& normal=cloud.normals[i];const Vec n{normal[0],normal[1],normal[2]};
                 const double magnitude=std::hypot(std::hypot(n.x,n.y),n.z);
                 if(std::isfinite(magnitude) && magnitude>1e-12) {
@@ -203,7 +244,14 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
             if (distance > best || supports[j]->GetDataSet()->GetNumberOfPoints() == 0) continue;
             // Near-identical candidates remain in the core pool, but a UI label
             // must not fragment a perfect plane into accidental curved patches.
-            if (chosen != owners.size() && distance >= best-distanceTolerance*1e-4) continue;
+            if (chosen != owners.size()) {
+                const bool bothPlanes=isPlane && !planeMembers[chosen].empty();
+                const double slack=distanceTolerance*(bothPlanes?.1:1e-4);
+                if(bothPlanes && std::abs(distance-best)<=slack) {
+                    if(planeMembers[j].size()<=planeMembers[chosen].size()) continue;
+                } else if(distance>=best-slack) continue;
+            }
+            if(isPlane) {best=distance;chosen=j;continue;}
             double p[3]{point.x,point.y,point.z}, q[3];
             const auto nearest = supports[j]->FindClosestPoint(p);
             supports[j]->GetDataSet()->GetPoint(nearest, q);
@@ -239,4 +287,27 @@ PointCloudRegion describeTemplateFit(const reconstruction::TemplateFit& fit, dou
         region.parameters[key]=region.parameters[key].toDouble()/scale;
     region.residual/=scale;
     return region;
+}
+
+std::vector<DetectedPointCloudSurface> describeAnalysisPatches(
+    const reconstruction::SurfaceAnalysisResult& analysis, std::size_t sourcePointCount, double scale)
+{
+    std::vector<DetectedPointCloudSurface> result;
+    for (const auto& patch : analysis.patches) {
+        if (!patch.surfaceId || patch.surfaceId > analysis.surfaces.size()) continue;
+        reconstruction::TemplateFit fit;
+        fit.regionId = int(patch.id);
+        fit.surface = analysis.surfaces[patch.surfaceId - 1];
+        DetectedPointCloudSurface surface;
+        surface.surface = describeTemplateFit(fit, scale);
+        surface.surface.parameters["orientation_known"] = patch.orientationKnown;
+        for (auto id : patch.supportPointIds)
+            if (id > 0 && id <= sourcePointCount) surface.points.push_back(vtkIdType(id - 1));
+        if (!surface.points.empty()) result.push_back(std::move(surface));
+    }
+    std::stable_sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
+        if ((a.surface.geometry == "plane") != (b.surface.geometry == "plane")) return a.surface.geometry == "plane";
+        return a.points.size() > b.points.size();
+    });
+    return result;
 }

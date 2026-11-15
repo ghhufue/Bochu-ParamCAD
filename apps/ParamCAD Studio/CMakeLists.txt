@@ -49,6 +49,12 @@ if(CAD_CLIENT_BUILD_TESTS)
     target_include_directories(surface_analysis_test PRIVATE ${OpenCASCADE_INCLUDE_DIR} "${CMAKE_CURRENT_SOURCE_DIR}/../../core/geometric_reconstruction/src")
     target_link_directories(surface_analysis_test PRIVATE ${OpenCASCADE_LIBRARY_DIR})
     add_test(NAME surface_analysis_test COMMAND surface_analysis_test)
+    add_executable(plane_support_recovery_test ../../core/geometric_reconstruction/tests/analysis/plane_support_recovery_test.cpp)
+    target_link_libraries(plane_support_recovery_test PRIVATE GeometricReconstruction::GeometricReconstruction)
+    target_link_directories(plane_support_recovery_test PRIVATE ${OpenCASCADE_LIBRARY_DIR})
+    add_test(NAME plane_support_recovery_test COMMAND plane_support_recovery_test)
+    set_tests_properties(plane_support_recovery_test PROPERTIES TIMEOUT 120
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:CadPointCloudClient>")
     add_executable(module_settings_test ../../core/geometric_reconstruction/tests/settings/module_settings_test.cpp)
     target_link_libraries(module_settings_test PRIVATE GeometricReconstruction::GeometricReconstruction)
     target_include_directories(module_settings_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../core/geometric_reconstruction/src")
@@ -419,6 +425,7 @@ if(CAD_CLIENT_BUILD_VALIDATION_TOOLS)
         ../../tools/validation/native/cad_reconstruction_validation.cpp
         ../../tools/validation/native/StepCloudSampler.cpp
         ../../tools/validation/native/SurfaceCoverageValidation.cpp
+        ../../tools/validation/native/PlaneGrowthValidation.cpp
         ../../tools/validation/native/ObservedSurfaceFitting.cpp
         ../../tools/validation/native/PointCloudCadValidation.cpp
         ../../tools/validation/native/AssemblyDiagnostics.cpp

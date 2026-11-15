@@ -1020,6 +1020,8 @@ int main(int argc, char **argv) {
             runReconstructionContractStage(args, report);
         } else if(args.value(1) == "probe-assembly") {
             probeAssemblyBoundaries(args,report);
+        } else if(args.value(1) == "analyze-plane-growth") {
+            validatePlaneGrowth(args, report);
         } else if(args.value(1) == "analyze" || args.value(1) == "analyze-client") {
             validateSurfaceCoverage(args, report);
         } else {

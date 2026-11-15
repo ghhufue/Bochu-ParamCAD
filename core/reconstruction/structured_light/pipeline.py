@@ -17,6 +17,7 @@ from . import StructuredLightError, __version__
 from .capture import load_capture, sha256
 from .downsample import voxel_downsample
 from .geometry import triangulate
+from .normals import oriented_normals
 from .patterns import decode
 
 
@@ -67,13 +68,18 @@ def write_json(path: Path, value: dict) -> None:
     os.replace(temporary, path)
 
 
-def write_ply(path: Path, points: np.ndarray) -> None:
+def write_ply(path: Path, points: np.ndarray, normals: np.ndarray | None = None) -> None:
+    if normals is not None and (normals.shape != points.shape or not np.isfinite(normals).all()):
+        raise StructuredLightError("PLY normals must be finite and align with positions")
     temporary = path.with_suffix(".ply.tmp")
     with temporary.open("wb") as stream:
         stream.write(("ply\nformat binary_little_endian 1.0\ncomment unit mm\n"
                       f"element vertex {len(points)}\nproperty double x\nproperty double y\n"
-                      "property double z\nend_header\n").encode("ascii"))
-        stream.write(np.asarray(points, dtype="<f8").tobytes())
+                      "property double z\n" +
+                      ("property double nx\nproperty double ny\nproperty double nz\n"
+                       if normals is not None else "") + "end_header\n").encode("ascii"))
+        rows = points if normals is None else np.column_stack((points, normals))
+        stream.write(np.asarray(rows, dtype="<f8").tobytes())
     os.replace(temporary, path)
 
 
@@ -136,7 +142,7 @@ def reconstruct(capture_path: str | Path, output: str | Path, *, options: Option
                      rendering=capture.manifest.get("rendering", {}))
         timings["validate"] = time.monotonic() - started
         publish("progress", stage="validate", completed=1, total=1)
-        station_reports, all_points, all_weights = [], [], []
+        station_reports, all_points, all_weights, all_normals = [], [], [], []
         total = len(capture.stations)
         for index, station in enumerate(capture.stations):
             check_cancel()
@@ -171,6 +177,7 @@ def reconstruct(capture_path: str | Path, output: str | Path, *, options: Option
             publish("progress", stage="triangulate", station=station.id, completed=index, total=total)
             depth = np.full(shape, np.nan, np.float32)
             mask = np.zeros(shape, np.uint8)
+            point_image = np.full((*shape, 3), np.nan, np.float64)
             station_points, station_weights, errors = [], [], []
             for offset in range(0, len(xx), 100000):
                 check_cancel()
@@ -181,16 +188,21 @@ def reconstruct(capture_path: str | Path, output: str | Path, *, options: Option
                 xs, ys = xx[limit][valid], yy[limit][valid]
                 depth[ys, xs] = quality["depth"][valid]
                 mask[ys, xs] = 1
+                point_image[ys, xs] = points[valid]
                 station_points.append(points[valid])
                 station_weights.append(confidence[ys, xs] * quality["angle_weight"][valid])
                 errors.extend(quality["reprojection_error"][valid].tolist())
             points = np.concatenate(station_points) if station_points else np.empty((0, 3))
             weights = np.concatenate(station_weights) if station_weights else np.empty(0)
-            write_ply(station_root / "cloud.ply", points)
+            normal_image = oriented_normals(point_image, station.camera.to_world[:3, 3])
+            # Triangulation chunks preserve the row-major decoded pixel order.
+            normals = normal_image[mask.astype(bool)]
+            write_ply(station_root / "cloud.ply", points, normals)
             np.save(station_root / "depth_camera_z_mm.npy", depth)
             np.save(station_root / "valid_mask.npy", mask)
             report = dict(station=station.id, pixels=shape[0] * shape[1], decoded_pixels=len(xx),
                 point_count=len(points), valid_ratio=float(mask.mean()),
+                oriented_normals=int(np.count_nonzero(np.linalg.norm(normals, axis=1) > 0)),
                 reprojection_p50_px=float(np.median(errors)) if errors else None,
                 reprojection_p95_px=float(np.percentile(errors, 95)) if errors else None,
                 exposure_ids=list(station.exposures),
@@ -198,25 +210,29 @@ def reconstruct(capture_path: str | Path, output: str | Path, *, options: Option
             station_reports.append(report)
             all_points.append(points)
             all_weights.append(weights)
+            all_normals.append(normals)
             publish("log", message=f"{station.id}: {len(points)} valid points / {len(xx)} decoded pixels")
             publish("progress", stage="triangulate", station=station.id, completed=index + 1, total=total)
             timings["triangulate"] += time.monotonic() - stage_started
         check_cancel()
         stage_started = time.monotonic()
         publish("progress", stage="fuse", completed=0, total=1)
-        points, counts = voxel_downsample(np.concatenate(all_points), np.concatenate(all_weights), settings.voxel_size_mm)
+        points, counts, normals = voxel_downsample(np.concatenate(all_points), np.concatenate(all_weights),
+                                                   settings.voxel_size_mm, np.concatenate(all_normals))
         if len(points) == 0:
             raise StructuredLightError("no valid points; inspect contrast, exposure, visibility and calibration")
         timings["fuse"] = time.monotonic() - stage_started
         publish("progress", stage="fuse", completed=1, total=1)
         stage_started = time.monotonic()
-        write_ply(root / "cloud.ply", points)
+        write_ply(root / "cloud.ply", points, normals)
         np.save(root / "observation_counts.npy", counts)
         timings["export"] = time.monotonic() - stage_started
         image_paths = [path for station in capture.stations for group in station.exposures.values()
                        for path in group.values()]
         quality = dict(stations=station_reports, input_points=sum(s["point_count"] for s in station_reports),
             output_points=len(points), valid_stations=sum(s["point_count"] > 0 for s in station_reports),
+            oriented_normals=int(np.count_nonzero(np.linalg.norm(normals, axis=1) > 0)),
+            normal_definition="unit surface normals facing each observing camera; zero is unknown",
             elapsed_seconds=time.monotonic() - started,
             bounds_mm=[points.min(axis=0).tolist(), points.max(axis=0).tolist()],
             cost=dict(station_count=total, frame_count=len(image_paths),
@@ -227,6 +243,7 @@ def reconstruct(capture_path: str | Path, output: str | Path, *, options: Option
             evaluation="image-only diagnostics; CAD ground truth not used")
         write_json(root / "quality.json", quality)
         state.update(status="complete", point_count=len(points), valid_stations=quality["valid_stations"],
+                     oriented_normals=quality["oriented_normals"],
                      elapsed_seconds=quality["elapsed_seconds"], quality="quality.json",
                      depth_definition="camera optical-axis Z in mm; invalid=NaN")
         check_cancel()

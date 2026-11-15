@@ -1,5 +1,6 @@
 #include "detail/AnalysisInternal.h"
 #include "reconstruction/detection/MultiScaleDetector.h"
+#include "reconstruction/detection/PlaneSupportRecovery.h"
 
 namespace reconstruction {
 using namespace detail::analysis;
@@ -32,6 +33,11 @@ bool collectSurfaceEvidence(const PointStore& points, const SurfaceAnalysisOptio
         PrimitiveDetectionResult result; ++passes;
         if (detectPrimitiveEvidence(points,detection,result,failure))
             evidence.insert(evidence.end(),result.evidence.begin(),result.evidence.end());
+    }
+    if(options.expandPlaneSupport) {
+        std::vector<PointId> protectedIds;
+        for(const auto& seed:seeds) protectedIds.insert(protectedIds.end(),ids(seed).begin(),ids(seed).end());
+        if(!recoverPlaneSupport(points,d.plane,evidence,error,protectedIds,cancelled)) return false;
     }
     // Manual evidence replaces only same-family observations with substantial
     // source overlap, never unrelated nearby surfaces sharing an equation.

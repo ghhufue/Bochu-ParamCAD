@@ -972,8 +972,6 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
         showProjectionDebugResult(result);
         return;
     }
-    // Consumers validate fingerprint, units and settings before reusing this.
-    if (result.analysis.pointFingerprint) m_surfaceAnalysis = result.analysis;
     const auto reportStatus = [this](const QString& message) {
         m_ui.relationsPanel->setStatus(message);
         m_ui.modelingPanel->setStatusText(message);
@@ -992,6 +990,8 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
         emit logInfo(workspaceTr("CAD reconstruction cancelled"));
         return;
     }
+    // Cache only after checking that the cloud/model still match this run.
+    if (result.analysis.pointFingerprint) m_surfaceAnalysis = result.analysis;
     if (result.preprocessingComplete) {
         const auto& preprocessingReport = result.preprocessing;
         emit logInfo(workspaceTr("Point-cloud preprocessing: %1 → %2 points, removed %3 voxel "
@@ -1043,11 +1043,20 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
                 .arg(result.assembly->candidate.projectionPrograms.size()));
     }
     if (result.outcome == CadReconstructionResult::Outcome::Unsupported) {
+        const double sourceScale=cloudUnit(*m_document)==reconstruction::LengthUnit::Meter?1000.0:1.0;
+        const auto surfaces=describeAnalysisPatches(result.analysis,m_document->sourceCloud().positions.size(),sourceScale);
+        if(!surfaces.empty()) {
+            m_document->replacePartCandidates(surfaces,false);
+            // Assembly part IDs no longer own the displayed surface regions.
+            m_ui.viewer->setAssemblyBoundaries({}, {}, {});
+            emit logInfo(workspaceTr("CAD 未闭合，已保留并显示 %1 个检测面片。").arg(surfaces.size()));
+        }
         QString message = workspaceTr("在 %1 中未能重建受支持的实体：%2")
                                     .arg(QFileInfo(m_cadSourcePath).fileName(), result.error);
         if(const auto* region=m_document->selection().region(result.failedRegionId))
             message=workspaceTr("模板「%1」重建失败，模型保持原状：%2").arg(region->name,result.error);
-        message += result.assembly?workspaceTr(" 分离结果已显示在点云集合中；未生成新的 CAD，已有模型保持原状。"):
+        message += !surfaces.empty()?workspaceTr(" 已显示检测面片；表面检测成功，实体闭合未通过。"):
+            result.assembly?workspaceTr(" 分离结果已显示在点云集合中；未生成新的 CAD，已有模型保持原状。"):
             workspaceTr(" 未生成新的 CAD，已有模型保持原状。");
         reportStatus(message);
         emit logWarning(message);
@@ -1070,6 +1079,9 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
         QMessageBox::warning(m_dialogParent, workspaceTr("重建 CAD"), message);
         return;
     }
+    if(!candidate.unresolvedPointIds.empty())
+        emit logWarning(workspaceTr("已重建有充分支持的独立部件；另有 %1 个观测点所属部件尚未重建。")
+            .arg(candidate.unresolvedPointIds.size()));
     // Derived results share the user's edit history instead of adding undo
     // steps that an automatic reconstruction would immediately recreate.
     for (const auto& fit : result.templateFits)
@@ -1106,7 +1118,8 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
                                .arg(m_ui.viewer->cameraParameters().parallelProjection
                                          ? workspaceTr("正交投影") : workspaceTr("透视投影")) :
                           workspaceTr("就绪 | 模型：%1 | 相机：%2").arg(curvedName).arg(m_ui.viewer->cameraParameters().parallelProjection ? workspaceTr("正交投影") : workspaceTr("透视投影")));
-    reportStatus(result.assembly?workspaceTr("已显示部件候选并更新可闭合部分的 CAD；未闭合部分保留在点云集合中。"):
+    reportStatus(!candidate.unresolvedPointIds.empty()?workspaceTr("已重建部分独立部件；不确定部件仍保留在点云中。"):
+        result.assembly?workspaceTr("已显示部件候选并更新可闭合部分的 CAD；未闭合部分保留在点云集合中。"):
         workspaceTr("CAD 重建完成，已更新参数化模型。"));
     m_analyseAfterCad = !result.assembly && m_document->selection().regionPointCount(0) >= 20;
 }

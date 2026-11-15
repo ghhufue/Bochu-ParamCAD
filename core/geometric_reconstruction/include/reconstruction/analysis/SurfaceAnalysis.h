@@ -61,6 +61,7 @@ struct SurfaceAnalysisOptions {
     double connectivityDistance = 0; // Zero: estimate from each surface's density.
     bool independentFamilies = true;
     bool recoverResidualSurfaces = false;
+    bool expandPlaneSupport = true;
     std::size_t minimumRecoveryRegionPoints = 20;
     double recoveryHaloToleranceMultiplier = 2;
     double recoveryHaloRelationMultiplier = 16;

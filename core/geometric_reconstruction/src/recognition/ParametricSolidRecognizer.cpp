@@ -9,6 +9,7 @@
 #include <functional>
 #include <limits>
 #include <numeric>
+#include <unordered_map>
 
 namespace reconstruction {
 using math3::add;
@@ -17,6 +18,72 @@ using math3::scale;
 using math3::subtract;
 using modeling::Vec3;
 using Coord = std::array<double, 3>;
+
+namespace {
+bool recognizeOrientedComponents(const PointStore& points, const SurfaceAnalysisResult& analysis,
+    CompoundCandidate& output, std::vector<LocalAnalysisFailure>* failures,
+    const RecognitionSettings* settings) {
+    // Splitting must not silently discard a user's cross-component constraint.
+    if (std::any_of(analysis.relations.begin(),analysis.relations.end(),
+            [](const auto& relation) { return !relation.automatic; })) return false;
+    std::vector<PointId> ids;
+    std::unordered_map<PointId, const PointSample*> observations;
+    Vec3 lower = points.points().front().position, upper = lower;
+    for (const auto& p : points.points()) {
+        ids.push_back(p.id); observations.emplace(p.id, &p);
+        lower = {std::min(lower.x,p.position.x),std::min(lower.y,p.position.y),std::min(lower.z,p.position.z)};
+        upper = {std::max(upper.x,p.position.x),std::max(upper.y,p.position.y),std::max(upper.z,p.position.z)};
+    }
+    const double distance = analysis.options.detection.plane.distanceThreshold * 2;
+    const auto groups = connectedPointComponents(points, ids, distance,
+        std::max(distance * 8, math3::length(subtract(upper, lower)) * .02));
+    if (groups.size() < 2) return false;
+    double covered = 0;
+    bool recognized = false;
+    for (const auto& group : groups) {
+        std::vector<PointSample> samples;
+        bool oriented = true;
+        for (auto id : group) {
+            const auto& p = *observations.at(id);
+            samples.push_back(p);
+            oriented &= p.normal.has_value() && p.normalOrientationKnown;
+        }
+        PointStore local(std::move(samples), points.unit());
+        CompoundCandidate candidate;
+        std::string failure = "Surface component lacks material normal orientation";
+        bool accepted = false;
+        if (oriented) {
+            // Refit finite parameters on this component. Merely slicing IDs
+            // would retain another component's cylinder/cone axial bounds.
+            SurfaceAnalysisResult indexed;
+            accepted = analyzeSurfaces(local, analysis.options, indexed, failure)
+                && recognizeParametricSolidFromAnalysis(local, indexed, candidate, failure, nullptr, &local, settings);
+        }
+        if (!accepted) {
+            output.unresolvedPointIds.insert(output.unresolvedPointIds.end(), group.begin(), group.end());
+            if (failures) {
+                LocalAnalysisFailure diagnostic;
+                diagnostic.reason = LocalFailureReason::InsufficientSupport;
+                diagnostic.pointIds = group; diagnostic.message = failure;
+                failures->push_back(std::move(diagnostic));
+            }
+            continue;
+        }
+        recognized = true;
+        covered += candidate.surfaceCoverage * group.size();
+        output.boxes.insert(output.boxes.end(), candidate.boxes.begin(), candidate.boxes.end());
+        output.prisms.insert(output.prisms.end(), candidate.prisms.begin(), candidate.prisms.end());
+        output.throughHoles.insert(output.throughHoles.end(), candidate.throughHoles.begin(), candidate.throughHoles.end());
+        output.curvedSolids.insert(output.curvedSolids.end(), candidate.curvedSolids.begin(), candidate.curvedSolids.end());
+        output.profileBodies.insert(output.profileBodies.end(), candidate.profileBodies.begin(), candidate.profileBodies.end());
+        output.projectionPrograms.insert(output.projectionPrograms.end(), candidate.projectionPrograms.begin(), candidate.projectionPrograms.end());
+        output.gridCells += candidate.gridCells; output.searchNodes += candidate.searchNodes;
+        output.occupancyError = std::max(output.occupancyError, candidate.occupancyError);
+    }
+    output.surfaceCoverage = output.confidence = covered / points.size();
+    return recognized;
+}
+} // namespace
 
 bool reconstructParametricSolid(const PointStore &points, const PlaneDetectionOptions &planes,
                                 const CylinderDetectionOptions &cylinders,
@@ -38,6 +105,10 @@ bool recognizeParametricSolidFromAnalysis(const PointStore& points, const Surfac
     if (std::any_of(points.points().begin(), points.points().end(), [](const PointSample& p) {
             return p.normal && !p.normalOrientationKnown;
         })) {
+        if (recognizeOrientedComponents(points, analysis, output, failures, settings)) {
+            error.clear();
+            return true;
+        }
         output = {};
         error = "Surface normal directions lack material orientation; provide oriented normals "
                 "or additional observations for disconnected surface patches";

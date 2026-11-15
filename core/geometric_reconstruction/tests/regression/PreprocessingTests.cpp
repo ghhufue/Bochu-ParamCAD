@@ -233,6 +233,19 @@ void testVoxelDownsamplingPreservesOriginalPointIds() {
     require(processed.size() == 3 && processed.points()[0].id == 10,
             "Manual observation survives even when another sample represents the same voxel");
 
+    std::vector<reconstruction::PointSample> walls{
+        {20,{.1,.1,.1},modeling::Vec3{0,0,-1}},
+        {21,{.2,.1,.1},modeling::Vec3{0,0,-1}},
+        {22,{.1,.1,.8},modeling::Vec3{0,0,1}},
+        {23,{.2,.1,.8},modeling::Vec3{0,0,1}}};
+    options.protectedPointIds.clear();
+    require(reconstruction::preprocessPointCloud(reconstruction::PointStore(walls),options,processed,report,error),error);
+    require(processed.size()==2 && processed.points()[0].normal->z<0 && processed.points()[1].normal->z>0,
+        "geometric preprocessing retains both signed walls inside a single voxel");
+    for(auto& p:walls) p.normal=modeling::Vec3{0,0,1};
+    require(reconstruction::preprocessPointCloud(reconstruction::PointStore(walls),options,processed,report,error),error);
+    require(processed.size()==2,"parallel separated layers retain distinct source representatives");
+
     std::vector<reconstruction::PointSample> dense;
     for (int x=0;x<10;++x) for (int y=0;y<10;++y)
         dense.push_back({static_cast<reconstruction::PointId>(dense.size()+1),
