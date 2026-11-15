@@ -10,7 +10,7 @@
 
 输入：
 
-- `PointStore`：毫米制工作点，`PointId` 非零且唯一；实体识别依赖方向确定的法向，方向未知时拒绝自动建体；
+- `PointStore`：毫米制工作点，`PointId` 非零且唯一；实体识别依赖方向确定的法向，同一连通部件内方向未知时拒绝建体，空间上分离且完全定向的部件可以部分重建；
 - `PlaneDetectionOptions` 与 `CylinderDetectionOptions`：距离、支持点、随机种子和平面/圆柱上限；
 - `std::vector<TemplateHint>`：选区编号、模板类型与选区源点 ID；
 - `std::vector<SurfaceRelationHint>`：两组源点 ID 与关系类型；
@@ -18,7 +18,7 @@
 
 输出：
 
-- `CompoundCandidate`：长方体、棱柱、贯穿孔、独立曲面实体、轮廓体与投影程序，附 `surfaceCoverage`、`confidence`、`gridCells`、`searchNodes` 和 `minimumBoxCountProven`；
+- `CompoundCandidate`：长方体、棱柱、贯穿孔、独立曲面实体、轮廓体与投影程序，附 `surfaceCoverage`、`confidence`、`gridCells`、`searchNodes`、`minimumBoxCountProven` 和未重建点 ID `unresolvedPointIds`；
 - `SurfaceAnalysisResult`：本次识别实际使用的分析快照，可能包含修复后的补充点；
 - `TemplateFit` 列表与 `failedRegionId`：每个选区的拟合结果，以及失败选区编号。
 
@@ -36,6 +36,8 @@
 | `SurfaceRelationHint` | 两组点 ID 与 `SurfaceRelationKind` |
 
 识别器按固定顺序竞争：先尝试混合特征（薄矩形宿主、附着体、凸台、圆形或矩形通槽）；若混合结果含曲面实体、贯穿孔或切除，直接采用；否则尝试组合体（最少箱体覆盖加倾斜棱柱）；组合体失败时回退混合候选；再尝试“单箱体加贯穿孔”；最后尝试独立曲面实体。该顺序由 `recognizeParametricSolidFromAnalysis()` 实现，错误文本会依次拼接各分支的拒绝原因。
+
+当输入同时包含已定向和未定向法向时，识别器先尝试按空间连通分量拆分：存在人工关系时放弃拆分；连通距离取 2 倍平面距离阈值，搜索半径取该距离的 8 倍与包围盒对角线 2% 的较大值。每个完全定向的分量重新运行曲面分析并重拟合有限参数，避免沿用其他分量的圆柱/圆锥轴向范围；无法定向或识别失败的分量点写入 `unresolvedPointIds`，不影响已识别分量提交。整体 `surfaceCoverage` 按各分量支持点数加权。
 
 主要依赖是项目自有的 `SurfaceAnalysisResult`、`ModelingCore`（模板复验与临时建体）和 OpenCASCADE 的面距离查询；不依赖 Qt、VTK 或 PCL。
 
@@ -84,4 +86,5 @@
 - 曲面实体必须观测到端面或足够的边界角度覆盖。被夹具遮挡、只扫描到侧壁的零件会被拒绝，而不是补出虚构端面。
 - 单箱体路径只取支持点最强的六个平面证据；若这六面不能组成三组正交平行面，就转入组合体、混合特征或装配分支。
 - 人工关系只能确认自动推断已存在的关系，不能引入新的几何约束，也不会移动或重拟合曲面。
+- 同一连通部件内只要存在未定向法向就不会建体；只有空间上分离且完全定向的部件能生成部分结果，其余点记录为未重建。
 - 候选覆盖率只反映已观测点被解释的比例，不能证明未观测区域或源模型的完整度。

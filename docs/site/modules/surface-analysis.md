@@ -24,7 +24,7 @@
 - `SurfaceAnalysisOptions`：检测选项、关系容差、连通距离、是否分族、是否恢复残余曲面、局部恢复参数；
 - 可选的 `seeds` 人工证据与取消回调。
 
-关键默认值：`connectivityDistance = 0` 表示按支持密度自动估计连通半径；`independentFamilies = true` 让五类基元分别检测；`recoverResidualSurfaces = false` 默认关闭多尺度残余恢复。局部恢复最少区域点数 20，halo 容差倍率 2、关系倍率 16，稳定平面重叠比例 0.1、法向余弦 0.95，局部连通容差倍率 2、自适应上限倍率 4。
+关键默认值：`connectivityDistance = 0` 表示按支持密度自动估计连通半径；`independentFamilies = true` 让五类基元分别检测；`recoverResidualSurfaces = false` 默认关闭多尺度残余恢复；`expandPlaneSupport = true` 对自动平面运行连通支持扩展。局部恢复最少区域点数 20，halo 容差倍率 2、关系倍率 16，稳定平面重叠比例 0.1、法向余弦 0.95，局部连通容差倍率 2、自适应上限倍率 4。
 
 输出 `SurfaceAnalysisResult`：
 
@@ -73,7 +73,7 @@
 
 识别侧的 `recognizeAndRepairParametricSolid()` 按源点 ID 去重合并观测与修复候选，重建全局索引，再用原始点 ID 重新绑定人工关系。提交前要求长方体、棱柱、贯穿孔和曲面实体数量不变，每个修复区域的局部边界覆盖率不下降，曲面实体平均残差不增加超过 `0.15 × 距离容差`，几何签名漂移不超过 `0.25 × 距离容差`，全局边界覆盖率不下降且 `surfaceCoverage ≥ 0.98`。任一项失败即拒绝合并，保留原分析和基线候选。成功时写入 `baseFingerprint`、`recoverySourceFingerprint`、补点和局部到全局映射；已有 `baseFingerprint` 的快照若再次出现待修复区域，会要求新的恢复事务，而不是无限叠加。
 
-**快照指纹与缓存复用。** `pointStoreFingerprint()` 混合单位、ID、位置、法向存在性、定向状态、法向分量和置信度。`analysisMatches()` 要求单位与指纹同时一致；`analysisInputMatches()` 在存在 `baseFingerprint` 时改比基线指纹；`analysisSettingsMatch()` 比较检测种子、启用的基元族、阈值、关系容差等选项。客户端只有在输入与设置都匹配时才复用 `sharedAnalysis`，并标记 `analysisReused = true`。
+**快照指纹与缓存复用。** `pointStoreFingerprint()` 混合单位、ID、位置、法向存在性、定向状态、法向分量和置信度。`analysisMatches()` 要求单位与指纹同时一致；`analysisInputMatches()` 在存在 `baseFingerprint` 时改比基线指纹；`analysisSettingsMatch()` 比较检测种子、启用的基元族、阈值、关系容差和平面支持扩展开关等选项。客户端只有在输入与设置都匹配时才复用 `sharedAnalysis`，并标记 `analysisReused = true`。
 
 ## 源码位置
 
