@@ -7,7 +7,7 @@
       "title": "Surface Detection"
     },
     "analysis": {
-      "title": "Surface Relations"
+      "title": "Surface Analysis and Display"
     },
     "recognition": {
       "title": "Feature Recognition"
@@ -58,7 +58,13 @@
     "通用": "General",
     "采样": "Sampling",
     "降采样": "Downsampling",
-    "面片与闭合": "Patches and closure"
+    "面片与闭合": "Patches and closure",
+    "最终成面支持": "Final surface support",
+    "显示网格": "Display meshing",
+    "局部密度支撑": "Local density support",
+    "相对密度孔洞": "Relative-density holes",
+    "边界内部支撑": "Boundary and interior support",
+    "孔槽边界": "Slot boundaries"
   },
   "fields": {
     "worker_count": "Preprocessing workers, 0 = auto, 1 = serial",
@@ -441,6 +447,32 @@
     "score_minimum_face_points": "Minimum face support points in scoring",
     "score_operation_penalty": "Score penalty per operation",
     "score_curve_penalty": "Score penalty per curve",
-    "minimum_boolean_volume_multiplier": "Boolean volume change threshold / tolerance cubed"
+    "minimum_boolean_volume_multiplier": "Boolean volume change threshold / tolerance cubed",
+    "minimum_surface_points": "Minimum supporting points per final collection and connected surface patch",
+    "mesh_point_budget": "Mesh sampling point budget",
+    "planar_alpha_radius_multiplier": "Planar Alpha radius / local spacing",
+    "curved_alpha_radius_multiplier": "Curved Alpha radius / local spacing",
+    "coverage_radius_multiplier": "Support coverage radius / local spacing",
+    "density_neighbor_count": "Local density neighbours",
+    "local_support_radius_multiplier": "Local 2D support radius multiplier",
+    "surface_connectivity_radius_multiplier": "Surface connectivity radius multiplier",
+    "minimum_transverse_variance_ratio": "Minimum transverse variance / squared spacing",
+    "regular_spacing_tolerance": "Maximum relative deviation of regular spacings",
+    "regular_spacing_limit_multiplier": "Maximum regular-spacing expansion multiplier",
+    "density_gap_multiplier": "Neighbour distance jump for density cutoff",
+    "expected_hole_points": "Expected observations in a hole detection window",
+    "hole_small_density_scale": "Smaller window scale for hole detection",
+    "hole_density_ratio": "Maximum relative point density inside a hole",
+    "boundary_band_spacing_multiplier": "Boundary band width / observed spacing",
+    "boundary_dominance_ratio": "Outer-boundary fraction that triggers interior validation",
+    "deep_interior_distance_multiplier": "Minimum deep-interior distance / spacing",
+    "minimum_deep_interior_area_spacings": "Minimum deep-interior area / squared spacing",
+    "minimum_expected_interior_points": "Minimum expected interior observations",
+    "minimum_interior_support_ratio": "Minimum occupied interior cells / expected observations",
+    "slot_minimum_length_spacings": "Minimum slot length / spacing",
+    "slot_maximum_width_spacings": "Maximum slot width / spacing",
+    "slot_minimum_side_spacings": "Minimum supported length of each slot rim / spacing",
+    "slot_edge_alignment": "Minimum directional alignment of slot edges",
+    "slot_perimeter_support_ratio": "Minimum supported rim length / slot perimeter"
   }
 }

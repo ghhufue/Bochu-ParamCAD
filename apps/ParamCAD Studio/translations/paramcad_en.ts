@@ -1920,6 +1920,38 @@ Middle-drag to orbit, right-drag to pan, scroll to zoom.</translation>
 <context>
     <name>PointCloudRelationsPanel</name>
     <message>
+        <source>显示表面</source>
+        <translation>Show surface</translation>
+    </message>
+    <message>
+        <source>显示原始点云</source>
+        <translation>Show original points</translation>
+    </message>
+    <message>
+        <source>按集合的拟合曲面显示，隐藏被表面覆盖的点；其余点保留为点云，无需闭合实体。</source>
+        <translation>Display the fitted surface and hide the points it covers. Other points stay visible. A closed solid is not required.</translation>
+    </message>
+    <message>
+        <source>重建后自动按面渲染</source>
+        <translation>Show surfaces automatically after reconstruction</translation>
+    </message>
+    <message>
+        <source>识别或重建后，用同色表面替代有覆盖的点云；右键集合可单独切换显示。未拟合、失效或无法成面的部分保留点云。</source>
+        <translation>Replace covered points with matching colored surfaces after detection or reconstruction. Right-click a collection to change its display. Unfitted, stale, or unsupported areas keep their points.</translation>
+    </message>
+    <message>
+        <source>显示方式</source>
+        <translation>Display mode</translation>
+    </message>
+    <message>
+        <source>表面</source>
+        <translation>Surface</translation>
+    </message>
+    <message>
+        <source>原始点云</source>
+        <translation>Original points</translation>
+    </message>
+    <message>
         <location filename="../src/ui/panels/PointCloudRelationsPanel.cpp" line="43"/>
         <source>长方体集合</source>
         <translation>Box set</translation>
@@ -2440,6 +2472,13 @@ Coordinates: %3, %4, %5</translation>
         <location filename="../src/ui/panels/PointCloudRelationsPanel.cpp" line="486"/>
         <source>未归属</source>
         <translation>Unassigned</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/panels/PointCloudRelationsPanel.cpp" line="512"/>
+        <source>
+集合：%1</source>
+        <translation>
+Set: %1</translation>
     </message>
     <message>
         <location filename="../src/ui/panels/PointCloudRelationsPanel.cpp" line="509"/>
@@ -3827,5 +3866,23 @@ Full model rebuild validated; click &quot;Apply Preview&quot; to commit. The cha
         <source>Point cloud is empty: %1</source>
         <translation>Point cloud is empty: %1</translation>
     </message>
+</context>
+
+<context>
+    <name>PointCloudRelationsPanel</name>
+    <message><source>导出识别结果（AI 分析）…</source><translation>Export recognition results (AI analysis)…</translation></message>
+    <message><source>面信息、点映射和原始点分开保存，附带按面查询脚本。</source><translation>Save surface metadata, point mappings and raw observations separately, with a surface inspection script.</translation></message>
+</context>
+
+<context>
+    <name>MainWindow</name>
+    <message><source>导出识别结果（AI 分析）</source><translation>Export recognition results (AI analysis)</translation></message>
+    <message><source>识别结果目录 (*.pcad-analysis)</source><translation>Analysis bundle directory (*.pcad-analysis)</translation></message>
+    <message><source>选择位置期间点云已更改，请重新导出识别结果。</source><translation>The cloud changed while choosing a destination. Please export again.</translation></message>
+    <message><source>正在后台导出识别结果…</source><translation>Exporting recognition results in the background…</translation></message>
+    <message><source>识别结果已导出：%1</source><translation>Recognition results exported: %1</translation></message>
+    <message><source>识别结果已导出，可从 README.md 开始查看</source><translation>Recognition results exported. Start with README.md.</translation></message>
+    <message><source>识别结果导出失败：%1</source><translation>Recognition result export failed: %1</translation></message>
+    <message><source>导出识别结果</source><translation>Export recognition results</translation></message>
 </context>
 </TS>

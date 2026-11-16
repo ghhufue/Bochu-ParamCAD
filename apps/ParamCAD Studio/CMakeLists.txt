@@ -94,6 +94,14 @@ find_package(VTK REQUIRED COMPONENTS
     RenderingOpenGL2
 )
 
+add_library(ParamCADSurfaceMeshing STATIC src/rendering/PointCloudSurfaceMesh.cpp src/rendering/PlanarSurfaceDomain.cpp)
+target_include_directories(ParamCADSurfaceMeshing PRIVATE src)
+target_link_libraries(ParamCADSurfaceMeshing PRIVATE Qt6::Core VTK::CommonCore VTK::CommonDataModel
+    GeometricReconstruction::GeometricReconstruction CGAL::CGAL)
+if(MSVC)
+    target_compile_options(ParamCADSurfaceMeshing PRIVATE /W4 /permissive- /utf-8)
+endif()
+
 if(CAD_CLIENT_BUILD_TESTS)
     add_executable(rendering_performance_benchmark ../../tools/benchmarks/rendering_performance.cpp
         src/rendering/BodyActor.cpp src/rendering/OcctShapeTessellator.cpp)
@@ -111,7 +119,7 @@ if(CAD_CLIENT_BUILD_TESTS)
     target_include_directories(point_cloud_rendering_test PRIVATE src)
     target_link_directories(point_cloud_rendering_test PRIVATE ${OpenCASCADE_LIBRARY_DIR})
     target_link_libraries(point_cloud_rendering_test PRIVATE Qt6::Core ${VTK_LIBRARIES}
-        GeometricReconstruction::GeometricReconstruction)
+        GeometricReconstruction::GeometricReconstruction ParamCADSurfaceMeshing)
     vtk_module_autoinit(TARGETS point_cloud_rendering_test MODULES ${VTK_LIBRARIES})
     add_test(NAME point_cloud_rendering_test COMMAND point_cloud_rendering_test)
     set_tests_properties(point_cloud_rendering_test PROPERTIES TIMEOUT 60
@@ -226,6 +234,8 @@ qt_add_executable(CadPointCloudClient WIN32
     src/io/PointCloudDownsampler.cpp
     src/io/PointCloudAnalysis.h
     src/io/PointCloudAnalysis.cpp
+    src/io/AnalysisBundleExporter.h src/io/AnalysisBundleExporter.cpp
+    resources/analysis_export.qrc
     src/io/StepModelLoader.h
     src/io/StepModelLoader.cpp
     src/io/StepModelExporter.h
@@ -313,6 +323,7 @@ target_include_directories(CadPointCloudClient PRIVATE src)
 # the data-exchange and meshing toolkits are added on top of it.
 target_link_directories(CadPointCloudClient PRIVATE ${OpenCASCADE_LIBRARY_DIR})
 target_link_libraries(CadPointCloudClient PRIVATE
+    ParamCADSurfaceMeshing
     ParamCADCapture
     Qt6::Core
     Qt6::Gui
@@ -615,6 +626,17 @@ if(CAD_CLIENT_BUILD_TESTS)
         ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:CadPointCloudClient>"
     )
+    add_executable(analysis_bundle_export_test tests/analysis_bundle_export_test.cpp
+        src/io/AnalysisBundleExporter.cpp resources/analysis_export.qrc)
+    target_include_directories(analysis_bundle_export_test PRIVATE src)
+    target_link_libraries(analysis_bundle_export_test PRIVATE Qt6::Core VTK::CommonCore
+        GeometricReconstruction::GeometricReconstruction)
+    if(MSVC)
+        target_compile_options(analysis_bundle_export_test PRIVATE /W4 /permissive- /utf-8)
+    endif()
+    add_test(NAME analysis_bundle_export_test COMMAND analysis_bundle_export_test)
+    set_tests_properties(analysis_bundle_export_test PROPERTIES ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:$<TARGET_FILE_DIR:CadPointCloudClient>")
     # Exercise the actual window connections and VTK picking, not a second
     # wiring of the same widgets maintained only for tests.
     get_target_property(CAD_CLIENT_TEST_SOURCES CadPointCloudClient SOURCES)
@@ -625,6 +647,7 @@ if(CAD_CLIENT_BUILD_TESTS)
         target_include_directories(${interaction_test} PRIVATE src)
         target_link_directories(${interaction_test} PRIVATE ${OpenCASCADE_LIBRARY_DIR})
         target_link_libraries(${interaction_test} PRIVATE
+            ParamCADSurfaceMeshing
             ParamCADCapture Qt6::Core Qt6::Gui Qt6::Widgets ${VTK_LIBRARIES}
             CadModelCore::CadModelCore GeometricReconstruction::GeometricReconstruction
             TKDE TKXSBase TKDESTEP TKMesh)

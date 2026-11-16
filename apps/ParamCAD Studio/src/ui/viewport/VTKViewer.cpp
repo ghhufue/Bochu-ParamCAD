@@ -193,6 +193,8 @@ VTKViewer::VTKViewer(QWidget* parent, PointCloudDocument* document)
     m_renderer->AddActor(m_bodyActor.highlightActor());
     m_renderer->AddActor(m_pointCloudActor.actor());
     m_renderer->AddActor(m_pointCloudActor.selectionActor());
+    m_renderer->AddActor(m_pointCloudActor.surfaceActor());
+    m_renderer->AddActor(m_pointCloudActor.surfaceHighlightActor());
     m_assemblyBoundaryActor=vtkSmartPointer<vtkActor>::New();m_assemblyBoundaryActor->SetPickable(false);
     m_assemblyBoundaryActor->GetProperty()->SetLineWidth(1.5);m_assemblyBoundaryActor->GetProperty()->LightingOff();
     m_assemblyBoundaryActor->SetVisibility(false);m_renderer->AddActor(m_assemblyBoundaryActor);
@@ -660,6 +662,17 @@ bool VTKViewer::pickedBodyPlane(int faceId, modeling::Plane3d& plane, modeling::
     return true;
 }
 
+int VTKViewer::pickPointCloudRegionAt(int x, int y)
+{
+    if (!hasPointCloud() || !m_pointCloudVisible) return 0;
+    vtkNew<vtkCellPicker> picker;
+    picker->PickFromListOn();
+    picker->AddPickList(m_pointCloudActor.surfaceActor());
+    picker->SetTolerance(1.e-6);
+    picker->Pick(static_cast<double>(x), static_cast<double>(y), 0.0, m_renderer);
+    return m_pointCloudActor.surfaceRegionOfCell(picker->GetCellId());
+}
+
 bool VTKViewer::pickBodyFaceAt(int x, int y, int& faceId,
                                sketchapp::PlaneFrame& plane, bool& planar)
 {
@@ -769,6 +782,29 @@ void VTKViewer::onLeftButtonPressed(int x, int y)
     }
     if (!m_sketchInteraction && m_pointSelectionMode != 0) {
         if (m_pointSelectionMode == 1 && hasPointCloud() && m_pointCloudVisible) {
+            const bool add = m_renderWindow->GetInteractor()->GetControlKey()
+                || m_renderWindow->GetInteractor()->GetShiftKey();
+            const int region = pickPointCloudRegionAt(x, y);
+            if (region > 0) {
+                const auto ids = pointCloudSelection().regionPoints(region);
+                if (add) {
+                    auto selected = pointCloudSelection().selected();
+                    const std::set<vtkIdType> current(selected.begin(), selected.end());
+                    const bool remove = std::all_of(ids.begin(), ids.end(), [&](auto id) { return current.count(id) != 0; });
+                    // Deselecting the face clears its name; adding keeps the new one.
+                    emit pointCloudFacePicked(remove ? 0 : region);
+                    if (remove) {
+                        const std::set<vtkIdType> members(ids.begin(), ids.end());
+                        selected.erase(std::remove_if(selected.begin(), selected.end(), [&](auto id) { return members.count(id) != 0; }), selected.end());
+                        m_pointCloudDocument->select(selected);
+                    } else m_pointCloudDocument->select(ids, true);
+                } else {
+                    emit pointCloudFacePicked(region);
+                    m_pointCloudDocument->selectRegion(region);
+                }
+                return;
+            }
+            emit pointCloudFacePicked(0);
             vtkNew<vtkPointPicker> picker;
             picker->UseCellsOn(); // Deleted observations have no render cells.
             picker->PickFromListOn();
@@ -776,8 +812,6 @@ void VTKViewer::onLeftButtonPressed(int x, int y)
             picker->SetTolerance(0.008);
             picker->Pick(x, y, 0.0, m_renderer);
             const vtkIdType id = picker->GetPointId();
-            const bool add = m_renderWindow->GetInteractor()->GetControlKey()
-                || m_renderWindow->GetInteractor()->GetShiftKey();
             if (add) m_pointCloudDocument->toggle(id);
             else m_pointCloudDocument->select(id >= 0 ? std::vector<vtkIdType>{id} : std::vector<vtkIdType>{});
         }
@@ -804,6 +838,9 @@ void VTKViewer::onLeftButtonPressed(int x, int y)
         return;
     }
 
+    // Model interaction still reports which recognised point-cloud surface lies
+    // under the click, so its name stays visible without stealing the body pick.
+    emit pointCloudFacePicked(pickPointCloudRegionAt(x, y));
     int faceId = -1;
     bool planar = false;
     sketchapp::PlaneFrame plane;
@@ -1179,9 +1216,28 @@ void VTKViewer::selectPointCloudBox(bool add)
 void VTKViewer::refreshPointCloudSelection()
 {
     m_pointCloudActor.setAnnotations(&pointCloudSelection());
+    emit pointCloudSurfaceDisplayChanged();
     if(!m_assemblyBoundaryLines.empty())refreshAssemblyBoundaries();
     emit pointCloudSelectionChanged();
     requestRender();
+}
+
+void VTKViewer::setAutomaticPointCloudSurfaces(bool enabled)
+{
+    m_pointCloudActor.setAutomaticSurfaceDisplay(enabled);
+    refreshPointCloudSelection();
+}
+
+void VTKViewer::refreshPointCloudSurfaceSettings()
+{
+    m_pointCloudActor.invalidateSurfaceMeshes();
+    refreshPointCloudSelection();
+}
+
+void VTKViewer::setPointCloudRegionSurface(int region, bool enabled)
+{
+    m_pointCloudActor.setRegionSurfaceDisplay(region, enabled);
+    refreshPointCloudSelection();
 }
 
 void VTKViewer::setPointCloudPointSize(double size)

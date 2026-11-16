@@ -76,4 +76,9 @@ function fit() {
 .roadmap-diagram { margin: 0 auto; }
 .roadmap-diagram :deep(.mermaid) { margin: 0; }
 .roadmap-diagram :deep(svg) { display: block; width: 100%; max-width: none !important; height: auto; }
+/* Keep HTML labels consistent with Mermaid's measurements outside .vp-doc. */
+.roadmap-diagram :deep(.mermaid p) {
+  margin: 0;
+  line-height: inherit;
+}
 </style>

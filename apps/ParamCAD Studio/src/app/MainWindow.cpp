@@ -512,7 +512,9 @@ void MainWindow::createMenus()
     settingsMenu->addSeparator();
     auto* hyperparameters = settingsMenu->addAction(tr("超参数"));
     hyperparameters->setObjectName(QStringLiteral("hyperparametersAction"));
-    connect(hyperparameters,&QAction::triggered,this,[this] { showHyperparameterSettings(this); });
+    connect(hyperparameters,&QAction::triggered,this,[this] {
+        showHyperparameterSettings(this,[this] {m_viewer->refreshPointCloudSurfaceSettings();});
+    });
 
     auto* debugMenu = menuBar()->addMenu(tr("调试(&D)"));
     debugMenu->setObjectName(QStringLiteral("debugMenu"));

@@ -108,6 +108,18 @@ int main()
         require(roundTrip.voxelSizeMm == 1.25, "serialized voxel size");
         require(roundTrip.options.normalNeighborCount == 21, "serialized normal neighbor count");
 
+        AnalysisSettings display;display.meshing.minimumSurfacePoints=30;
+        display.meshing.expectedHolePoints=40;display.meshing.boundaryDominanceRatio=.9;
+        const auto analysisFile=temporary/"analysis-round-trip.conf";
+        writeFile(analysisFile,serializeAnalysisSettings(display));
+        const auto restoredDisplay=loadAnalysisSettings(analysisFile);
+        require(restoredDisplay.meshing.minimumSurfacePoints==30 && restoredDisplay.meshing.expectedHolePoints==40
+            && restoredDisplay.meshing.boundaryDominanceRatio==.9,"surface support and density parameters round-trip");
+        display.meshing.deepInteriorDistanceMultiplier=display.meshing.boundaryBandSpacingMultiplier;
+        expectThrow([&]{validateAnalysisSettings(display);},"deep-interior distance exceeds boundary band");
+        display=AnalysisSettings{};display.meshing.minimumSurfacePoints=display.meshing.meshPointBudget+1;
+        expectThrow([&]{validateAnalysisSettings(display);},"mesh budget covers final support minimum");
+
         ProjectionExtrusionOptions projection;
         projection.maximumAxes = 9;
         projection.scoreVoxelScale = 3.5;

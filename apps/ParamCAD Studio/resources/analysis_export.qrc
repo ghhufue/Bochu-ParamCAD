@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/analysis-export">
+    <file alias="inspect_bundle.py">../../../tools/analysis_bundle/inspect_bundle.py</file>
+  </qresource>
+</RCC>

@@ -512,6 +512,8 @@ void failedCadRetainsDetectedPlanes()
         return r.geometry=="plane" && r.source=="detected" && !r.templateLocked;
     }),"CAD failure exposes detected planes without creating manual constraints");
     require(document->pointCount()==100,"displaying failed-CAD surface evidence retains all source observations");
+    auto* viewer=window.findChild<VTKViewer*>();
+    require(!viewer->displayedPointCloudSurfaces().empty(),"failed CAD still renders the detected open planar surface");
 }
 }
 

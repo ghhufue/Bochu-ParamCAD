@@ -137,6 +137,32 @@ const std::vector<settings::Setting<AnalysisSettings>>& analysisSchema()
     using S = AnalysisSettings;
     using T = settings::Setting<S>;
     static const std::vector<T> values{
+        INT(meshing.minimumSurfacePoints, "minimum_surface_points", "最终成面支持", "最终集合及连通面片最少支持点数", 3, 1000000),
+        INT(meshing.meshPointBudget, "mesh_point_budget", "显示网格", "网格采样点预算", 256, 1000000),
+        REAL(meshing.planarAlphaRadiusMultiplier, "planar_alpha_radius_multiplier", "显示网格", "平面 Alpha 半径与局部间距之比", .1, 20),
+        REAL(meshing.curvedAlphaRadiusMultiplier, "curved_alpha_radius_multiplier", "显示网格", "曲面 Alpha 半径与局部间距之比", .1, 20),
+        REAL(meshing.coverageRadiusMultiplier, "coverage_radius_multiplier", "显示网格", "点支撑覆盖半径与局部间距之比", .1, 5),
+        INT(meshing.densityNeighborCount, "density_neighbor_count", "局部密度支撑", "局部密度估计近邻数", 16, 256),
+        REAL(meshing.localSupportRadiusMultiplier, "local_support_radius_multiplier", "局部密度支撑", "局部二维支撑半径倍数", .1, 20),
+        REAL(meshing.connectivityRadiusMultiplier, "surface_connectivity_radius_multiplier", "局部密度支撑", "面片连通半径倍数", .1, 20),
+        REAL(meshing.minimumTransverseVarianceRatio, "minimum_transverse_variance_ratio", "局部密度支撑", "最小横向方差与点间距平方之比", .000001, 1),
+        REAL(meshing.regularSpacingTolerance, "regular_spacing_tolerance", "局部密度支撑", "规则点间距相对偏差上限", .001, 2),
+        REAL(meshing.regularSpacingLimitMultiplier, "regular_spacing_limit_multiplier", "局部密度支撑", "规则点间距扩张上限倍数", 1, 10),
+        REAL(meshing.densityGapMultiplier, "density_gap_multiplier", "局部密度支撑", "密度估计截断的邻距跳变倍数", 1.01, 100),
+        REAL(meshing.expectedHolePoints, "expected_hole_points", "相对密度孔洞", "孔洞检测窗口预期点数", 3, 10000),
+        REAL(meshing.smallDensityScale, "hole_small_density_scale", "相对密度孔洞", "孔洞双尺度检测的小窗口比例", .1, .99),
+        REAL(meshing.holeDensityRatio, "hole_density_ratio", "相对密度孔洞", "孔洞最大相对点密度", .01, .95),
+        REAL(meshing.boundaryBandSpacingMultiplier, "boundary_band_spacing_multiplier", "边界内部支撑", "边界带宽与观测间距之比", .01, 10),
+        REAL(meshing.boundaryDominanceRatio, "boundary_dominance_ratio", "边界内部支撑", "触发内部检查的外围边界点占比", .1, 1),
+        REAL(meshing.deepInteriorDistanceMultiplier, "deep_interior_distance_multiplier", "边界内部支撑", "深内部距边界的最小间距倍数", .1, 20),
+        REAL(meshing.minimumDeepInteriorAreaSpacings, "minimum_deep_interior_area_spacings", "边界内部支撑", "深内部最小面积与间距平方之比", .01, 1000),
+        REAL(meshing.minimumExpectedInteriorPoints, "minimum_expected_interior_points", "边界内部支撑", "内部检查最少预期点数", 1, 10000),
+        REAL(meshing.minimumInteriorSupportRatio, "minimum_interior_support_ratio", "边界内部支撑", "内部占用格数与预期点数的最小比例", .01, 1),
+        REAL(meshing.slotMinimumLengthSpacings, "slot_minimum_length_spacings", "孔槽边界", "狭槽最小长度与点间距之比", 1, 100),
+        REAL(meshing.slotMaximumWidthSpacings, "slot_maximum_width_spacings", "孔槽边界", "狭槽最大宽度与点间距之比", .1, 100),
+        REAL(meshing.slotMinimumSideSpacings, "slot_minimum_side_spacings", "孔槽边界", "狭槽单侧最小支撑长度倍数", .1, 100),
+        REAL(meshing.slotEdgeAlignment, "slot_edge_alignment", "孔槽边界", "狭槽边缘最小方向对齐度", .1, 1),
+        REAL(meshing.slotPerimeterSupportRatio, "slot_perimeter_support_ratio", "孔槽边界", "狭槽两侧支撑占周长的最小比例", .1, 1),
         REAL(connectivityDistance, "connectivity_distance_mm", "连接", "连通距离 mm，0 为自动", 0, 10000),
         BOOL(independentFamilies, "independent_families", "连接", "曲面族独立检测"),
         BOOL(recoverResidualSurfaces, "recover_residual_surfaces", "连接", "恢复残余曲面"),
@@ -377,7 +403,12 @@ void validateDetection(const DetectionSettings& settings, std::string& reason)
         reason = "torus_minimum_minor_radius_mm cannot exceed torus_maximum_minor_radius_mm";
 }
 
-void validateAnalysis(const AnalysisSettings&, std::string&) {}
+void validateAnalysis(const AnalysisSettings& settings, std::string& reason) {
+    if(settings.meshing.meshPointBudget<settings.meshing.minimumSurfacePoints)
+        reason="mesh_point_budget cannot be below minimum_surface_points";
+    else if(settings.meshing.deepInteriorDistanceMultiplier<=settings.meshing.boundaryBandSpacingMultiplier)
+        reason="deep_interior_distance_multiplier must exceed boundary_band_spacing_multiplier";
+}
 
 void validateRecognition(const RecognitionSettings& settings, std::string& reason)
 {
@@ -539,7 +570,7 @@ settings::DocumentPtr makeDetectionSettings()
 
 settings::DocumentPtr makeAnalysisSettings()
 {
-    return settings::makeDocument(analysisSchema(), "analysis", "曲面关系", "analysis.conf", validateAnalysis);
+    return settings::makeDocument(analysisSchema(), "analysis", "表面分析与显示", "analysis.conf", validateAnalysis);
 }
 
 settings::DocumentPtr makeRecognitionSettings()

@@ -7,6 +7,7 @@
 #include "app/ReconstructionController.h"
 #include "io/PointCloudAdapter.h"
 #include "io/PointCloudAnalysis.h"
+#include "io/AnalysisBundleExporter.h"
 #include "io/PointCloudDownsampleStore.h"
 #include "io/PointCloudDownsampler.h"
 #include "io/PointCloudMetadata.h"
@@ -121,6 +122,10 @@ PointCloudWorkspaceController::PointCloudWorkspaceController(
 
 PointCloudWorkspaceController::~PointCloudWorkspaceController()
 {
+    if(m_exportThread) {
+        disconnect(m_exportThread,nullptr,this,nullptr);
+        m_exportThread->requestInterruption();m_exportThread->wait();delete m_exportThread;
+    }
     // Join both workers before the window destroys borrowed views.
     disconnect(m_cadTask, nullptr, this, nullptr);
     delete m_cadTask;
@@ -211,6 +216,8 @@ void PointCloudWorkspaceController::connectUi()
         }
         emit logInfo(workspaceTr("点云标注已保存：%1").arg(path));
     });
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::analysisExportRequested,
+            this, &PointCloudWorkspaceController::startAnalysisExport);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::loadRequested, this, [this] {
         const QString path = QFileDialog::getOpenFileName(m_dialogParent, workspaceTr("载入点云标注"),
             QFileInfo(m_document->sourcePath()).absolutePath(), workspaceTr("点云标注 (*.json)"));
@@ -236,6 +243,8 @@ void PointCloudWorkspaceController::connectUi()
     };
     connect(m_document, &PointCloudDocument::documentChanged, this, refreshRelationships);
     connect(m_document, &PointCloudDocument::selectionChanged, m_ui.relationsPanel, &PointCloudRelationsPanel::updateSelection);
+    connect(m_ui.viewer, &VTKViewer::pointCloudFacePicked,
+            m_ui.relationsPanel, &PointCloudRelationsPanel::setPickedFace);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::regionSelected, this, [this](int id) {
         if (id == 0) m_document->selectUnassigned();
         else m_document->selectRegion(id);
@@ -243,6 +252,15 @@ void PointCloudWorkspaceController::connectUi()
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::relationSelected, m_document, &PointCloudDocument::selectRelation);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::showAllBoundariesChanged,
             m_ui.viewer, &VTKViewer::setShowAllAssemblyBoundaries);
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::automaticSurfaceDisplayChanged,
+            m_ui.viewer, &VTKViewer::setAutomaticPointCloudSurfaces);
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::regionSurfaceDisplayRequested,
+            m_ui.viewer, &VTKViewer::setPointCloudRegionSurface);
+    connect(m_ui.viewer, &VTKViewer::pointCloudSurfaceDisplayChanged, this, [this] {
+        m_ui.relationsPanel->setSurfaceDisplayState(m_ui.viewer->availablePointCloudSurfaces(),
+                                                   m_ui.viewer->displayedPointCloudSurfaces());
+    });
+    m_ui.viewer->setAutomaticPointCloudSurfaces(m_ui.relationsPanel->automaticSurfaceDisplay());
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::pointSelected, m_document, &PointCloudDocument::selectPoint);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::editRegionRequested,this,[this](int id,const QString& name,const QString& geometry) {
         if(m_document->editRegion(id,name,geometry)) requestGuidedReconstruction();
@@ -841,6 +859,54 @@ void PointCloudWorkspaceController::prepareProjectReplacement()
     m_analyseAfterCad = false;
     cancelCadReconstruction();
     if (m_analysisThread) m_analysisThread->requestInterruption();
+}
+
+void PointCloudWorkspaceController::startAnalysisExport()
+{
+    if(m_exportThread || !m_document->hasCloud())return;
+    const auto revision=m_document->revision();const auto source=m_document->sourcePath();
+    auto path=QFileDialog::getSaveFileName(m_dialogParent,workspaceTr("导出识别结果（AI 分析）"),
+        source+QStringLiteral(".pcad-analysis"),workspaceTr("识别结果目录 (*.pcad-analysis)"));
+    if(path.isEmpty())return;
+    if(!path.endsWith(".pcad-analysis",Qt::CaseInsensitive))path+=".pcad-analysis";
+    if(m_document->revision()!=revision || m_document->sourcePath()!=source || !m_document->hasCloud()) {
+        emit logWarning(workspaceTr("选择位置期间点云已更改，请重新导出识别结果。"));return;
+    }
+    AnalysisBundleSnapshot snapshot;
+    const auto& selection=m_document->selection();
+    snapshot.cloud=m_document->sourceCloud();snapshot.deleted=selection.deleted();
+    snapshot.memberships=selection.memberships();snapshot.regions=selection.regions();
+    snapshot.relations=selection.relations();snapshot.selected=selection.selected();
+    snapshot.positionsFingerprint=selection.positionsFingerprint();
+    snapshot.sourceName=QFileInfo(source).fileName();snapshot.sourceUnit=m_document->sourceUnit();
+    snapshot.documentRevision=revision;
+    snapshot.surfaces=m_ui.viewer->pointCloudSurfaceDisplaySnapshot();
+    snapshot.displayedSurfaces=m_ui.viewer->displayedPointCloudSurfaces();
+    const auto camera=m_ui.viewer->cameraParameters();
+    const auto vector=[](const double* p){return QJsonArray{p[0],p[1],p[2]};};
+    snapshot.view={{"camera_position",vector(camera.position)},{"camera_target",vector(camera.target)},
+        {"camera_up",vector(camera.up)},{"field_of_view",camera.fieldOfView},
+        {"parallel_projection",camera.parallelProjection},{"parallel_scale",m_ui.viewer->parallelScale()},
+        {"cloud_visible",m_ui.viewer->pointCloudVisible()},{"point_size",m_ui.viewer->pointCloudPointSize()}};
+    struct Result {bool ok=false;QString error;};
+    auto result=std::make_shared<Result>();
+    m_ui.relationsPanel->setAnalysisExportBusy(true);
+    emit statusMessage(workspaceTr("正在后台导出识别结果…"),0);
+    m_exportThread=QThread::create([snapshot=std::move(snapshot),path,result] {
+        result->ok=exportAnalysisBundle(snapshot,path,result->error,[] {return QThread::currentThread()->isInterruptionRequested();});
+    });
+    auto* thread=m_exportThread;thread->setParent(this);
+    connect(thread,&QThread::finished,this,[this,thread,result,path] {
+        m_exportThread=nullptr;thread->deleteLater();m_ui.relationsPanel->setAnalysisExportBusy(false);
+        if(result->ok) {
+            emit logInfo(workspaceTr("识别结果已导出：%1").arg(path));
+            emit statusMessage(workspaceTr("识别结果已导出，可从 README.md 开始查看"),6000);
+        } else {
+            emit logError(workspaceTr("识别结果导出失败：%1").arg(result->error));
+            QMessageBox::warning(m_dialogParent,workspaceTr("导出识别结果"),result->error);
+        }
+    });
+    thread->start();
 }
 
 void PointCloudWorkspaceController::updateCadActions()

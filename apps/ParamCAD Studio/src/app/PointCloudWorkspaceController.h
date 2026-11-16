@@ -69,6 +69,7 @@ private:
     void onCadReconstructionFinished(const CadReconstructionResult& result);
     void startPointCloudAnalysis(int regionId = 0, bool recordUndo = true);
     void startRelationInference(bool recordUndo = true);
+    void startAnalysisExport();
     void startReconstruction(const ReconstructRequest& request);
     void onReconstructionFinished(const QString& pointCloudPath, int pointCount,
                                   const QString& cameraMode, bool dense);
@@ -83,6 +84,7 @@ private:
     const PointCloudWorkspaceUi m_ui;
     QThread* m_analysisThread = nullptr;
     QThread* m_downsampleThread = nullptr;
+    QThread* m_exportThread = nullptr;
     CadReconstructionTask* m_cadTask;
     QPointer<QWidget> m_projectionPage;
     QPointer<QWidget> m_projectionReport;

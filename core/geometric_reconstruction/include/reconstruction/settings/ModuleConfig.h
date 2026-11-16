@@ -11,6 +11,7 @@
 #include "reconstruction/recognition/MixedFeatureRecognizer.h"
 #include "reconstruction/recognition/ThroughHoleRecognizer.h"
 #include "reconstruction/settings/ModuleSettings.h"
+#include "reconstruction/settings/SurfaceMeshingSettings.h"
 
 #include <cstddef>
 #include <filesystem>
@@ -46,6 +47,7 @@ struct DetectionSettings {
 };
 
 struct AnalysisSettings {
+    SurfaceMeshingSettings meshing;
     double connectivityDistance = 0;
     bool independentFamilies = true;
     bool recoverResidualSurfaces = false;

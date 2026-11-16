@@ -73,7 +73,7 @@ struct DocumentPage {
 
 }  // namespace
 
-void showHyperparameterSettings(QWidget* parent)
+void showHyperparameterSettings(QWidget* parent,const std::function<void()>& analysisSettingsChanged)
 {
     if (auto* existing = parent->findChild<QDialog*>(QStringLiteral("hyperparameterSettingsDialog"))) {
         existing->show();
@@ -190,8 +190,9 @@ void showHyperparameterSettings(QWidget* parent)
     layout->addWidget(buttons);
     QObject::connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
     QObject::connect(buttons, &QDialogButtonBox::accepted, dialog,
-                     [dialog, pageModel] {
+                     [dialog, pageModel,analysisSettingsChanged] {
                          std::vector<std::pair<QString, QByteArray>> pending;
+                         bool analysisChanged=false;
                          try {
                              for (auto& page : *pageModel) {
                                  bool dirty = false;
@@ -202,6 +203,7 @@ void showHyperparameterSettings(QWidget* parent)
                                  }
                                  page.document->validate();
                                  if (!dirty) continue;
+                                 analysisChanged|=page.document->id()=="analysis";
                                  pending.emplace_back(page.path,
                                      QByteArray::fromStdString(page.document->serialize()));
                              }
@@ -225,6 +227,7 @@ void showHyperparameterSettings(QWidget* parent)
                              return;
                          }
                          dialog->accept();
+                         if(analysisChanged && analysisSettingsChanged)analysisSettingsChanged();
                      });
     dialog->show();
 }

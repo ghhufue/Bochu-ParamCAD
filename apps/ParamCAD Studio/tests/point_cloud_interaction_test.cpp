@@ -2,16 +2,20 @@
 #include "ui/panels/PointCloudPanel.h"
 #include "ui/panels/PointCloudRelationsPanel.h"
 #include "ui/viewport/VTKViewer.h"
+#include "SurfaceMeshMetrics.h"
 
 #include <QApplication>
 #include <QAction>
 #include <QDialog>
+#include <QDialogButtonBox>
 #include <QMenu>
 #include <QTimer>
 #include <QDockWidget>
 #include <QToolButton>
 #include "ui/panels/PropertyPanel.h"
 #include <QComboBox>
+#include <QCheckBox>
+#include <QDir>
 #include <QDateTime>
 #include <QDoubleSpinBox>
 #include <QElapsedTimer>
@@ -20,10 +24,15 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QImage>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSurfaceFormat>
+#include <QScopeGuard>
+#include <QSpinBox>
+#include <reconstruction/settings/ModuleConfig.h>
 #include <QTemporaryDir>
 #include <QThread>
 #include <QTreeWidget>
@@ -124,13 +133,135 @@ void chooseCloudFile(MainWindow& window, const char* name, const QString& path)
     window.findChild<QAction*>(name)->trigger();
     require(accepted, "cloud file menu opens and accepts its native operation");
 }
-void waitForAnalysis(QLabel* status)
+void waitForAnalysis(QLabel* status, int timeout = 30000)
 {
     QElapsedTimer elapsed; elapsed.start();
-    while (status->text().startsWith(QStringLiteral("正在后台")) && elapsed.elapsed() < 30000) {
+    while (status->text().startsWith(QStringLiteral("正在后台")) && elapsed.elapsed() < timeout) {
         QCoreApplication::processEvents(QEventLoop::AllEvents,50); QThread::msleep(5);
     }
     require(!status->text().startsWith(QStringLiteral("正在后台")), "background analysis completed within deadline");
+}
+
+void exportBundle(MainWindow& window,const QString& path)
+{
+    auto* action=window.findChild<QAction*>("exportCloudAnalysisAction");
+    require(action && action->isEnabled(),"analysis export action available");
+    chooseCloudFile(window,"exportCloudAnalysisAction",path);
+    QElapsedTimer elapsed;elapsed.start();
+    while(!action->isEnabled() && elapsed.elapsed()<60000) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents,50);QThread::msleep(5);
+    }
+    require(action->isEnabled() && QFile::exists(QDir(path).filePath("manifest.json")),"background export published a complete bundle");
+}
+
+void verifySurfaceSettings(MainWindow& window,const QString& path)
+{
+    const auto original=reconstruction::loadAnalysisSettings();
+    const auto oldEnvironment=qgetenv("PARAMCAD_ANALYSIS_CONFIG");
+    const auto restoreEnvironment=qScopeGuard([&]{
+        if(oldEnvironment.isNull())qunsetenv("PARAMCAD_ANALYSIS_CONFIG");
+        else qputenv("PARAMCAD_ANALYSIS_CONFIG",oldEnvironment);
+    });
+    qputenv("PARAMCAD_ANALYSIS_CONFIG",path.toUtf8());
+    const auto write=[&] {
+        QFile file(path);require(file.open(QIODevice::WriteOnly),"create isolated analysis settings");
+        file.write(QByteArray::fromStdString(reconstruction::serializeAnalysisSettings(original)));
+    };
+    write();auto* viewer=window.findChild<VTKViewer*>();const auto revision=viewer->pointCloudDocument()->revision();
+    window.findChild<QAction*>("hyperparametersAction")->trigger();
+    auto* dialog=window.findChild<QDialog*>("hyperparameterSettingsDialog");require(dialog,"hyperparameter dialog opened");
+    dialog->setAttribute(Qt::WA_DontShowOnScreen);
+    auto* minimum=dialog->findChild<QSpinBox*>("minimum_surface_points");
+    require(minimum && dialog->findChild<QLineEdit*>("hole_density_ratio")
+        && dialog->findChild<QLineEdit*>("boundary_dominance_ratio"),"new surface parameters are editable in the existing panel");
+    minimum->setValue(101);
+    dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Save)->click();
+    require(reconstruction::loadAnalysisSettings().meshing.minimumSurfacePoints==101,"panel saves the surface support minimum");
+    require(viewer->availablePointCloudSurfaces().empty(),"saving parameters refreshes current surface meshes");
+    require(viewer->pointCloudDocument()->revision()==revision,"parameter refresh preserves annotations and observations");
+    write();viewer->refreshPointCloudSurfaceSettings();
+    require(viewer->availablePointCloudSurfaces().size()==6,"restored parameters recover six supported box faces");
+}
+
+int exportCloud(const QString& path,const QString& annotations,const QString& output)
+{
+    MainWindow window;window.setAttribute(Qt::WA_DontShowOnScreen);window.show();QCoreApplication::processEvents();
+    auto* document=window.findChild<VTKViewer*>()->pointCloudDocument();QString error;
+    require(document->load(path,error),qPrintable(error));
+    require(document->loadAnnotations(annotations,error),qPrintable(error));
+    exportBundle(window,output);window.close();return 0;
+}
+
+// Optional real-cloud visual check; normal CTest runs use only small fixtures.
+int previewCloud(const QString& path, const QString& output)
+{
+    require(QDir().mkpath(output),"create surface preview output directory");
+    MainWindow window;window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1500,1000);window.show();
+    QCoreApplication::processEvents();
+    auto* viewer=window.findChild<VTKViewer*>();auto* document=viewer->pointCloudDocument();
+    QString error;require(document->load(path,error),qPrintable(error));
+    viewer->resetCameraToPointCloud();
+    auto* status=window.findChild<QLabel*>("pointCloudRelationStatus");
+    auto* autoSurfaces=window.findChild<QCheckBox*>("automaticCloudSurfaceDisplay");
+    QElapsedTimer timer;timer.start();
+    const auto annotations=QDir(output).filePath("annotations.json");
+    const bool cached=QFile::exists(annotations);
+    if(cached)require(document->loadAnnotations(annotations,error),qPrintable(error));
+    else {
+        window.findChild<QPushButton*>("detectCloudSurfacesButton")->click();
+        waitForAnalysis(status,180000);
+    }
+    require(!viewer->displayedPointCloudSurfaces().empty(),qPrintable(status->text()));
+    const auto elapsed=timer.elapsed();
+    const auto revision=document->revision();
+    auto* pages=window.findChild<QTabWidget*>("pointCloudPages");pages->setCurrentIndex(1);
+    document->clearSelection();QCoreApplication::processEvents();
+    require(viewer->captureViewport(QDir(output).filePath("surfaces.png")),"capture real-cloud surfaces");
+    require(window.grab().save(QDir(output).filePath("collections.png")),"capture real-cloud collection UI");
+    const int surfaces=int(viewer->displayedPointCloudSurfaces().size());
+    QElapsedTimer meshing;meshing.start();
+    const auto display=meshPointCloudSurfaces(document->selection());
+    qint64 triangles=0,coveredPoints=0,components=0,checkedDomains=0,rejectedDomains=0;
+    for(const auto& family:display.planeSupportChecks)for(const auto& check:family.second) {
+        ++checkedDomains;rejectedDomains+=check.rejected;
+    }
+    std::set<QByteArray> equations;
+    int smallCollections=0;
+    for(const auto& region:document->selection().regions()) {
+        equations.insert(region.geometry.toUtf8()+QJsonDocument(region.parameters).toJson(QJsonDocument::Compact));
+        smallCollections+=document->selection().regionPointCount(region.id)<20;
+    }
+    std::vector<unsigned char> covered(document->sourceCloud().positions.size(),0);
+    for(const auto& entry:display.meshes) {
+        triangles+=qint64(entry.second.triangles.size());
+        components+=qint64(surfaceMeshComponentCount(entry.second));
+        for(auto id:entry.second.coveredPointIds)if(id>=0 && size_t(id)<covered.size())covered[size_t(id)]=1;
+    }
+    for(auto value:covered)coveredPoints+=value!=0;
+    const auto meshingElapsed=meshing.elapsed();
+    if(!display.meshes.empty()) {
+        const auto& first=*std::max_element(display.meshes.begin(),display.meshes.end(),[](const auto& a,const auto& b) {
+            return a.second.triangles.size()<b.second.triangles.size();
+        });
+        document->selectRegion(first.first);QCoreApplication::processEvents();
+        require(viewer->captureViewport(QDir(output).filePath("highlight.png")),"capture full-face highlight on real observations");
+        document->clearSelection();
+    }
+    require(document->saveAnnotations(annotations,error),"save real-cloud fitted collection evidence");
+    autoSurfaces->setChecked(false);QCoreApplication::processEvents();
+    require(viewer->captureViewport(QDir(output).filePath("points.png")),"capture matching source-point view");
+    require(document->revision()==revision,"real-cloud display toggle preserves observations");
+    QFile report(QDir(output).filePath("report.json"));require(report.open(QIODevice::WriteOnly),"write preview report");
+    const QJsonObject summary{{"source",path},{"points",document->pointCount()},
+        {"collections",int(document->selection().regions().size())},{"distinct_surface_parameters",int(equations.size())},
+        {"collections_below_20_points",smallCollections},{"rendered_surfaces",surfaces},
+        {"rendered_triangles",triangles},{"rendered_components",components},{"surface_covered_points",coveredPoints},
+        {"checked_plane_domains",checkedDomains},{"rejected_plane_domains",rejectedDomains},
+        {"points_kept_visible",document->pointCount()-coveredPoints},{"meshing_verification_ms",meshingElapsed},
+        {"analysis_and_display_ms",elapsed},{"reused_annotations",cached},{"status",status->text()}};
+    report.write(QJsonDocument(summary).toJson());
+    std::cout<<QJsonDocument(summary).toJson(QJsonDocument::Compact).constData()<<std::endl;
+    window.close();return 0;
 }
 }
 
@@ -140,6 +271,10 @@ int main(int argc, char** argv)
     QSurfaceFormat::setDefaultFormat(QVTKOpenGLNativeWidget::defaultFormat());
     QApplication application(argc, argv);
     try {
+        if(argc==5 && QString::fromLocal8Bit(argv[1])=="--analysis-export")
+            return exportCloud(QString::fromLocal8Bit(argv[2]),QString::fromLocal8Bit(argv[3]),QString::fromLocal8Bit(argv[4]));
+        if(argc==4 && QString::fromLocal8Bit(argv[1])=="--surface-preview")
+            return previewCloud(QString::fromLocal8Bit(argv[2]),QString::fromLocal8Bit(argv[3]));
         QTemporaryDir temp;
         require(temp.isValid(), "temporary directory");
         QFile ply(temp.filePath("cloud.ply"));
@@ -331,6 +466,55 @@ int main(int argc, char** argv)
         undo->trigger(); detect->click(); waitForAnalysis(status);
         require(viewer->pointCloudDocument()->selection().regions().size()==6 && !viewer->pointCloudDocument()->selection().relations().empty(),
             "background detection publishes fitted faces, original memberships and relationships to window");
+        auto* autoSurfaces = window.findChild<QCheckBox*>("automaticCloudSurfaceDisplay");
+        require(autoSurfaces && autoSurfaces->isChecked() && viewer->displayedPointCloudSurfaces().size()==6,
+                "point-cloud settings default to rendering detected faces");
+        const auto displayRevision = document->revision();
+        const auto displayRegion = document->selection().regions().front().id;
+        autoSurfaces->setChecked(false);
+        require(viewer->displayedPointCloudSurfaces().empty(),"automatic surface toggle restores point display");
+        contextAction(tree, findNode(tree,1,displayRegion), "showCloudRegionSurfaceAction");
+        require(viewer->displayedPointCloudSurfaces()==std::set<int>{displayRegion},"right-click can display one surface with automatic mode off");
+        autoSurfaces->setChecked(true);
+        require(viewer->displayedPointCloudSurfaces().size()==6,"automatic mode displays other fitted collections");
+        contextAction(tree, findNode(tree,1,displayRegion), "showCloudRegionPointsAction");
+        require(viewer->displayedPointCloudSurfaces().size()==5 && !viewer->displayedPointCloudSurfaces().count(displayRegion),
+                "right-click restores just the targeted collection to points");
+        contextAction(tree, findNode(tree,1,displayRegion), "showCloudRegionSurfaceAction");
+        require(document->revision()==displayRevision,"display settings do not alter cloud annotations or trigger reconstruction");
+        viewer->resetCameraToPointCloud();viewer->setStandardView(CameraController::StandardView::Top);
+        viewer->setPointCloudSelectionMode(1);
+        const int frontRegion=document->selection().memberships()[500];
+        const int backRegion=document->selection().memberships()[400];
+        require(frontRegion!=backRegion,"opposing faces have independent collection IDs");
+        auto* selectionSummary=window.findChild<QLabel*>("pointCloudSelectionSummary");
+        require(selectionSummary,"selection summary is available in the point-cloud panel");
+        // The ray lies between samples and intersects two surfaces. Its first
+        // triangle selects the full face, even without a nearby rendered point.
+        pick(viewer,0,0,3);
+        require(document->selection().selected()==document->selection().regionPoints(frontRegion),
+                "ray picking selects the nearest whole face between source points");
+        require(selectionSummary->text().contains(document->selection().region(frontRegion)->name),
+                "surface click displays the picked face name alongside the selected point count");
+        pick(viewer,0,0,3,true);
+        require(document->selection().selected().empty(),"Ctrl clicking a selected face toggles it off");
+        require(!selectionSummary->text().contains(document->selection().region(frontRegion)->name),
+                "deselecting the face clears its name from the selection summary");
+        viewer->setPointCloudRegionSurface(frontRegion,false);
+        pick(viewer,0,0,-3);
+        require(document->selection().selected()==document->selection().regionPoints(backRegion),
+                "hidden surface cannot intercept the next visible face along the ray");
+        require(selectionSummary->text().contains(document->selection().region(backRegion)->name)
+                && !selectionSummary->text().contains(document->selection().region(frontRegion)->name),
+                "picking another face updates the displayed name");
+        viewer->setPointCloudRegionSurface(frontRegion,true);
+        pick(viewer,0,0,3,true);
+        require(document->selection().selected().size()==200,"Ctrl clicking adds the nearest face to the current selection");
+        require(selectionSummary->text().contains(document->selection().region(frontRegion)->name),
+                "the last clicked face is named even when another face is also selected");
+        pick(viewer,30,30,3);
+        require(document->selection().selected().empty(),"clicking empty space clears face selection");
+        require(document->revision()==displayRevision,"face picking does not edit fitted evidence");
         const auto annotationPath = temp.filePath("workspace-annotations.json");
         chooseCloudFile(window, "saveCloudAnnotationsAction", annotationPath);
         require(QFile::exists(annotationPath), "More menu saves cloud annotation JSON");
@@ -338,6 +522,14 @@ int main(int argc, char** argv)
         chooseCloudFile(window, "loadCloudAnnotationsAction", annotationPath);
         require(document->selection().regions().size() == 6,
                 "More menu restores fitted collections from matching original cloud");
+        verifySurfaceSettings(window,temp.filePath("analysis-settings.conf"));
+        const auto analysisRevision=document->revision();
+        const auto bundlePath=temp.filePath("snapshot.pcad-analysis");exportBundle(window,bundlePath);
+        QFile manifest(QDir(bundlePath).filePath("manifest.json"));require(manifest.open(QIODevice::ReadOnly),"read exported manifest");
+        const auto bundle=QJsonDocument::fromJson(manifest.readAll()).object();
+        require(bundle["surface_count"].toInt()==6 && bundle["source"].toObject()["point_count"].toInt()==600,
+                "UI exports recognized faces and original observations together");
+        require(document->revision()==analysisRevision,"export preserves document state");
         const auto exportedPath = temp.filePath("working-cloud.ply");
         chooseCloudFile(window, "exportWorkingCloudAction", exportedPath);
         PlyCloud exported;

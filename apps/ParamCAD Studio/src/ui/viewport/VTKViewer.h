@@ -51,6 +51,12 @@ public:
     void setParallelScale(double scale);
     bool pointCloudVisible() const { return m_pointCloudVisible; }
     double pointCloudPointSize() const;
+    std::set<int> availablePointCloudSurfaces() const { return m_pointCloudActor.availableSurfaceRegions(); }
+    std::set<int> displayedPointCloudSurfaces() const { return m_pointCloudActor.displayedSurfaceRegions(); }
+    PointCloudSurfaceDisplay pointCloudSurfaceDisplaySnapshot() const { return m_pointCloudActor.surfaceDisplaySnapshot(); }
+    void setAutomaticPointCloudSurfaces(bool enabled);
+    void setPointCloudRegionSurface(int region, bool enabled);
+    void refreshPointCloudSurfaceSettings();
     ObjectPresentation objectPresentation() const { return m_bodyActor.presentation(); }
     bool bodyTextureEnabled() const { return m_bodyActor.textureEnabled(); }
     bool captureImage(const QString& filePath, int width, int height);
@@ -204,6 +210,11 @@ signals:
     // Native geometry publication; consumers retain their own OCCT handle.
     void bodyShapeChanged(const TopoDS_Shape& shape);
     void pointCloudSelectionChanged();
+    void pointCloudSurfaceDisplayChanged();
+    // Region of the fitted surface clicked in the viewport; 0 when the click did
+    // not land on a displayed surface. Emitted on every click so the picked face
+    // name stays current even when the selection itself does not change.
+    void pointCloudFacePicked(int region);
     void pointCloudLoaded();
     void cameraChanged(const CameraParameters& parameters);
 
@@ -254,6 +265,7 @@ private:
     bool snapSketchPointAt(int x, int y, modeling::Point2D& point);
     bool pickBodyFaceAt(int x, int y, int& faceId, sketchapp::PlaneFrame& plane,
                         bool& planar);
+    int pickPointCloudRegionAt(int x, int y);
     bool pickDatumPlaneAt(int x, int y, modeling::DatumPlane& plane);
     bool pickSketchEntityAt(int x, int y, modeling::SketchEntityId& entityId);
 

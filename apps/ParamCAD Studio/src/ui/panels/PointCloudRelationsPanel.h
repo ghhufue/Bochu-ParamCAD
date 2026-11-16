@@ -2,8 +2,10 @@
 #include "core/PointCloudSelection.h"
 #include <QWidget>
 #include <map>
+#include <set>
 
 class QAction;
+class QCheckBox;
 class QDoubleSpinBox;
 class QLabel;
 class QLineEdit;
@@ -24,16 +26,22 @@ public:
     void setSourceInfo(const QString& path, const QString& unit);
     void setDocument(const PointCloudSelection& document, bool available);
     void updateSelection();
+    void setPickedFace(int region);
     void setBusy(bool busy);
+    void setAnalysisExportBusy(bool busy);
     void setCadReconstructionBusy(bool busy, bool cancellable);
     void setStatus(const QString& text);
     void setDefaultTolerances(double diagonal);
     double surfaceTolerance() const;
     double relationTolerance() const;
     double angleTolerance() const;
+    bool automaticSurfaceDisplay() const;
+    void setSurfaceDisplayState(const std::set<int>& available, const std::set<int>& displayed);
 
 signals:
     void showAllBoundariesChanged(bool enabled);
+    void automaticSurfaceDisplayChanged(bool enabled);
+    void regionSurfaceDisplayRequested(int region, bool enabled);
     void detectRequested();
     void reconstructRequested();
     void cancelCadRequested();
@@ -56,6 +64,7 @@ signals:
     void saveRequested();
     void loadRequested();
     void exportRequested();
+    void analysisExportRequested();
 
 private:
     int selectedRegion() const;
@@ -69,7 +78,11 @@ private:
     void applyFilter();
     const PointCloudSelection* m_document = nullptr;
     std::map<int, std::vector<vtkIdType>> m_points;
+    std::map<int, QTreeWidgetItem*> m_displayNodes;
+    std::set<int> m_availableSurfaces, m_displayedSurfaces;
+    int m_pickedRegion = 0;
     bool m_busy = false;
+    bool m_analysisExportBusy = false;
     QTabWidget* m_pages;
     QTreeWidget* m_tree;
     QTreeWidget* m_relationTree;
@@ -81,6 +94,7 @@ private:
     QLineEdit* m_filter;
     QLineEdit* m_relationFilter;
     QDoubleSpinBox* m_surfaceTolerance;
+    QCheckBox* m_automaticSurfaces;
     QDoubleSpinBox* m_relationTolerance;
     QDoubleSpinBox* m_angleTolerance;
     QPushButton* m_detect;
@@ -88,10 +102,13 @@ private:
     QPushButton* m_infer;
     QToolButton* m_reconstruct;
     QAction* m_reconstructAction;
+    QAction* m_analysisExportAction;
     QAction* m_newRegion;
     QAction* m_unassign;
     QAction* m_refit;
     QAction* m_editRegion;
+    QAction* m_showSurface;
+    QAction* m_showPoints;
     QAction* m_append;
     QAction* m_replace;
     QAction* m_removeRegion;

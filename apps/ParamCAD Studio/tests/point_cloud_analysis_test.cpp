@@ -7,6 +7,7 @@
 #include <set>
 #include <stdexcept>
 #include <limits>
+#include <reconstruction/settings/ModuleConfig.h>
 
 namespace {
 void require(bool condition, const char* message) { if (!condition) throw std::runtime_error(message); }
@@ -49,6 +50,20 @@ int main(int argc, char** argv)
         for(const auto& surface:result.surfaces) for(auto id:surface.points) {
             require(valid.count(id) && assigned.insert(id).second, "stable source IDs are mapped once");
         }
+        PlyCloud cone;std::vector<vtkIdType> coneIds;const double coneAngle=.4;
+        for(int i=0;i<48;++i)for(int j=0;j<20;++j) {
+            const double theta=2*std::acos(-1.)*i/48,z=5+j*.25,r=z*std::tan(coneAngle);
+            coneIds.push_back(vtkIdType(cone.positions.size()));
+            cone.positions.push_back({float(r*std::cos(theta)),float(r*std::sin(theta)),float(z)});
+            cone.normals.push_back({float(std::cos(coneAngle)*std::cos(theta)),
+                float(std::cos(coneAngle)*std::sin(theta)),float(-std::sin(coneAngle))});
+        }
+        const auto coneResult=analysePointCloud(cone,coneIds,.01,"cone");
+        require(coneResult.error.isEmpty() && !coneResult.surfaces.empty(),"normal cone is detected with automatic support settings");
+        reconstruction::settings::addOverride("detection.cone_minimum_support_points=2000");
+        const auto restrictedCone=analysePointCloud(cone,coneIds,.01,"cone");
+        require(restrictedCone.surfaces.empty(),"explicit cone minimum must survive client analysis option construction");
+        reconstruction::settings::clearOverrides();
         auto invalid=cloud;
         invalid.positions.insert(invalid.positions.begin(),{std::numeric_limits<float>::quiet_NaN(),0,0});
         invalid.normals.insert(invalid.normals.begin(),{0,0,1});
@@ -113,9 +128,15 @@ int main(int argc, char** argv)
         reconstruction::SurfacePatch patch;patch.id=1;patch.surfaceId=1;patch.supportPointIds={1,3,999};
         retained.patches.push_back(patch);
         const auto displayed=describeAnalysisPatches(retained,10,1000);
-        require(displayed.size()==1 && displayed[0].points==std::vector<vtkIdType>{0,2}
-            && displayed[0].surface.geometry=="plane" && displayed[0].surface.parameters["offset"].toDouble()==-3
-            && !displayed[0].surface.templateLocked,"failed CAD analysis maps stable source rows and source units without inventing template constraints");
+        require(displayed.empty(),"failed CAD analysis must not publish a subminimum two-point surface");
+        retained.patches[0].supportPointIds={1,2,3,4,5,6,7,8,9,10,11,12,999};
+        const auto supported=describeAnalysisPatches(retained,20,1000);
+        require(supported.size()==1 && supported[0].points.front()==0 && supported[0].points.back()==11
+            && supported[0].surface.geometry=="plane" && supported[0].surface.parameters["offset"].toDouble()==-3
+            && !supported[0].surface.templateLocked,"supported CAD analysis preserves stable rows and source units");
+        reconstruction::settings::addOverride("analysis.minimum_surface_points=13");
+        require(describeAnalysisPatches(retained,20,1000).empty(),"final CAD patch publication honours the configured minimum");
+        reconstruction::settings::clearOverrides();
         require(annotation.parameters["offset"].toDouble() == -3 && annotation.residual == 0.002,
                 "template plane equations and residuals return to source meter units");
         fit.surface.reset(); fit.box = reconstruction::BoxCandidate{};

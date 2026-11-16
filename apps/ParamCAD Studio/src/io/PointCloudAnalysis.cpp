@@ -87,20 +87,21 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
     reconstruction::PrimitiveDetectionOptions options = detectionSettings.options;
     options.plane = PointCloudAdapter::planeOptionsFor(points, detectionSettings);
     options.cylinder = PointCloudAdapter::cylinderOptionsFor(points, detectionSettings);
-    const size_t support = std::max<size_t>(detectionSettings.planeSupportFloor,
-        std::min<size_t>(detectionSettings.planeSupportCeiling,
-            points.size() / std::max<std::size_t>(1, detectionSettings.planeSupportDivisor)));
+    const size_t curvedSupport=std::max(detectionSettings.curvedSupportFloor,
+        std::min(detectionSettings.curvedSupportCeiling,points.size()/std::max<size_t>(1,detectionSettings.curvedSupportDivisor)));
     options.plane.distanceThreshold = distanceTolerance;
     options.plane.maximumPlanes = geometry.isEmpty() ? options.plane.maximumPlanes : 1;
     options.cylinder.distanceThreshold = distanceTolerance;
     options.cylinder.minimumRadius = distanceTolerance * detectionSettings.cylinderMinimumRadiusToleranceMultiplier;
-    options.cylinder.minimumSupportPoints = support;
     options.cylinder.maximumCylinders = geometry.isEmpty() ? options.cylinder.maximumCylinders : 1;
-    options.sphere.distanceThreshold = distanceTolerance; options.sphere.minimumSupportPoints = support;
+    options.sphere.distanceThreshold = distanceTolerance;
+    if(!options.sphere.minimumSupportPoints)options.sphere.minimumSupportPoints=curvedSupport;
     options.sphere.maximumSpheres = geometry.isEmpty() ? options.sphere.maximumSpheres : 1;
-    options.cone.distanceThreshold = distanceTolerance; options.cone.minimumSupportPoints = support;
+    options.cone.distanceThreshold = distanceTolerance;
+    if(!options.cone.minimumSupportPoints)options.cone.minimumSupportPoints=curvedSupport;
     options.cone.maximumCones = geometry.isEmpty() ? options.cone.maximumCones : 1;
-    options.torus.distanceThreshold = distanceTolerance; options.torus.minimumSupportPoints = support;
+    options.torus.distanceThreshold = distanceTolerance;
+    if(!options.torus.minimumSupportPoints)options.torus.minimumSupportPoints=curvedSupport;
     options.torus.maximumTori = geometry.isEmpty() ? options.torus.maximumTori : 1;
     if (!geometry.isEmpty()) {
         options.detectPlanes = geometry == "plane"; options.detectCylinders = geometry == "cylinder";
@@ -108,6 +109,14 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
         options.detectTori = geometry == "ring";
     } else options = reconstruction::recognitionAnalysisOptions(
         points,options.plane,options.cylinder,recognitionSettings.analysis).detection;
+    // An explicit detector minimum must survive the automatic analysis quotas.
+    const auto minimum=[&](auto& family,const auto& configured) {
+        if(configured.minimumSupportPoints)family.minimumSupportPoints=configured.minimumSupportPoints;
+        family.minimumSupportPoints=std::max(family.minimumSupportPoints,analysisSettings.meshing.minimumSurfacePoints);
+    };
+    minimum(options.plane,detectionSettings.options.plane);minimum(options.cylinder,detectionSettings.options.cylinder);
+    minimum(options.sphere,detectionSettings.options.sphere);minimum(options.cone,detectionSettings.options.cone);
+    minimum(options.torus,detectionSettings.options.torus);
     const auto seedText=qEnvironmentVariable("PCAD_RANSAC_SEED");
     if(!seedText.isEmpty()) {
         bool valid=false;options.randomSeed=seedText.toUInt(&valid);
@@ -258,10 +267,12 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
             if (std::hypot(std::hypot(p[0]-q[0],p[1]-q[1]),p[2]-q[2]) > supportRadius) continue;
             best = distance; chosen = j;
         }
-        if (chosen != owners.size()) { owners[chosen].push_back(originalIds[i]); ++result.assignedPoints; }
+        if (chosen != owners.size()) owners[chosen].push_back(originalIds[i]);
     }
     for (size_t j = 0; j < owners.size(); ++j) {
-        if (!owners[j].empty()) result.surfaces.push_back({describe(detection.evidence[j], static_cast<int>(j+1)), std::move(owners[j])});
+        if(owners[j].size()<analysisSettings.meshing.minimumSurfacePoints)continue;
+        result.assignedPoints+=owners[j].size();
+        result.surfaces.push_back({describe(detection.evidence[j], static_cast<int>(j+1)), std::move(owners[j])});
     }
     return result;
 }
@@ -293,6 +304,7 @@ std::vector<DetectedPointCloudSurface> describeAnalysisPatches(
     const reconstruction::SurfaceAnalysisResult& analysis, std::size_t sourcePointCount, double scale)
 {
     std::vector<DetectedPointCloudSurface> result;
+    const auto minimum=reconstruction::loadAnalysisSettings().meshing.minimumSurfacePoints;
     for (const auto& patch : analysis.patches) {
         if (!patch.surfaceId || patch.surfaceId > analysis.surfaces.size()) continue;
         reconstruction::TemplateFit fit;
@@ -303,7 +315,9 @@ std::vector<DetectedPointCloudSurface> describeAnalysisPatches(
         surface.surface.parameters["orientation_known"] = patch.orientationKnown;
         for (auto id : patch.supportPointIds)
             if (id > 0 && id <= sourcePointCount) surface.points.push_back(vtkIdType(id - 1));
-        if (!surface.points.empty()) result.push_back(std::move(surface));
+        std::sort(surface.points.begin(),surface.points.end());
+        surface.points.erase(std::unique(surface.points.begin(),surface.points.end()),surface.points.end());
+        if (surface.points.size()>=minimum) result.push_back(std::move(surface));
     }
     std::stable_sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
         if ((a.surface.geometry == "plane") != (b.surface.geometry == "plane")) return a.surface.geometry == "plane";

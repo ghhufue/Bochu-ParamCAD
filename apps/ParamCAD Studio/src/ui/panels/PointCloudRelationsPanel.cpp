@@ -4,6 +4,7 @@
 
 #include <QAbstractItemView>
 #include <QAction>
+#include <QActionGroup>
 #include <QFileInfo>
 #include <QMenu>
 #include <QScrollArea>
@@ -87,6 +88,7 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
     m_source = new QLabel(this); m_source->setWordWrap(true);
     m_summary = new QLabel(tr("请先打开点云"), this); m_summary->setWordWrap(true);
     m_selection = new QLabel(this); m_selection->setWordWrap(true);
+    m_selection->setObjectName("pointCloudSelectionSummary");
     layout->addWidget(m_source); layout->addWidget(m_summary); layout->addWidget(m_selection);
     m_pages = new QTabWidget(this); m_pages->setObjectName("pointCloudPages");
     layout->addWidget(m_pages, 1);
@@ -96,6 +98,13 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
     };
     m_newRegion = makeAction(tr("从选区新建集合…"), "createPointCollectionAction");
     m_editRegion = makeAction(tr("编辑名称 / 模板…"), "editPointCollectionAction");
+    m_showSurface = makeAction(tr("显示表面"), "showCloudRegionSurfaceAction");
+    m_showPoints = makeAction(tr("显示原始点云"), "showCloudRegionPointsAction");
+    auto* displayMode = new QActionGroup(this);
+    for (auto* action : {m_showSurface, m_showPoints}) { action->setCheckable(true); displayMode->addAction(action); }
+    m_showSurface->setToolTip(tr("按集合的拟合曲面显示，隐藏被表面覆盖的点；其余点保留为点云，无需闭合实体。"));
+    connect(m_showSurface, &QAction::triggered, this, [this] { emit regionSurfaceDisplayRequested(selectedRegion(), true); });
+    connect(m_showPoints, &QAction::triggered, this, [this] { emit regionSurfaceDisplayRequested(selectedRegion(), false); });
     m_refit = makeAction(tr("按此集合模板重建"), "rebuildSelectedTemplateAction");
     m_append = makeAction(tr("加入当前选区"), "appendCloudSelectionAction");
     m_replace = makeAction(tr("以当前选区替换成员"), "replaceCloudCollectionAction");
@@ -185,6 +194,12 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
     auto* settings = new QWidget;
     auto* form = new QFormLayout(settings);
     form->setContentsMargins(6, 8, 6, 6); form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    m_automaticSurfaces = new QCheckBox(tr("重建后自动按面渲染"), settings);
+    m_automaticSurfaces->setObjectName("automaticCloudSurfaceDisplay");
+    m_automaticSurfaces->setChecked(true);
+    m_automaticSurfaces->setToolTip(tr("识别或重建后，用同色表面替代有覆盖的点云；右键集合可单独切换显示。未拟合、失效或无法成面的部分保留点云。"));
+    form->addRow(m_automaticSurfaces);
+    connect(m_automaticSurfaces, &QCheckBox::toggled, this, &PointCloudRelationsPanel::automaticSurfaceDisplayChanged);
     m_surfaceTolerance = tolerance(settings, 0.1); m_surfaceTolerance->setObjectName("surfaceFitTolerance");
     m_relationTolerance = tolerance(settings, 1.0);
     double defaultAngle = 2.0;
@@ -220,6 +235,9 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
     auto* save = files->addAction(tr("保存点云标注…")); save->setObjectName("saveCloudAnnotationsAction");
     auto* load = files->addAction(tr("载入点云标注…")); load->setObjectName("loadCloudAnnotationsAction");
     auto* exportCloud = files->addAction(tr("导出工作点云…")); exportCloud->setObjectName("exportWorkingCloudAction");
+    m_analysisExportAction = files->addAction(tr("导出识别结果（AI 分析）…"));
+    m_analysisExportAction->setObjectName("exportCloudAnalysisAction");
+    m_analysisExportAction->setToolTip(tr("面信息、点映射和原始点分开保存，附带按面查询脚本。"));
     more->setMenu(files);
     footer->addWidget(m_detect, 1); footer->addWidget(m_reconstruct, 1); footer->addWidget(more);
     layout->addLayout(footer);
@@ -256,6 +274,7 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
     connect(save, &QAction::triggered, this, &PointCloudRelationsPanel::saveRequested);
     connect(load, &QAction::triggered, this, &PointCloudRelationsPanel::loadRequested);
     connect(exportCloud, &QAction::triggered, this, &PointCloudRelationsPanel::exportRequested);
+    connect(m_analysisExportAction, &QAction::triggered, this, &PointCloudRelationsPanel::analysisExportRequested);
     connect(m_cancelCad, &QPushButton::clicked, this, &PointCloudRelationsPanel::cancelCadRequested);
     connect(m_pages, &QTabWidget::currentChanged, this, [this](int) {
         m_activeTree = m_pages->currentWidget() == m_relationTree->parentWidget() ? m_relationTree : m_tree;
@@ -295,6 +314,7 @@ void PointCloudRelationsPanel::showContextMenu(QTreeWidget* tree, const QPoint& 
         menu.addAction(m_editRelation); menu.addAction(m_removeRelation);
     } else if (selectedRegion() >= 0) {
         if (selectedRegion() > 0) {
+            menu.addAction(m_showSurface); menu.addAction(m_showPoints); menu.addSeparator();
             menu.addAction(m_editRegion); menu.addAction(m_refit);
             menu.addSeparator(); menu.addAction(m_append); menu.addAction(m_replace);
             menu.addAction(m_addRelation);
@@ -333,6 +353,7 @@ void PointCloudRelationsPanel::createRegion()
 void PointCloudRelationsPanel::setDocument(const PointCloudSelection& document, bool available)
 {
     m_document = &document; setEnabled(available);
+    if (m_pickedRegion > 0 && !document.region(m_pickedRegion)) m_pickedRegion = 0;
     const QString previous = itemKey(m_tree->currentItem());
     const QString previousRelation = itemKey(m_relationTree->currentItem());
     const auto* currentCollection = m_tree->currentItem();
@@ -344,6 +365,7 @@ void PointCloudRelationsPanel::setDocument(const PointCloudSelection& document, 
     QTreeWidgetItemIterator before(m_tree);
     while (*before) { if ((*before)->isExpanded()) expanded.insert(itemKey(*before)); ++before; }
     const QSignalBlocker blocker(m_tree), relationBlocker(m_relationTree);
+    m_displayNodes.clear();
     m_tree->clear(); m_relationTree->clear(); m_points.clear();
     for (size_t i = 0; i < document.memberships().size(); ++i) {
         if (document.active(static_cast<vtkIdType>(i))) m_points[document.memberships()[i]].push_back(static_cast<vtkIdType>(i));
@@ -370,6 +392,8 @@ void PointCloudRelationsPanel::setDocument(const PointCloudSelection& document, 
         auto* item = node(collections, {region.name, label(geometries(), region.geometry),
             QString::number(m_points[region.id].size())}, Region, region.id);
         item->setToolTip(0, tr("集合 #%1 · %2").arg(region.id).arg(region.name));
+        m_displayNodes[region.id] = node(item, {tr("显示方式"),
+            m_displayedSurfaces.count(region.id) ? tr("表面") : tr("原始点云")}, Region, region.id);
         if (region.id == previousRegion) m_tree->setCurrentItem(item);
         node(item, {tr("拟合状态"), region.fitStale ? tr("点集已修改，需重新拟合")
             : region.parameters.isEmpty() ? tr("手动集合，尚未拟合") : tr("已拟合")}, Region, region.id);
@@ -463,6 +487,10 @@ void PointCloudRelationsPanel::updateActions()
     const bool selected = !m_document->selected().empty();
     m_newRegion->setEnabled(selected); m_unassign->setEnabled(selected);
     m_editRegion->setEnabled(region); m_removeRegion->setEnabled(region);
+    m_showSurface->setEnabled(region && m_availableSurfaces.count(id));
+    m_showPoints->setEnabled(region);
+    m_showSurface->setChecked(region && m_displayedSurfaces.count(id));
+    m_showPoints->setChecked(region && !m_displayedSurfaces.count(id));
     m_refit->setEnabled(region && !m_busy && m_document->regionPointCount(id) >= 20);
     m_append->setEnabled(region && selected); m_replace->setEnabled(region && selected);
     m_deleteRegionPoints->setEnabled(id >= 0 && m_document->regionPointCount(id) > 0);
@@ -473,6 +501,12 @@ void PointCloudRelationsPanel::updateActions()
     m_detect->setEnabled(!m_busy && m_document->regionPointCount(0) >= 20);
     m_infer->setEnabled(!m_busy && m_document->regions().size() >= 2);
     m_reconstructAction->setEnabled(!m_busy && m_document->activePointCount() > 0);
+    m_analysisExportAction->setEnabled(!m_busy && !m_analysisExportBusy && !m_document->regions().empty());
+}
+void PointCloudRelationsPanel::setPickedFace(int region)
+{
+    m_pickedRegion = region;
+    updateSelection();
 }
 void PointCloudRelationsPanel::updateSelection()
 {
@@ -485,6 +519,24 @@ void PointCloudRelationsPanel::updateSelection()
         text += tr("\n点 #%1 → %2\n坐标：%3, %4, %5").arg(id)
             .arg(region ? region->name : tr("未归属"))
             .arg(p[0], 0, 'g', 7).arg(p[1], 0, 'g', 7).arg(p[2], 0, 'g', 7);
+    } else if (!selected.empty()) {
+        // 单击拟合表面会选中该集合的全部点，优先显示刚点中的集合名称；
+        // 其他方式形成的单一集合选区仍按成员归属推断。
+        int regionId = m_pickedRegion;
+        if (regionId <= 0) {
+            regionId = m_document->memberships()[static_cast<size_t>(selected.front())];
+            if (!std::all_of(selected.begin(), selected.end(), [this, regionId](vtkIdType id) {
+                    return m_document->memberships()[static_cast<size_t>(id)] == regionId;
+                })) regionId = 0;
+        }
+        if (regionId > 0) {
+            if (const auto* region = m_document->region(regionId))
+                text += tr("\n集合：%1").arg(region->name);
+        }
+    } else if (m_pickedRegion > 0) {
+        // 模型交互模式下单击拟合表面不会改变选区，但仍显示点中面的名称。
+        if (const auto* region = m_document->region(m_pickedRegion))
+            text += tr("\n集合：%1").arg(region->name);
     }
     m_selection->setText(text); updateActions();
 }
@@ -545,6 +597,7 @@ void PointCloudRelationsPanel::editRelation(bool create)
         emit setRelationRequested(id, first->currentData().toInt(), second->currentData().toInt(), type->currentData().toString());
 }
 void PointCloudRelationsPanel::setBusy(bool busy) { m_busy = busy; updateActions(); }
+void PointCloudRelationsPanel::setAnalysisExportBusy(bool busy) { m_analysisExportBusy = busy; updateActions(); }
 void PointCloudRelationsPanel::setCadReconstructionBusy(bool busy, bool cancellable)
 {
     m_cancelCad->setVisible(busy);
@@ -564,5 +617,14 @@ void PointCloudRelationsPanel::setDefaultTolerances(double diagonal)
     m_relationTolerance->setValue(std::max(0.000001, diagonal*relationFraction));
 }
 double PointCloudRelationsPanel::surfaceTolerance() const { return m_surfaceTolerance->value(); }
+bool PointCloudRelationsPanel::automaticSurfaceDisplay() const { return m_automaticSurfaces->isChecked(); }
+void PointCloudRelationsPanel::setSurfaceDisplayState(const std::set<int>& available, const std::set<int>& displayed)
+{
+    m_availableSurfaces = available;
+    m_displayedSurfaces = displayed;
+    for (const auto& entry : m_displayNodes)
+        entry.second->setText(1, displayed.count(entry.first) ? tr("表面") : tr("原始点云"));
+    updateActions();
+}
 double PointCloudRelationsPanel::relationTolerance() const { return m_relationTolerance->value(); }
 double PointCloudRelationsPanel::angleTolerance() const { return m_angleTolerance->value(); }
