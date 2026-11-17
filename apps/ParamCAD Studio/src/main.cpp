@@ -1,5 +1,6 @@
 #include "app/MainWindow.h"
 #include "app/UiLanguage.h"
+#include "cli/StudioCommandServer.h"
 
 #include <reconstruction/settings/ModuleSettings.h>
 
@@ -87,6 +88,11 @@ int main(int argc, char* argv[])
         reconstruction::settings::addOverride(assignment.toStdString());
 
     MainWindow window;
+    StudioCommandServer commandServer([&window](const QJsonObject& request,pcad::Reply reply) {
+        window.executeCliCommand(request,std::move(reply));
+    });
+    QString commandServerError;
+    if(!commandServer.start(commandServerError))window.logWarning(commandServerError);
     if(parser.isSet(structuredCapture))window.setAttribute(Qt::WA_DontShowOnScreen);
     window.show();
 

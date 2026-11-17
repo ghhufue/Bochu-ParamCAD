@@ -4,17 +4,12 @@ import argparse
 from collections.abc import Sequence
 import sys
 
-from . import clean, studio
+from . import clean, native
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pcad", description="ParamCAD repository tools")
     commands = parser.add_subparsers(dest="command", required=True)
-
-    launch = commands.add_parser("studio", help="open ParamCAD Studio")
-    launch.add_argument("--exe", help="override the Studio executable path")
-    launch.add_argument("--dry-run", action="store_true", help="show the executable without opening it")
-    launch.set_defaults(handler=studio.run)
 
     cleanup = commands.add_parser("clean", help="clean generated files")
     targets = cleanup.add_subparsers(dest="target", required=True)
@@ -25,9 +20,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    arguments = list(sys.argv[1:] if argv is None else argv)
     try:
-        return args.handler(args)
+        if arguments[:2] == ["clean", "output"]:
+            args = build_parser().parse_args(arguments)
+            return args.handler(args)
+        return native.run(arguments)
     except (OSError, RuntimeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

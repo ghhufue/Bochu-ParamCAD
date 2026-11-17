@@ -48,7 +48,7 @@ cmake --build --preset msvc-release
 | --- | --- | --- |
 | `CAD_CLIENT_BUILD_TESTS` | `OFF` | 构建客户端 I/O、交互与任务回归测试。 |
 | `CAD_CLIENT_BUILD_VALIDATION_TOOLS` | `OFF` | 构建 `cad_reconstruction_validation` 等验证程序。 |
-| `CAD_CLIENT_BUILD_MODULE_CLIS` | `ON` | 构建 `pcad_preprocess`、`pcad_detect` 等 6 个模块 CLI。 |
+| `CAD_CLIENT_BUILD_MODULE_CLIS` | `ON` | 构建统一 `pcad.exe`，包含六个算法模块、在线分派、离线 CAD 重建和导出包查询。Studio 构建会同步更新它。 |
 
 两个核心库都能脱离客户端独立配置和测试。客户端通过 `add_subdirectory` 引入它们时会强制关闭核心测试目标，因此单独验证核心库需要直接配置其源目录：
 

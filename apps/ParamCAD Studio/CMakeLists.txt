@@ -5,7 +5,7 @@ project(CadPointCloudClient VERSION 0.3.1 LANGUAGES CXX)
 option(CAD_CLIENT_BUILD_TESTS "Build ParamCAD Studio I/O tests" OFF)
 option(CAD_CLIENT_BUILD_CAPTURE_TESTS "Build structured-light rendering contract tests" OFF)
 option(CAD_CLIENT_BUILD_VALIDATION_TOOLS "Build standard STEP and CAD validation tools" OFF)
-option(CAD_CLIENT_BUILD_MODULE_CLIS "Build one standalone CLI per reconstruction module" ON)
+option(CAD_CLIENT_BUILD_MODULE_CLIS "Build the unified pcad command line client" ON)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -76,7 +76,7 @@ if(CAD_CLIENT_BUILD_TESTS)
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:CadPointCloudClient>")
 endif()
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets LinguistTools)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets Network LinguistTools)
 # OpenCASCADE is resolved here as well as inside CadModelCore because the client
 # names the STEP data-exchange toolkits its importer uses directly.
 find_package(OpenCASCADE REQUIRED)
@@ -127,6 +127,7 @@ if(CAD_CLIENT_BUILD_TESTS)
 endif()
 
 add_library(ParamCADCapture STATIC
+    src/capture/CaptureJson.cpp
     src/capture/CaptureJob.h src/capture/CaptureJob.cpp
     src/capture/RenderBackend.h
     src/capture/VtkProjectionBackend.h src/capture/VtkProjectionBackend.cpp
@@ -169,6 +170,10 @@ qt_add_executable(CadPointCloudClient WIN32
     resources/app.qrc
     src/app/MainWindow.h
     src/app/MainWindow.cpp
+    src/app/MainWindowCommands.cpp
+    src/app/PointCloudWorkspaceCommands.cpp
+    src/cli/CommandProtocol.cpp src/cli/CommandProtocol.h
+    src/cli/StudioCommandServer.cpp src/cli/StudioCommandServer.h
     src/app/UiLanguage.h
     src/app/UiLanguage.cpp
     src/app/ShortcutSettings.h
@@ -328,6 +333,7 @@ target_link_libraries(CadPointCloudClient PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
+    Qt6::Network
     ${VTK_LIBRARIES}
     CadModelCore::CadModelCore
     GeometricReconstruction::GeometricReconstruction
@@ -429,32 +435,52 @@ endfunction()
 stage_module_configs(CadPointCloudClient)
 
 if(CAD_CLIENT_BUILD_MODULE_CLIS)
-    set(MODULE_CLI_COMMON
-        ../../tools/module_cli/ModuleCli.cpp
-        src/io/PlyReader.cpp
-        src/io/PlyWriter.cpp
-        src/io/PointCloudAdapter.cpp)
-    function(add_module_cli name source)
-        add_executable(${name} ${source} ${MODULE_CLI_COMMON})
-        target_include_directories(${name} PRIVATE
-            src ../../tools/module_cli)
-        target_link_directories(${name} PRIVATE ${OpenCASCADE_LIBRARY_DIR})
-        target_link_libraries(${name} PRIVATE
-            Qt6::Core
-            CadModelCore::CadModelCore
-            GeometricReconstruction::GeometricReconstruction
-            TKDE TKXSBase TKDESTEP)
-        if(MSVC)
-            target_compile_options(${name} PRIVATE /W4 /permissive- /utf-8)
-        endif()
-        stage_module_configs(${name})
-    endfunction()
-    add_module_cli(pcad_preprocess ../../tools/module_cli/pcad_preprocess.cpp)
-    add_module_cli(pcad_detect ../../tools/module_cli/pcad_detect.cpp)
-    add_module_cli(pcad_analyze ../../tools/module_cli/pcad_analyze.cpp)
-    add_module_cli(pcad_recognize ../../tools/module_cli/pcad_recognize.cpp)
-    add_module_cli(pcad_assemble ../../tools/module_cli/pcad_assemble.cpp)
-    add_module_cli(pcad_project ../../tools/module_cli/pcad_project.cpp)
+    add_executable(pcad
+        src/cli/pcad_main.cpp src/cli/CommandProtocol.cpp src/cli/AnalysisBundleReader.cpp
+        src/cli/OfflineCadCommands.cpp src/io/AssemblyDiagnostics.cpp
+        src/cli/modules/ModuleCli.cpp src/cli/modules/pcad_preprocess.cpp
+        src/cli/modules/pcad_detect.cpp src/cli/modules/pcad_analyze.cpp
+        src/cli/modules/pcad_recognize.cpp src/cli/modules/pcad_assemble.cpp src/cli/modules/pcad_project.cpp
+        src/app/CadReconstructionTask.h src/app/CadReconstructionTask.cpp
+        src/app/ReconstructionController.h src/app/ReconstructionController.cpp src/app/ProjectPaths.cpp
+        src/capture/CaptureJson.cpp
+        src/core/PointCloudDocument.h src/core/PointCloudDocument.cpp
+        src/core/PointCloudSelection.cpp src/core/PointCloudEdits.cpp src/core/PointCloudRelations.cpp
+        src/io/PointCloudAnalysis.cpp
+        src/io/CameraInfoBuilder.cpp src/io/ProjectStore.cpp src/io/FeatureCodec.cpp
+        src/io/PlyReader.cpp src/io/PlyWriter.cpp src/io/PointCloudAdapter.cpp)
+    target_include_directories(pcad PRIVATE src)
+    target_link_directories(pcad PRIVATE ${OpenCASCADE_LIBRARY_DIR})
+    target_link_libraries(pcad PRIVATE Qt6::Core Qt6::Gui Qt6::Network VTK::CommonCore VTK::CommonDataModel
+        CadModelCore::CadModelCore GeometricReconstruction::GeometricReconstruction TKDE TKXSBase TKDESTEP)
+    if(MSVC)
+        target_compile_options(pcad PRIVATE /W4 /permissive- /utf-8)
+    endif()
+    stage_module_configs(pcad)
+    if(WIN32)
+        add_custom_command(TARGET pcad POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:pcad> "$<TARGET_FILE_DIR:pcad>"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CAD_CLIENT_GMP_RUNTIME}" "$<TARGET_FILE_DIR:pcad>"
+            COMMAND ${CMAKE_COMMAND}
+                "-DPCAD_EXECUTABLE=$<TARGET_FILE:pcad>" "-DPCAD_DIRECTORY=$<TARGET_FILE_DIR:pcad>"
+                "-DPCAD_QT_BIN=${CAD_CLIENT_QT_PREFIX}/bin" "-DPCAD_OCCT_BIN=${OpenCASCADE_BINARY_DIR}"
+                "-DPCAD_VTK_BIN=${CAD_CLIENT_LOCAL_VTK_ROOT}/bin"
+                "-DPCAD_VCPKG_BIN=${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/config/StageCliDependencies.cmake"
+            COMMAND_EXPAND_LISTS VERBATIM)
+    endif()
+    # Building Studio always refreshes its matching CLI. The repository shim
+    # follows this generated registration instead of guessing old build paths.
+    add_custom_target(pcad_runtime_registration
+        COMMAND ${CMAKE_COMMAND} "-DPCAD_EXECUTABLE=$<TARGET_FILE:pcad>"
+            "-DPCAD_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/../.."
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/config/RegisterCliRuntime.cmake"
+        DEPENDS pcad VERBATIM)
+    add_dependencies(CadPointCloudClient pcad_runtime_registration)
+    add_custom_command(TARGET pcad POST_BUILD
+        COMMAND ${CMAKE_COMMAND} "-DPCAD_EXECUTABLE=$<TARGET_FILE:pcad>"
+            "-DPCAD_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/../.."
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/config/RegisterCliRuntime.cmake" VERBATIM)
 endif()
 
 if(CAD_CLIENT_BUILD_VALIDATION_TOOLS)
@@ -466,6 +492,7 @@ if(CAD_CLIENT_BUILD_VALIDATION_TOOLS)
         ../../tools/validation/native/PlaneGrowthValidation.cpp
         ../../tools/validation/native/ObservedSurfaceFitting.cpp
         ../../tools/validation/native/PointCloudCadValidation.cpp
+        src/cli/OfflineCadCommands.cpp src/io/AssemblyDiagnostics.cpp
         ../../tools/validation/native/AssemblyDiagnostics.cpp
         ../../tools/validation/native/ReconstructionContractStages.cpp
         ../../tools/validation/native/ReconstructionAnalysisStages.cpp
@@ -641,25 +668,48 @@ if(CAD_CLIENT_BUILD_TESTS)
     # wiring of the same widgets maintained only for tests.
     get_target_property(CAD_CLIENT_TEST_SOURCES CadPointCloudClient SOURCES)
     list(REMOVE_ITEM CAD_CLIENT_TEST_SOURCES src/main.cpp)
-    foreach(interaction_test IN ITEMS point_cloud_interaction_test workspace_interaction_test project_interaction_test scene_interaction_test parameter_editing_test semantic_face_reference_test text_parameter_editing_test navigation_import_test camera_interaction_test)
+    foreach(interaction_test IN ITEMS cli_workspace_interaction_test point_cloud_interaction_test workspace_interaction_test project_interaction_test scene_interaction_test parameter_editing_test semantic_face_reference_test text_parameter_editing_test navigation_import_test camera_interaction_test)
+        if(interaction_test STREQUAL "cli_workspace_interaction_test" AND NOT CAD_CLIENT_BUILD_MODULE_CLIS)
+            continue()
+        endif()
         add_executable(${interaction_test}
             tests/${interaction_test}.cpp ${CAD_CLIENT_TEST_SOURCES})
         target_include_directories(${interaction_test} PRIVATE src)
         target_link_directories(${interaction_test} PRIVATE ${OpenCASCADE_LIBRARY_DIR})
         target_link_libraries(${interaction_test} PRIVATE
             ParamCADSurfaceMeshing
-            ParamCADCapture Qt6::Core Qt6::Gui Qt6::Widgets ${VTK_LIBRARIES}
+            ParamCADCapture Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network ${VTK_LIBRARIES}
             CadModelCore::CadModelCore GeometricReconstruction::GeometricReconstruction
             TKDE TKXSBase TKDESTEP TKMesh)
         vtk_module_autoinit(TARGETS ${interaction_test} MODULES ${VTK_LIBRARIES})
         if(MSVC)
             target_compile_options(${interaction_test} PRIVATE /W4 /permissive- /utf-8)
         endif()
-        add_test(NAME ${interaction_test} COMMAND ${interaction_test})
+        if(interaction_test STREQUAL "cli_workspace_interaction_test")
+            if(CAD_CLIENT_BUILD_MODULE_CLIS)
+                add_dependencies(${interaction_test} pcad)
+                add_test(NAME ${interaction_test} COMMAND ${interaction_test} $<TARGET_FILE:pcad>)
+            endif()
+        else()
+            add_test(NAME ${interaction_test} COMMAND ${interaction_test})
+        endif()
         set_tests_properties(${interaction_test} PROPERTIES TIMEOUT 60
             ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:CadPointCloudClient>")
     endforeach()
     set_tests_properties(workspace_interaction_test PROPERTIES TIMEOUT 120)
+    if(CAD_CLIENT_BUILD_MODULE_CLIS)
+        set_tests_properties(cli_workspace_interaction_test PROPERTIES TIMEOUT 120)
+        add_executable(cli_transport_test tests/cli_transport_test.cpp src/cli/CommandProtocol.cpp src/cli/StudioCommandServer.cpp)
+        target_include_directories(cli_transport_test PRIVATE src)
+        target_link_libraries(cli_transport_test PRIVATE Qt6::Core Qt6::Network)
+        add_dependencies(cli_transport_test pcad)
+        if(MSVC)
+            target_compile_options(cli_transport_test PRIVATE /utf-8)
+        endif()
+        add_test(NAME cli_transport_test COMMAND cli_transport_test $<TARGET_FILE:pcad>)
+        set_tests_properties(cli_transport_test PROPERTIES TIMEOUT 60
+            ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:CadPointCloudClient>")
+    endif()
     add_executable(orbit_camera_test
         tests/orbit_camera_test.cpp
         src/core/OrbitCamera.cpp

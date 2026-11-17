@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from pcad_cli import clean, studio
+from pcad_cli import clean, native
 from pcad_cli.cli import main
 
 
@@ -94,28 +94,35 @@ class PcadTests(unittest.TestCase):
         with patch.object(clean, "is_link", side_effect=lambda p: p == self.outputs):
             self.assertEqual(main(["clean", "output"]), 2)
 
-    def test_studio_launch_uses_separate_process_and_executable_directory(self):
-        executable = self.root / "Studio with spaces.exe"
+    def test_registered_native_cli_is_preferred(self):
+        executable = self.root / "new build" / "pcad.exe"
+        executable.parent.mkdir()
         executable.write_text("fixture")
-        with patch.object(studio.subprocess, "Popen") as launch:
-            launch.return_value.pid = 123
-            self.assertEqual(main(["studio", "--exe", str(executable)]), 0)
-            self.assertEqual(launch.call_args.args[0], [str(executable)])
-            self.assertEqual(launch.call_args.kwargs["cwd"], executable.parent)
+        registration = self.root / "artifacts/cli-runtime.json"
+        registration.parent.mkdir()
+        registration.write_text(__import__("json").dumps({"version": 1, "executable": str(executable)}))
+        with patch.object(native, "REPOSITORY_ROOT", self.root), patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(native.locate_cli(), executable)
 
-    def test_studio_dry_run_finds_default_client_without_launching(self):
-        executable = self.root / studio.CLIENT_LOCATIONS[0]
-        executable.parent.mkdir(parents=True)
+    def test_native_dispatch_preserves_arguments_and_exit_code(self):
+        executable = self.root / "pcad.exe"
         executable.write_text("fixture")
-        with patch.object(studio, "REPOSITORY_ROOT", self.root), patch.object(studio.subprocess, "Popen") as launch:
-            self.assertEqual(main(["studio", "--dry-run"]), 0)
-            launch.assert_not_called()
-        self.assertIn(str(executable), self.console.getvalue())
+        arguments = ["reconstruct", "cad", "--offline", "--in", "cloud with spaces.ply"]
+        with patch.object(native, "locate_cli", return_value=executable), patch.object(native.subprocess, "run") as invoke:
+            invoke.return_value.returncode = 1
+            self.assertEqual(main(arguments), 1)
+            self.assertEqual(invoke.call_args.args[0], [str(executable), *arguments])
+            self.assertNotIn("cwd", invoke.call_args.kwargs)
 
-    def test_missing_studio_returns_actionable_error(self):
-        with patch.object(studio, "REPOSITORY_ROOT", self.root):
-            self.assertEqual(main(["studio"]), 2)
-        self.assertIn("--exe", self.console.getvalue())
+    def test_missing_native_binary_is_actionable(self):
+        with patch.object(native, "REPOSITORY_ROOT", self.root), patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(main(["detect", "--offline"]), 2)
+        self.assertIn("CAD_CLIENT_BUILD_MODULE_CLIS", self.console.getvalue())
+
+    def test_invalid_explicit_binary_does_not_fall_back(self):
+        with patch.dict(os.environ, {"PCAD_EXECUTABLE": str(self.root/"missing.exe")}):
+            self.assertEqual(main(["--help"]), 2)
+        self.assertIn("PCAD_EXECUTABLE", self.console.getvalue())
 
     @unittest.skipUnless(os.name == "nt", "Windows command wrapper")
     def test_cmd_wrapper_forwards_arguments_and_failure_exit_code(self):
@@ -125,7 +132,7 @@ class PcadTests(unittest.TestCase):
             cwd=self.root, capture_output=True, text=True,
         )
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
-        self.assertIn("missing client.exe", result.stderr)
+        self.assertIn("missing client.exe", result.stdout + result.stderr)
         help_result = subprocess.run(
             ["cmd", "/d", "/c", str(wrapper), "--help"],
             cwd=self.root, capture_output=True, text=True,

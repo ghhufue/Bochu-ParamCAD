@@ -1,0 +1,8 @@
+if(NOT EXISTS "${PCAD_EXECUTABLE}")
+    message(FATAL_ERROR "Cannot register missing pcad executable")
+endif()
+file(TO_CMAKE_PATH "${PCAD_EXECUTABLE}" executable)
+get_filename_component(root "${PCAD_ROOT}" ABSOLUTE)
+file(MAKE_DIRECTORY "${root}/artifacts")
+file(WRITE "${root}/artifacts/cli-runtime.json.tmp" "{\n  \"version\": 1,\n  \"executable\": \"${executable}\"\n}\n")
+file(RENAME "${root}/artifacts/cli-runtime.json.tmp" "${root}/artifacts/cli-runtime.json")

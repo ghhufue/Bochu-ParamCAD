@@ -8,19 +8,20 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QJsonObject>
+#include <QFileInfo>
+#include <QDir>
 
 #include <iostream>
 #include <stdexcept>
 
-int main(int argc, char* argv[])
+int run_preprocess(const QStringList& commandArguments)
 {
-    QCoreApplication application(argc, argv);
     const QString usage = QStringLiteral(
-        "Usage: pcad_preprocess (--in cloud.ply | --synthetic box) --out cloud-out.ply "
+        "Usage: pcad preprocess (--in cloud.ply | --synthetic box) --out cloud-out.ply "
         "[--report report.json] [--unit mm|m|arbitrary] [--config file] "
         "[--set key=value] [--print-config]");
     try {
-        const auto arguments = parseModuleArguments(QCoreApplication::arguments(), usage);
+        const auto arguments = parseModuleArguments(commandArguments, usage);
         prepareModuleOverrides("preprocessing", arguments.overrides);
         const auto config = arguments.config.empty()
             ? reconstruction::preprocessingConfigPath() : arguments.config;
@@ -68,6 +69,11 @@ int main(int argc, char* argv[])
         }
         if (!PlyWriter::write(outputCloud, arguments.output, error))
             throw std::runtime_error(error.toStdString());
+        // Carry the working coordinate unit across the new PLY boundary.
+        writeModuleReport(QFileInfo(arguments.output).dir().filePath(
+            QFileInfo(arguments.output).completeBaseName()+".json"),
+            {{"unit",lengthUnitName(processed.unit())},{"source",arguments.input},
+             {"point_identity","zero_based_row_in_output_ply"}});
 
         QJsonObject details;
         details["applied_scale_to_millimeters"] = preprocessing.appliedScaleToMillimeters;
@@ -85,7 +91,6 @@ int main(int argc, char* argv[])
         writeModuleReport(arguments.report, report);
         return 0;
     } catch (const std::exception& failure) {
-        std::cerr << failure.what() << '\n';
-        return 2;
+        return reportModuleFailure(commandArguments, failure);
     }
 }

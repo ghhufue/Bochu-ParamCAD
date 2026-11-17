@@ -86,6 +86,6 @@ STEP / 真实零件
 - 先读 [系统分层与依赖](../architecture/system-layers) 和 [数据契约与坐标约定](../architecture/data-contracts)，再进入具体模块。
 - 只关心图像到点云时，读“多视角图片构建点云”三页即可；只关心点云到 CAD 时，从“点云转参数化模型”的点云预处理读到参数化建模。
 - 想复现一条完整链路，按 [点云到 CAD 快速上手](../getting-started/first-reconstruction) 或 [从多视角图像生成点云](../getting-started/images-to-cloud) 操作。
-- 调整阈值前先阅读 [超参数配置与 CLI](../development/configuration-cli)，确认配置优先级和单位。
+- 调整阈值前先阅读 [超参数配置](../development/configuration)，确认配置优先级和单位。
 - 需要核对回归覆盖时，参考 [阶段契约与回归测试](../validation/contract-tests)。
 - 排查失败时先确认当前阶段属于哪个模块，再对照该页的“输入与输出”和“已知限制”，避免把识别候选当成已提交实体。

@@ -79,6 +79,9 @@ function Assert-AppRuntime([string]$AppDirectory, [string[]]$SearchDirectories =
     $queue = New-Object 'Collections.Generic.Queue[string]'
     if ($TrimUnused) {
         $queue.Enqueue((Join-Path $AppDirectory 'ParamCAD Studio.exe'))
+        if(Test-Path -LiteralPath (Join-Path $AppDirectory 'pcad.exe') -PathType Leaf) {
+            $queue.Enqueue((Join-Path $AppDirectory 'pcad.exe'))
+        }
         Get-ChildItem -LiteralPath (Join-Path $AppDirectory 'plugins') -Recurse -File -Filter '*.dll' | ForEach-Object { $queue.Enqueue($_.FullName) }
         # Software rendering and shader compilers are loaded dynamically by Qt.
         # Keep the full redistributable CRT alongside the client as well.

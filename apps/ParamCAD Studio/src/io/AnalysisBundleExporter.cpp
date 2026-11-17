@@ -209,28 +209,7 @@ bool exportAnalysisBundle(const AnalysisBundleSnapshot& snapshot,const QString& 
             {"second",relation.second},{"type",relation.type},{"automatic",relation.automatic},{"confidence",relation.confidence}});
         check(relations.flush(),relations.errorString());relations.close();
         check(QFile::copy(":/analysis-export/inspect_bundle.py",root.filePath("inspect_bundle.py")),"Cannot write bundled inspector");
-        QFile readme(root.filePath("README.md"));check(readme.open(QIODevice::WriteOnly),readme.errorString());
-        const auto instructions=QStringLiteral(
-            "# 点云识别结果（AI 分析包）\n\n"
-            "先读取 manifest.json，再用脚本按面名称或固定 ID 查询。默认不要读取原始点或完整映射。\n"
-            "界面名称与集合 ID 不是同一个编号；重名时必须用 ID。源点索引从 0 开始，与导出前点云行号一致。\n\n"
-            "在本目录运行（仅需 Python 3.9+，不依赖第三方包）：\n\n"
-            "```\npython inspect_bundle.py list --filter 平面 --limit 10\n"
-            "python inspect_bundle.py show --name \"平面 406\"\n"
-            "python inspect_bundle.py show --id 182 --group\n"
-            "python inspect_bundle.py analyze --id 182\n"
-            "python inspect_bundle.py points --id 182 --limit 5\n"
-            "python inspect_bundle.py verify --full\n```\n\n"
-            "list/show 只读元数据；analyze 按映射读取指定面的观测和缓存网格，只输出统计。"
-            "points 是显式打印原始坐标的入口，默认至多 10 点。\n\n"
-            "surfaces.jsonl 是索引，surfaces/*.json 保存面参数、摘要与二进制范围；"
-            "plane-groups/*.json 保存共面分组与边界/内部支撑检查；relations.jsonl 保存关系。\n"
-            "point-map.bin 单独保存面到源点的映射；points.bin 保存全部原始观测快照和删除标记；"
-            "meshes.bin 保存实际显示网格及顶点的源点编号。这些二进制文件不应直接纳入 AI 上下文。\n\n"
-            "这是导出时刻的不可变快照，不会重新识别，也不是项目恢复格式。显示网格可含其他集合的顶点，"
-            "需结合 foreign_source_vertices 与 shared_plane 排查。confidence 是拟合置信度，"
-            "covered_observations 是点数统计，均不能代替面积支撑检查。\n").toUtf8();
-        check(readme.write(instructions)==instructions.size() && readme.flush(),readme.errorString());readme.close();
+        check(QFile::copy(":/analysis-export/README.md",root.filePath("README.md")),"Cannot write analysis guide");
         QJsonArray assets;
         for(const auto& name:{"points.bin","point-map.bin","meshes.bin","surfaces.jsonl","relations.jsonl","inspect_bundle.py","README.md"}) {
             const auto path=root.filePath(QString::fromLatin1(name));

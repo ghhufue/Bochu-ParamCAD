@@ -29,3 +29,7 @@ features:
     details: 优化前后实测、各阶段并发与串行状态，以及正确性验证。
     link: /performance/
 ---
+
+## 命令行自动化
+
+[CLI 使用指南](/cli/) 独立介绍统一 pcad 命令、在线/离线模式和 AI 工作流；算法参数格式见[超参数配置](/development/configuration)。

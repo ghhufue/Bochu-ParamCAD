@@ -9,7 +9,8 @@
 | 页面 | 一句话说明 |
 | --- | --- |
 | [开发环境与代码布局](/development/developer-setup) | 说明仓库目录、第三方 SDK 要求、客户端与核心库的构建目标，以及本地测试和常见故障。 |
-| [超参数配置与 CLI](/development/configuration-cli) | 说明 7 份 `.conf` 的覆盖顺序、模块命令行入口、诊断报告和 `--print-config` 的用途。 |
+| [超参数配置](/development/configuration) | 说明 7 份 `.conf` 的覆盖顺序、参数校验和设置界面。 |
+| [CLI 使用指南](/cli/) | 在线/离线模式、统一命令、AI 工作流与结果契约。 |
 | [性能调优](/performance/) | 分主题查看性能收益、渲染与识别优化、并发/串行状态，以及基准和正确性验证。 |
 | [贡献指南与文档维护](/development/contributing) | 说明分支与 PR 规则、代码/测试/文档同步要求，以及本地预览和 GitHub Pages 发布方式。 |
 | [设计决策](/development/design-decisions) | 给出可复用的决策记录格式，并列出从代码可验证的当前架构选择及其影响。 |
@@ -20,7 +21,7 @@
 ## 阅读路径
 
 - 第一次参与开发：先读开发环境与代码布局，再按 [安装与构建](/getting-started/installation) 完成一次客户端构建。
-- 只调整算法阈值：直接读超参数配置与 CLI，先确认单位、覆盖顺序和配置校验规则。
+- 只调整算法阈值：直接读超参数配置，先确认单位、覆盖顺序和配置校验规则。
 - 修改点云到 CAD 的链路：先读 [系统分层与依赖](/architecture/system-layers) 与 [数据契约与坐标约定](/architecture/data-contracts)，再进入对应模块页。
 - 准备提交文档：读贡献指南，确认页面注册、链接写法和本地预览步骤。
 
@@ -28,8 +29,8 @@
 
 | 任务 | 先看什么 | 需要同步什么 |
 | --- | --- | --- |
-| 调整检测、识别或装配阈值 | 超参数配置与 CLI | 源码 `.conf`、对应模块页和验证用例 |
-| 新增或修改模块 CLI | 超参数配置与 CLI | `tools/module_cli` 参数、报告字段和 README |
+| 调整检测、识别或装配阈值 | 超参数配置 | 源码 `.conf`、对应模块页和验证用例 |
+| 新增或修改模块 CLI | 超参数配置 | `apps/ParamCAD Studio/src/cli/modules` 参数、报告字段和 README |
 | 修改核心数据结构或修订语义 | 设计决策、系统架构 | 数据契约页、调用方和回归测试 |
 | 新增或修改 C++ 测试 | 开发环境与代码布局 | 对应 CMake 目标、CI 命令和验证页 |
 | 新增站点页面 | 贡献指南 | `docs/site` 正文与 `docs/.vitepress/config.mts` 的 `sections` 注册 |

@@ -64,14 +64,13 @@ QJsonObject evidenceJson(const reconstruction::PrimitiveEvidence& evidence)
 
 }  // namespace
 
-int main(int argc, char* argv[])
+int run_detect(const QStringList& commandArguments)
 {
-    QCoreApplication application(argc, argv);
     const QString usage = QStringLiteral(
-        "Usage: pcad_detect (--in cloud.ply | --synthetic box) [--report report.json] "
+        "Usage: pcad detect (--in cloud.ply | --synthetic box) [--report report.json] "
         "[--unit mm|m|arbitrary] [--config file] [--set key=value] [--print-config]");
     try {
-        const auto arguments = parseModuleArguments(QCoreApplication::arguments(), usage);
+        const auto arguments = parseModuleArguments(commandArguments, usage);
         prepareModuleOverrides("detection", arguments.overrides);
         const auto config = arguments.config.empty()
             ? reconstruction::detectionConfigPath() : arguments.config;
@@ -124,7 +123,6 @@ int main(int argc, char* argv[])
         writeModuleReport(arguments.report, report);
         return 0;
     } catch (const std::exception& failure) {
-        std::cerr << failure.what() << '\n';
-        return 2;
+        return reportModuleFailure(commandArguments, failure);
     }
 }

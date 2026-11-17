@@ -42,6 +42,8 @@ ParamCAD-Studio-<版本>-windows-x64-full-cuda/
 
 ## 常用功能
 
+命令行统一入口为 `app/pcad.exe`，例如 `app\pcad.exe studio`、`app\pcad.exe capabilities`、`app\pcad.exe reconstruct cad --online`。离线重建使用 `--offline --in cloud.ply --unit mm --output 新目录`，不会启动窗口。完整规则见包内 `docs/CLI.md` 及在线文档的 CLI 专章。
+
 - **File → Open Point Cloud**：打开 PLY 点云。
 - 工具栏 **Reconstruct CAD**：由点云重建参数化 CAD。
 - **Properties → 点云**：选点、管理集合、分析关系及调整容差。

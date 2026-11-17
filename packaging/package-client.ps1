@@ -105,6 +105,7 @@ if (-not $SkipBuild) {
         "-DCMAKE_PREFIX_PATH=$QtRoot",
         "-DVTK_DIR=$(Join-Path $projectRoot 'deps\vtk-9.7.0\lib\cmake\vtk-9.7')",
         "-DOpenCASCADE_DIR=$(Join-Path $projectRoot 'deps\occt-8.0.1\cmake')")
+    Invoke-Native 'cmake' @('-S',$appRoot,'-B',$BuildDirectory,'-DCAD_CLIENT_BUILD_MODULE_CLIS=ON')
     Invoke-Native 'cmake' @('--build',$BuildDirectory,'--config','Release','--target','CadPointCloudClient','--parallel')
 }
 # A build tree may redirect binaries away from <build>/Release (the cloud-only
@@ -126,6 +127,9 @@ foreach ($directory in @('app','app\plugins','deps','core\reconstruction\colmap_
 $app = Join-Path $stage 'app'
 # Copy only the production executable and runtime libraries, never tests, tools, PDBs or SDKs.
 Copy-Item -LiteralPath (Join-Path $release 'ParamCAD Studio.exe') -Destination $app
+Copy-Item -LiteralPath (Join-Path $release 'pcad.exe') -Destination $app
+Copy-Item -LiteralPath (Join-Path $release 'config') -Destination (Join-Path $app 'config') -Recurse
+Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\site\cli\index.md') -Destination (Join-Path $stage 'docs\CLI.md')
 Get-ChildItem -LiteralPath $release -Filter '*.dll' -File | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $app }
 foreach ($plugin in @('platforms','styles','imageformats','iconengines','networkinformation','tls','generic')) {
     $source = Join-Path $release $plugin

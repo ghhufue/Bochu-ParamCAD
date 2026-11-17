@@ -10,7 +10,7 @@ Point-cloud preprocessing and CGAL Efficient RANSAC live in
 Version 0.3.0 externalizes the stage hyperparameters into the `config/*.conf`
 catalogs, adds a bilingual interface with a Settings language menu and a
 configurable screenshot shortcut, and ships per-stage command-line entry points
-under `tools/module_cli`.
+through the unified `pcad` executable; see `src/cli`.
 Feature-tab text parameter commands, unit and anchor semantics, and limits are
 archived.
 [Historical text parameter editing notes](../../docs/Outdated/Text_Parameter_Editing.md)
@@ -496,12 +496,12 @@ across the interactive `captures/` and `reconstructions/` roots.
 
 客户端顶栏的 **Settings → 超参数** 按模块编辑拍摄、预处理、曲面检测、曲面关系、常规识别、装配分解和投影拟合参数。配置保存在可执行文件旁的 `config/` 目录，每个模块一份 `.conf`；首次构建从本目录下的 `config/` 复制，已有运行配置会保留。
 
-命令行可以复用同一份文件，并用可重复的 `--set key=value` 覆盖单项。模块 CLI（`pcad_preprocess`、`pcad_detect`、`pcad_analyze`、`pcad_recognize`、`pcad_assemble`、`pcad_project`）无参数启动时自动加载同名配置；客户端启动时使用 `--config-dir` 和 `--set module.key=value`。
+统一 CLI 入口为 `pcad`：`pcad studio` 启动界面，`pcad detect`、`pcad reconstruct cad` 支持自动在线/离线分派，其他模块按能力清单执行。构建 Studio 会同时构建匹配的 `pcad.exe` 并更新仓库启动记录。
+
+完整操作规范见 [CLI 使用指南](../../docs/site/cli/index.md)，配置格式见 [超参数配置](../../docs/site/development/configuration.md)。
 
 ```powershell
-& .\pcad_project.exe --in cloud.ply --report report.json `
-    --config config\projection.conf `
-    --set intersection_alpha_scale=1.5 --set intersection_simplification_mm=2
+python ../../tools/pcad.py capabilities
+python ../../tools/pcad.py reconstruct cad --online
+python ../../tools/pcad.py reconstruct cad --offline --in cloud.ply --unit mm --output ../../outputs/cad-new
 ```
-
-键名、分组、优先级和已执行的验证见 [模块超参数说明](../../docs/Hyperparameter_Configuration.md)。

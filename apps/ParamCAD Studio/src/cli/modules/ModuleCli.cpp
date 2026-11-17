@@ -44,6 +44,12 @@ ModuleArguments parseModuleArguments(const QStringList& arguments, const QString
         else if (argument == QStringLiteral("--print-config")) result.printConfig = true;
         else throw std::invalid_argument("Unknown option: " + argument.toStdString() + "\n" + usage.toStdString());
     }
+    if(!result.input.isEmpty() && !result.synthetic.isEmpty())
+        throw std::invalid_argument("Choose --in or --synthetic, not both");
+    const auto command=arguments.value(0).section(' ',-1);
+    if(!result.output.isEmpty() && command!="preprocess")throw std::invalid_argument("--out is only supported by pcad preprocess");
+    if(!result.step.isEmpty() && command!="project")throw std::invalid_argument("--step is only supported by pcad project");
+    if(!result.path.isEmpty() && command!="project")throw std::invalid_argument("--path is only supported by pcad project");
     return result;
 }
 
@@ -159,7 +165,9 @@ QString lengthUnitName(reconstruction::LengthUnit unit)
 
 void writeModuleReport(const QString& path, const QJsonObject& report)
 {
-    const auto bytes = QJsonDocument(report).toJson(QJsonDocument::Indented);
+    auto output=report;output["schema"]="paramcad.cli.result";output["version"]=1;output["mode"]="offline";
+    if(output.contains("status"))output["exit_code"]=output["status"]=="unsupported"?1:output["status"]=="failed"?2:0;
+    const auto bytes = QJsonDocument(output).toJson(QJsonDocument::Indented);
     if (path.isEmpty()) {
         std::cout << bytes.toStdString();
         return;
@@ -172,4 +180,11 @@ void writeModuleReport(const QString& path, const QJsonObject& report)
 void printModuleReport(const QJsonObject& report)
 {
     std::cout << QJsonDocument(report).toJson(QJsonDocument::Indented).toStdString();
+}
+
+int reportModuleFailure(const QStringList& arguments,const std::exception& error) {
+    const auto at=arguments.indexOf("--report");const auto path=at>=0?arguments.value(at+1):QString();
+    try{writeModuleReport(path,{{"status","failed"},{"error",QString::fromUtf8(error.what())}});}
+    catch(...){std::cerr<<error.what()<<'\n';}
+    return 2;
 }

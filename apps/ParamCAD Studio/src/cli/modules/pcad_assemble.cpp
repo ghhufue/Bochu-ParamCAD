@@ -13,14 +13,13 @@
 #include <iostream>
 #include <stdexcept>
 
-int main(int argc, char* argv[])
+int run_assemble(const QStringList& commandArguments)
 {
-    QCoreApplication application(argc, argv);
     const QString usage = QStringLiteral(
-        "Usage: pcad_assemble (--in cloud.ply | --synthetic box) [--report report.json] "
+        "Usage: pcad assemble (--in cloud.ply | --synthetic box) [--report report.json] "
         "[--unit mm|m] [--config assembly.conf] [--set key=value] [--print-config]");
     try {
-        const auto arguments = parseModuleArguments(QCoreApplication::arguments(), usage);
+        const auto arguments = parseModuleArguments(commandArguments, usage);
         prepareModuleOverrides("assembly", arguments.overrides);
         const auto config = arguments.config.empty()
             ? reconstruction::assemblyConfigPath() : arguments.config;
@@ -94,7 +93,6 @@ int main(int argc, char* argv[])
         writeModuleReport(arguments.report, report);
         return assembly.parts.empty() ? 1 : 0;
     } catch (const std::exception& failure) {
-        std::cerr << failure.what() << '\n';
-        return 2;
+        return reportModuleFailure(commandArguments, failure);
     }
 }

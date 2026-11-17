@@ -289,6 +289,7 @@ bool MainWindow::runStructuredCapture(const QString& modelPath,const QString& ou
 void MainWindow::createWorkspaceControllers()
 {
     auto* modeling = new ModelingController(this);
+    m_modelingController=modeling;
     auto* capture = new CaptureController(m_viewer, this);
     auto* reconstruction = new ReconstructionController(this);
 
@@ -302,6 +303,10 @@ void MainWindow::createWorkspaceControllers()
         {m_viewer, m_modelingPanel, m_relationsPanel, m_scenePanel,
           m_propertyPanel, m_reconstructCadAction, m_cancelCadAction, m_reconstructToolAction,
           m_projectionDebugAction}, this, this);
+    connect(m_pointCloudWorkspace,&PointCloudWorkspaceController::cliOperationFinished,this,[this](QJsonObject result) {
+        result["id"]=m_lastCliResult["id"];m_lastCliResult=result;
+        auto callback=std::move(m_cliReply);m_cliReply={};if(callback)callback(result);
+    });
     m_modelViewController = new ModelViewController(capture,
         {m_viewer, m_propertyPanel, m_scenePanel, m_exportStepAction}, this, this);
     m_featureEditing = new FeatureEditingController(modeling,
@@ -330,6 +335,8 @@ void MainWindow::createWorkspaceControllers()
         setWindowTitle(tr("CAD 与点云工作台 — %1").arg(QFileInfo(path).fileName()));
     });
     connect(capture, &CaptureController::batchStateChanged, m_projectController, &ProjectController::setCaptureBusy);
+    connect(capture,&CaptureController::batchStateChanged,this,[this](bool busy){m_captureBusy=busy;});
+    connect(m_captureWorkspace,&CaptureWorkspaceController::captureBusyChanged,this,[this](bool busy){m_captureBusy=busy;});
     connect(m_captureWorkspace,&CaptureWorkspaceController::captureBusyChanged,m_projectController,&ProjectController::setCaptureBusy);
 
     WorkspaceController* workspaces[] = {

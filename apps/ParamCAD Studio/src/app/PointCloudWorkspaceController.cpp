@@ -1,4 +1,6 @@
 #include "app/PointCloudWorkspaceController.h"
+#include "cli/CommandArguments.h"
+#include "cli/CommandProtocol.h"
 #include "core/PointCloudDocument.h"
 #include "app/CadReconstructionTask.h"
 #include "app/ModelingController.h"
@@ -361,6 +363,7 @@ void PointCloudWorkspaceController::connectUi()
             this, [this, reconstructPanel](const QString& message) {
                 reconstructPanel->setBusy(false);
                 reconstructPanel->setStatusText(message);
+                if(m_cliOperation=="reconstruct cloud")finishCliOperation(false,message);
                 if (m_reconstructionController->wasCancelled()) {
                     // The user asked for this, so it is a state change rather
                     // than a fault worth interrupting them with a dialog.
@@ -391,6 +394,12 @@ void PointCloudWorkspaceController::startReconstruction(const ReconstructRequest
 void PointCloudWorkspaceController::onReconstructionFinished(const QString& pointCloudPath, int pointCount,
                                           const QString& cameraMode, bool dense)
 {
+    bool loaded=false;
+    const auto finishCommand=qScopeGuard([&] {
+        if(m_cliOperation=="reconstruct cloud")finishCliOperation(loaded,
+            loaded?QString():QStringLiteral("Reconstructed cloud could not be loaded into Studio"),
+            {{"point_cloud",pointCloudPath},{"point_count",pointCount},{"camera_mode",cameraMode},{"dense",dense}});
+    });
     ReconstructPanel* panel = m_ui.propertyPanel->reconstructPanel();
     panel->setBusy(false);
 
@@ -424,6 +433,7 @@ void PointCloudWorkspaceController::onReconstructionFinished(const QString& poin
                       "metadata is available."));
     }
     m_ui.relationsPanel->setStatus(workspaceTr("点云已载入；需要表面识别时点击“识别表面”。"));
+    loaded=true;
 }
 
 void PointCloudWorkspaceController::openPointCloud()
@@ -872,6 +882,12 @@ void PointCloudWorkspaceController::startAnalysisExport()
     if(m_document->revision()!=revision || m_document->sourcePath()!=source || !m_document->hasCloud()) {
         emit logWarning(workspaceTr("选择位置期间点云已更改，请重新导出识别结果。"));return;
     }
+    startAnalysisExportTo(path);
+}
+
+void PointCloudWorkspaceController::startAnalysisExportTo(const QString& path)
+{
+    const auto revision=m_document->revision();const auto source=m_document->sourcePath();
     AnalysisBundleSnapshot snapshot;
     const auto& selection=m_document->selection();
     snapshot.cloud=m_document->sourceCloud();snapshot.deleted=selection.deleted();
@@ -898,6 +914,7 @@ void PointCloudWorkspaceController::startAnalysisExport()
     auto* thread=m_exportThread;thread->setParent(this);
     connect(thread,&QThread::finished,this,[this,thread,result,path] {
         m_exportThread=nullptr;thread->deleteLater();m_ui.relationsPanel->setAnalysisExportBusy(false);
+        finishCliOperation(result->ok,result->error,{{"path",path}});
         if(result->ok) {
             emit logInfo(workspaceTr("识别结果已导出：%1").arg(path));
             emit statusMessage(workspaceTr("识别结果已导出，可从 README.md 开始查看"),6000);
@@ -1072,6 +1089,13 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
         showProjectionDebugResult(result);
         return;
     }
+    bool applied=false;QString commandError=result.error;
+    const auto finishCommand=qScopeGuard([&] {
+        if(m_cliOperation=="reconstruct cad")finishCliOperation(applied,
+            applied?QString():commandError.isEmpty()?QStringLiteral("CAD result was cancelled, stale or not applied"):commandError,
+            {{"partial_reconstruction",result.partialAssembly},{"features",qint64(m_modelingController->features().size())},
+             {"document_revision",QString::number(m_document->revision())}});
+    });
     const auto reportStatus = [this](const QString& message) {
         m_ui.relationsPanel->setStatus(message);
         m_ui.modelingPanel->setStatusText(message);
@@ -1174,6 +1198,7 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
     const auto& candidate = result.candidate;
     if (!m_modelingController->commitReconstructedCompound(candidate, m_cadOverwriteManual)) {
         const QString message = m_modelingController->lastError();
+        commandError=message;
         reportStatus(message);
         emit logError(message);
         QMessageBox::warning(m_dialogParent, workspaceTr("重建 CAD"), message);
@@ -1222,6 +1247,7 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
         result.assembly?workspaceTr("已显示部件候选并更新可闭合部分的 CAD；未闭合部分保留在点云集合中。"):
         workspaceTr("CAD 重建完成，已更新参数化模型。"));
     m_analyseAfterCad = !result.assembly && m_document->selection().regionPointCount(0) >= 20;
+    applied=true;
 }
 
 void PointCloudWorkspaceController::startPointCloudAnalysis(int regionId, bool recordUndo)
@@ -1248,6 +1274,11 @@ void PointCloudWorkspaceController::startPointCloudAnalysis(int regionId, bool r
     updateCadActions();
     connect(thread, &QThread::finished, this, [this, thread, result, revision, regionId, recordUndo, count = cloudCount] {
         m_analysisThread = nullptr;
+        bool continuing=false;
+        const auto finishCommand=qScopeGuard([&] {
+            if(m_cliOperation=="detect"&&!continuing)finishCliOperation(false,
+                result->error.isEmpty()?QStringLiteral("Surface analysis was cancelled, stale or unsupported"):result->error);
+        });
         updateCadActions();
         if(m_guidedQueued) { startQueuedReconstruction(); return; }
         if (thread->isInterruptionRequested()) {
@@ -1273,6 +1304,7 @@ void PointCloudWorkspaceController::startPointCloudAnalysis(int regionId, bool r
             .arg(result->surfaces.size()).arg(result->assignedPoints).arg(count));
         emit logInfo(workspaceTr("Surface analysis completed: %1 surfaces, %2 source points assigned")
             .arg(result->surfaces.size()).arg(result->assignedPoints));
+        continuing=true;
         startRelationInference(recordUndo);
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
@@ -1296,6 +1328,13 @@ void PointCloudWorkspaceController::startRelationInference(bool recordUndo)
     thread->setParent(this);
     connect(thread, &QThread::finished, this, [this, thread, revision, tolerance, angle, result, recordUndo] {
         m_analysisThread = nullptr;updateCadActions();
+        bool applied=false;
+        const auto finishCommand=qScopeGuard([&] {
+            if(m_cliOperation=="detect")finishCliOperation(applied,
+                applied?QString():result->error.empty()?QStringLiteral("Relation result was cancelled or stale"):QString::fromStdString(result->error),
+                {{"surface_count",qint64(m_document->selection().regions().size())},
+                 {"relation_count",qint64(m_document->selection().relations().size())}});
+        });
         if (m_guidedQueued) { startQueuedReconstruction();return; }
         if (thread->isInterruptionRequested() || m_document->revision()!=revision ||
             tolerance!=m_ui.relationsPanel->relationTolerance() || angle!=m_ui.relationsPanel->angleTolerance()) {
@@ -1305,6 +1344,7 @@ void PointCloudWorkspaceController::startRelationInference(bool recordUndo)
             m_ui.relationsPanel->setStatus(QString::fromStdString(result->error));return;
         }
         m_document->applyInferredRelations(result->relations, recordUndo);
+        applied=true;
         m_ui.relationsPanel->setStatus(workspaceTr("已按当前容差更新自动关系。手动关系与已删除的关系记录保持有效。"));
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);

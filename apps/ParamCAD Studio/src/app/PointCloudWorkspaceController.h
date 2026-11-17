@@ -5,6 +5,8 @@
 #include <reconstruction/data/PointStore.h>
 #include <reconstruction/analysis/SurfaceAnalysis.h>
 #include <QPointer>
+#include <QStringList>
+#include <QJsonObject>
 
 class QAction;
 class QLabel;
@@ -56,6 +58,11 @@ public:
     void runProjectionDebug();
     void cancelCadReconstruction();
     void prepareProjectReplacement();
+    bool commandBusy() const;
+    bool dispatchCliOperation(const QString& command,const QStringList& arguments,QString& error);
+signals:
+    // Emitted only after the ordinary UI result handlers apply/reject the result.
+    void cliOperationFinished(const QJsonObject& result);
 
 private:
     void startCadReconstruction(bool projectionFallback);
@@ -70,6 +77,8 @@ private:
     void startPointCloudAnalysis(int regionId = 0, bool recordUndo = true);
     void startRelationInference(bool recordUndo = true);
     void startAnalysisExport();
+    void startAnalysisExportTo(const QString& path);
+    void finishCliOperation(bool success,const QString& error={},QJsonObject details={});
     void startReconstruction(const ReconstructRequest& request);
     void onReconstructionFinished(const QString& pointCloudPath, int pointCount,
                                   const QString& cameraMode, bool dense);
@@ -102,4 +111,5 @@ private:
     QString m_cadSourcePath;
     double m_lastDownsampleSpacing = 10.0;
     std::optional<reconstruction::SurfaceAnalysisResult> m_surfaceAnalysis;
+    QString m_cliOperation;
 };

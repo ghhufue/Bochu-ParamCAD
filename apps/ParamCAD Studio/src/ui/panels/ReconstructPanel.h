@@ -27,6 +27,7 @@ public:
     void setImageDirectory(const QString& directory);
     QString outputRoot() const;
     void setOutputRoot(const QString& directory);
+    void setRequest(const ReconstructRequest& request);
 
     // Where captures are written; "Use Latest Capture" looks for the newest
     // group folder inside it.

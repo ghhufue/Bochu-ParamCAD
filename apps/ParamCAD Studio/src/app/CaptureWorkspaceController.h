@@ -29,6 +29,7 @@ public:
     void syncCaptureDistance();
     bool startStructuredScan(bool multipleStations,const QString& outputDirectory={});
     bool structuredScanRunning() const;
+    void cancelStructuredScan();
 signals:
     void captureBusyChanged(bool busy);
     void structuredCaptureCompleted(const QString& directory);

@@ -8,7 +8,7 @@
 
 - 客户端通过 `PointCloudAdapter::lengthUnitFor()` 从点云清单推断单位，用 `toPointStore()` 建立 `PointStore`，再由 `preprocessingOptionsFor()` 生成参数并调用 `preprocessPointCloud()`；
 - 库内提供两个重载：直接接收 `PointStore`，或接收已统一尺度的 `ObservationSnapshot`；
-- 独立命令行 `pcad_preprocess` 读取 PLY，执行同一流程，输出处理后的 PLY 与 JSON 报告。
+- 独立命令行 `pcad preprocess` 读取 PLY，执行同一流程，输出处理后的 PLY 与 JSON 报告。
 
 ## 输入与输出
 

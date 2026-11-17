@@ -94,12 +94,23 @@ const sections = [
     ],
   },
   {
+    text: 'CLI',
+    link: '/cli/',
+    collapsed: false,
+    items: [
+      { text: 'CLI 使用指南', link: '/cli/' },
+      { text: '在线、离线与命令能力', link: '/cli/modes' },
+      { text: '命令参考', link: '/cli/commands' },
+      { text: 'AI 工作流与诊断', link: '/cli/workflows' },
+    ],
+  },
+  {
     text: '开发维护',
     link: '/development/',
     collapsed: true,
     items: [
       { text: '开发环境与代码布局', link: '/development/developer-setup' },
-      { text: '超参数配置与 CLI', link: '/development/configuration-cli' },
+      { text: '超参数配置', link: '/development/configuration' },
       { text: '贡献指南与文档维护', link: '/development/contributing' },
       { text: '设计决策', link: '/development/design-decisions' },
       { text: '多视角图片转点云扩展方案', link: '/development/multiview-reconstruction-extension' },

@@ -98,6 +98,7 @@ void CaptureWorkspaceController::connectUi()
 }
 
 bool CaptureWorkspaceController::structuredScanRunning() const {return m_structured->isRunning();}
+void CaptureWorkspaceController::cancelStructuredScan() {m_structured->cancel();}
 
 bool CaptureWorkspaceController::startStructuredScan(bool multipleStations,const QString& outputDirectory)
 {

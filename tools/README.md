@@ -1,6 +1,8 @@
 # ParamCAD 工具
 
-`pcad` 是仓库工具的统一入口，使用 Python 3.10 或更新版本，仅依赖标准库。
+`pcad` 是统一客户端命令入口。`tools/pcad.cmd` / `python tools/pcad.py` 仅负责定位 CMake 最近构建登记的原生 `pcad.exe` 并透传参数、工作目录、输出和退出码。C++ 后端执行离线任务，在线请求交给正在运行的 Studio。
+
+使用方式、能力矩阵和 AI 操作契约见 [CLI 专章](../docs/site/cli/index.md)。`pcad reconstruct cad --offline --in cloud.ply --unit mm --output outputs/cad-new` 已提供正式完整重建入口；下文验证程序保留为开发诊断用途。
 
 结构光固定场景验收使用 `validation/run_structured_light_validation.py`：通过 `--client` 指定实际客户端、`--output` 指定新目录，比较 Gray Code、相移、多曝光和均匀材质；所有拍摄与重建仍在客户端内完成。结果口径和开发环境依赖见[验证记录](../docs/site/development/structured-light-validation.md)。
 
@@ -195,8 +197,7 @@ pcad clean output --dry-run
 pcad clean output
 ```
 
-`studio` 优先寻找 `cloud-only/Release` 本轮客户端，再尝试标准 Release、Debug 与其他
-已使用的构建目录；启动后终端立即返回。路径与当前工作目录无关。
+`studio` 由匹配的原生 CLI 启动同目录客户端；旧版候选查找已由构建登记替代。启动后终端立即返回。
 
 `clean output` 删除本仓库 `outputs/` 下生成的文件与目录，保留 `README.md` 和
 `.gitignore`。包括生成的点云、截图、日志及重建结果；需要保留的结果请提前备份。
@@ -222,7 +223,7 @@ tools/
 ├── install_pcad.ps1      注册当前用户 PATH
 ├── clean_outputs.py      旧清理命令入口
 ├── review_component_clouds.py  既有审核快捷方式入口
-├── pcad_cli/             命令分发、输出清理和 Studio 启动
+├── pcad_cli/             原生 CLI 定位、参数透传和仓库输出清理
 ├── reconstruction/       PLY 批量重建
 ├── component_review/     点云导出、审核界面和审核记录
 ├── contracts/            模块契约测试驱动和参考产物生成
@@ -234,8 +235,7 @@ tools/
 └── tests/                Python 单元与集成回归
 ```
 
-从仓库根目录用 `python -m tools.<分类>.<脚本名>` 运行分类工具。新增 `pcad` 子命令时，
-将实现放入 `pcad_cli/`，在 `cli.py` 注册并设置 `handler`，由 `run(args)` 返回退出码。
+从仓库根目录用 `python -m tools.<分类>.<脚本名>` 运行开发分类工具。正式客户端命令在 `apps/ParamCAD Studio/src/cli` 实现，同步 CommandProtocol 能力清单、在线工作区入口、测试和文档站 CLI 章节。Python 包只维护仓库启动适配和清理工具。
 
 在仓库根目录执行相关测试：
 

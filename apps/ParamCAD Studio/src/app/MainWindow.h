@@ -4,6 +4,7 @@
 #include "capture/ScanPlanner.h"
 
 #include <QMainWindow>
+#include "cli/CommandProtocol.h"
 
 class QAction;
 class QDockWidget;
@@ -26,6 +27,7 @@ class PointCloudDocument;
 class PointCloudWorkspaceController;
 class SketchWorkspaceController;
 class FeatureEditingController;
+class ModelingController;
 
 // Composition root: window layout, navigation and application feedback.
 // Each workspace owns its editing state and connects its own panel intents.
@@ -46,6 +48,7 @@ public:
     bool runStructuredCapture(const QString& modelPath,const QString& outputDirectory,
                               const capture::ScanOptions& options,bool reconstruct,
                               QString& cloudPath,QString& errorMessage);
+    void executeCliCommand(const QJsonObject& request,pcad::Reply reply);
 
 public slots:
     void logInfo(const QString& message);
@@ -90,6 +93,10 @@ private:
 
     SketchWorkspaceController* m_sketchWorkspace = nullptr;
     FeatureEditingController* m_featureEditing = nullptr;
+    ModelingController* m_modelingController = nullptr;
+    pcad::Reply m_cliReply;
+    QJsonObject m_lastCliResult;
+    bool m_captureBusy=false;
     QAction* m_undoCadAction = nullptr;
     QAction* m_redoCadAction = nullptr;
     QAction* m_textEditAction = nullptr;

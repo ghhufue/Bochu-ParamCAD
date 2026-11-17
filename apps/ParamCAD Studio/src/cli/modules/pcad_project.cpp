@@ -1,4 +1,5 @@
 #include "ModuleCli.h"
+#include "cli/BackendLogScope.h"
 
 #include <modeling/ModelingCore.h>
 #include <modeling/StepExporter.h>
@@ -12,15 +13,14 @@
 #include <iostream>
 #include <stdexcept>
 
-int main(int argc, char* argv[])
+int run_project(const QStringList& commandArguments)
 {
-    QCoreApplication application(argc, argv);
     const QString usage = QStringLiteral(
-        "Usage: pcad_project (--in cloud.ply | --synthetic box) [--report report.json] "
+        "Usage: pcad project (--in cloud.ply | --synthetic box) [--report report.json] "
         "[--step out.step] [--unit mm|m|arbitrary] [--path auto|single-axis|two-axis-intersection|segmented] "
         "[--config projection.conf] [--set key=value] [--print-config]");
     try {
-        const auto arguments = parseModuleArguments(QCoreApplication::arguments(), usage);
+        const auto arguments = parseModuleArguments(commandArguments, usage);
         prepareModuleOverrides("projection", arguments.overrides);
         const auto config = arguments.config.empty()
             ? reconstruction::projectionConfigPath() : arguments.config;
@@ -77,6 +77,7 @@ int main(int argc, char* argv[])
         report["quality"] = quality;
 
         if (!arguments.step.isEmpty()) {
+            pcad::BackendLogScope logs;
             if (!accepted) throw std::runtime_error("Refusing to export STEP from a rejected projection fit");
             modeling::ModelingCore model;
             std::string failure;
@@ -92,7 +93,6 @@ int main(int argc, char* argv[])
         writeModuleReport(arguments.report, report);
         return accepted ? 0 : 1;
     } catch (const std::exception& failure) {
-        std::cerr << failure.what() << '\n';
-        return 2;
+        return reportModuleFailure(commandArguments, failure);
     }
 }

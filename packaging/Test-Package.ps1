@@ -6,13 +6,18 @@ Set-StrictMode -Version 2.0
 $root = [IO.Path]::GetFullPath($PackageRoot)
 foreach ($file in @('README.md','Start-ParamCADStudio.cmd','Install-ParamCADStudio.cmd',
                    'installer\Install-ParamCADStudio.ps1','package-manifest.json',
-                   'app\ParamCAD Studio.exe','app\qt.conf','app\gmp-10.dll',
+                   'app\ParamCAD Studio.exe','app\pcad.exe','app\config\analysis.conf','app\config\preprocessing.conf','app\qt.conf','app\gmp-10.dll',
                    'deps\python\python.exe','deps\colmap\bin\colmap.exe','core\reconstruction\reconstruct.py',
                    'core\reconstruction\reconstruct_structured_light.py','core\reconstruction\structured_light\pipeline.py',
                    'deps\python\structured-light-wheels.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $root $file) -PathType Leaf)) { throw "Missing release file: $file" }
 }
 $info = Get-Content -LiteralPath (Join-Path $root 'package-manifest.json') -Raw | ConvertFrom-Json
+foreach ($module in @('capture','preprocessing','detection','analysis','recognition','assembly','projection')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $root "app\config\$module.conf") -PathType Leaf)) {
+        throw "Missing CLI module configuration: $module"
+    }
+}
 if ($info.schema -ne 'paramcad.release' -or $info.variant -ne 'full' -or -not $info.offline) { throw 'Only the full offline release layout is supported' }
 $extra = Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object {
     $_.Extension -in @('.pdb','.lib','.exp','.obj','.pyc') -or $_.Name -like '*_test.exe' -or
@@ -33,4 +38,11 @@ if ($VerifyHashes) {
 $count = Assert-AppRuntime (Join-Path $root 'app')
 Write-Host "Verified $count GUI binary dependency closures"
 if (-not $SkipRuntime) { Invoke-IsolatedRuntimeValidation $root }
+if (-not $SkipRuntime) {
+    $capabilities = (& (Join-Path $root 'app\pcad.exe') capabilities | Out-String) | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0 -or $capabilities.schema -ne 'paramcad.cli.capabilities' -or
+        -not ($capabilities.commands | Where-Object { $_.command -eq 'reconstruct cad' -and $_.online -and $_.offline })) {
+        throw 'Bundled pcad CLI capability check failed'
+    }
+}
 Write-Host 'Full offline package validation passed'

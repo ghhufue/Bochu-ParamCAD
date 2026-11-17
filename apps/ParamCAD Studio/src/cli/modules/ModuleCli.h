@@ -8,6 +8,7 @@
 #include <QStringList>
 
 #include <filesystem>
+#include <exception>
 #include <string>
 #include <vector>
 
@@ -49,3 +50,4 @@ QString lengthUnitName(reconstruction::LengthUnit unit);
 
 void writeModuleReport(const QString& path, const QJsonObject& report);
 void printModuleReport(const QJsonObject& report);
+int reportModuleFailure(const QStringList& arguments,const std::exception& error);

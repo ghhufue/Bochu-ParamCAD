@@ -197,6 +197,18 @@ void ReconstructPanel::setOutputRoot(const QString& directory)
     m_outputDirectory->setToolTip(m_outputDirectory->text());
 }
 
+void ReconstructPanel::setRequest(const ReconstructRequest& request)
+{
+    setImageDirectory(request.imageDirectory);setOutputRoot(request.outputRoot);
+    m_engine->setCurrentIndex(m_engine->findData(request.engine));
+    m_useCameraInfo->setChecked(request.useCameraInfo);m_dense->setChecked(request.dense);
+    m_matcher->setCurrentIndex(request.matcher=="sequential"?1:0);
+    m_minContrast->setValue(request.minContrast);
+    const QSignalBlocker blocker(m_downsampleSpacing);
+    m_downsampleSpacing->setCurrentText(QString::number(request.voxelSizeMm,'g',12));
+    updateBackendControls();
+}
+
 void ReconstructPanel::setCaptureBaseDirectory(const QString& directory)
 {
     if (directory.isEmpty() || directory == m_captureBaseDirectory) {
