@@ -1,0 +1,99 @@
+# 面密度与曲面展开验证
+
+曲面拟合完成后，系统先验证有限面片的观测支撑，再发布面片、关系和点归属。低拟合残差不能单独证明一组共面边线能够成面，也不能证明一个大半径球冠具有可分辨的弯曲。
+
+实现位于核心库的 `SurfaceFootprint`、`SurfaceSupportValidation` 和 `SurfaceSupportTypes`。平面域构建从客户端抽到核心库，核心继续不依赖Qt/VTK。客户端显示、离线分析和常规CAD识别复用这些数值接口。
+
+## 密度参考和有限平面
+
+参考从置信度不低于0.7、至少200个有效位置、有二维支撑的大平面中选择。按面积优先，去除同方程的重复参考，默认至少需要3个面。参考密度采用各参考面密度的对数中位数。
+
+密度的点数和面积属于同一有限域；精确重复位置只计一次密度，原始源点身份和归属仍全部保留。独立有限域分别检查，不能用一个密集面补偿另一个稀疏域。
+
+一轮验证中固定参考密度及间距，默认要求平面密度处于参考值的1/4到4倍。同时按固定参考网格检查实际占用和预期占用，使用裁剪到真实域的格面积，保留孔洞、凹边界和正常窄条。
+
+参考不足或不稳定时，报告明确记录全局密度项未执行，继续局部二维支撑验证。参考稳定性同时检查对数密度的MAD和相对中位数的最大偏差，避免三个参考中两个数值相同使MAD为零，却掩盖第三个不同的采样密度。
+
+接受域的连接和覆盖尺度受参考间距上限约束。发布后的面片单独网格化，共面复用不能把已拒绝的空白区域重新补成面。
+
+构建面域的可靠支撑点与域内观测归属分开处理：先由具有二维支撑的点建立有限域，再计入投影落在域内的全部有效观测。这样，局部邻域较弱的内部点不会因未参与三角化而被遗漏；孔洞、分离域和域外线尾仍保持分开。平面归属始终受原拟合距离容差约束，新增归属也检查已知材料法向，防止吞并相邻反向表面。
+
+## 球面和圆柱面
+
+球面使用实际支撑面积对应的立体角：
+
+$$
+\Omega=A/R^2
+$$
+
+默认最低立体角为0.02 sr，较小切向方向展开角至少10°。多图表计算处理极点和接缝，球面三角形面积去重；两个相离的小片不能借用彼此的跨度通过验证。
+
+圆柱检查连续支撑的绕轴展开角，默认至少20°。轴向长度不能补偿周向展开不足。周期接缝在角度域处理，正常采样的小闭合间隙允许恢复成完整圆周。对周向、轴向采样间隔不同的圆柱，域构建根据已观测到的有界方向间隔调整图表尺度，并用雅可比恢复实际面积。
+
+两种曲面还检查弓高是否超过噪声：
+
+$$
+h=2R\sin^2\left(\min(\theta,\pi)/4\right)
+$$
+
+默认要求弓高至少为有效噪声尺度的3倍。噪声优先来自可靠参考平面残差的MAD，设置拟合容差的0.1倍为下限；没有参考时使用容差的1/3作为明确标记的回退量。最后在相同观测上比较曲面和稳健平面，要求曲面的误差改善足以补偿多出的参数。
+
+## 点归属、补证与缓存
+
+自动候选先验证再参与独占归属，归属后按固定参考复验。释放的点最多再参与一轮合格候选的归属，最后再验证；无法解释的点保留为未归属，不删除点、不自动放宽平面容差。
+
+通过全局密度和二维支撑验证、有效位置不少于参考最低点数，且面积达到参考面面积中位数的10%的大平面，优先保留原容差内的支撑点。圆柱、球、圆锥或圆环跨越多个真实平面的提案不能再凭逐点较低残差切走这些面的内部；真正弯曲的剩余区域仍参与曲面归属。这个面积比例由 `plane_preference_min_reference_area_fraction` 调节。
+
+工作点和原始点分别建立统计上下文。原始点补证保留原始候选池，避免下采样时暂时不足的小特征永久丢失；原始点判定改变时重新构建可供CAD消费的工作分析。设置、方程或点身份改变使相关缓存失效。
+
+人工选择的小曲面片先以提案供全景补证，完整面通过验证后才能作为曲面发布。拒绝自动球面不会静默改变用户指定的模板类型，也不会把所有偏离点强塞给宿主平面。
+
+## 配置与诊断
+
+配置位于 `apps/ParamCAD Studio/config/analysis.conf`，可在客户端超参数界面调整。
+
+| 参数 | 默认值 | 含义 |
+| --- | --- | --- |
+| `support_validation_mode` | `2` | `0/off`关闭、`1/report`仅报告、`2/enforce`应用过滤 |
+| `plane_density_ratio_max` | `4` | 平面面密度允许的双向倍数 |
+| `sphere_min_solid_angle_sr` | `0.02` | 球面最少支撑立体角 |
+| `sphere_min_minor_angular_span_deg` | `10` | 球面较小方向最少展开角 |
+| `cylinder_min_angular_span_deg` | `20` | 圆柱最少绕轴展开角 |
+| `curvature_min_sagitta_noise_ratio` | `3` | 最低弓高噪声比 |
+| `density_reference_min_confidence` | `0.7` | 参考平面置信度下限 |
+| `density_reference_min_points` | `200` | 参考面最低有效位置数 |
+| `density_reference_min_planes` | `3` | 去重后的参考面最低数量 |
+| `density_reference_area_quantile` | `0.75` | 优先使用大面积四分位，数量不足时补足合格的大面 |
+| `density_reference_max_log_spread` | `0.5` | 参考密度离散度上限 |
+| `support_min_expected_points` | `12` | 全局密度检查最低期望分辨能力 |
+| `support_grid_spacing_multiplier` | `2` | 占用网格边长相对参考间距 |
+| `plane_min_occupied_cell_ratio` | `0.5` | 实际与预期占用格最低比例 |
+| `curvature_noise_floor_tolerance_fraction` | `0.1` | 噪声下限相对拟合容差 |
+| `curved_model_complexity_weight` | `1` | 复杂度惩罚权重 |
+| `curved_min_model_gain` | `0.05` | 曲面相对平面的最低评分改善 |
+| `plane_preference_min_reference_area_fraction` | `0.1` | 优先保留大平面的面积相对参考中位数 |
+
+角度配置使用度，核心计算使用弧度。无量纲量和面积分位数适用于任意长度单位。显示采样预算不改变支撑统计。
+
+离线 `pcad analyze` 报告新增 `support_validation`。分析包可带有 `support-validation.json`，保存参考、配置、阈值、接受/拒绝原因和归属前后判定；单面JSON保存支撑摘要。旧包没有记录时只显示已有数据，不补写推断的历史结论。
+
+## 本地复现
+
+构建 `surface_support_bundle_validation` 目标后，可以在不重新识别的情况下复验已有候选：
+
+```powershell
+& 'path/to/surface_support_bundle_validation.exe' `
+  'path/to/cloud.ply.pcad-analysis' 'new-validation.json' 3.400798
+```
+
+也可以使用包内原始观测重新运行生产识别并导出新包，原包保持不变。生产重放要求输入包观测全部有效；包含删除点的包应先从客户端导出活动点再识别：
+
+```powershell
+& 'path/to/surface_support_bundle_validation.exe' `
+  'path/to/cloud.ply.pcad-analysis' 'new-production-report.json' 3.400798 `
+  --detect --export-bundle 'new-result.pcad-analysis'
+```
+
+报告和导出目录必须不存在。原始坐标、映射和大体积点云留在本地文件中，控制台只输出统计。
+
+算法测试目标为 `surface_support_validation_test`；还需检查 `surface_analysis_test`、`plane_support_recovery_test`、`point_cloud_analysis_test`、`cad_reconstruction_task_test`、`module_settings_test`、导出与查询测试。完整设计、Y373基线和验收口径见[修改方案](/development/surface-support-validation-plan)。

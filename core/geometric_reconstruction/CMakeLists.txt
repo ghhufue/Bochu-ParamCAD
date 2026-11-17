@@ -35,6 +35,8 @@ add_library(GeometricReconstruction
     src/recognition/RepairTransaction.cpp
     src/analysis/LocalRecovery.cpp
     src/analysis/RelationOptimization.cpp
+    src/analysis/SurfaceFootprint.cpp
+    src/analysis/SurfaceSupportValidation.cpp
     src/analysis/SurfaceAnalysis.cpp
     src/analysis/SurfaceGeometry.cpp
     src/analysis/SurfacePatches.cpp
@@ -121,6 +123,9 @@ endif()
 
 if(GEOMETRIC_RECONSTRUCTION_BUILD_TESTS)
     include(CTest)
+    add_executable(surface_support_validation_test tests/analysis/surface_support_validation_test.cpp)
+    target_link_libraries(surface_support_validation_test PRIVATE GeometricReconstruction::GeometricReconstruction)
+    add_test(NAME surface_support_validation_test COMMAND surface_support_validation_test)
     add_executable(projection_stage_test tests/projection_stage_test.cpp)
     target_include_directories(projection_stage_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(projection_stage_test PRIVATE GeometricReconstruction::GeometricReconstruction)

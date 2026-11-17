@@ -896,6 +896,8 @@ void PointCloudWorkspaceController::startAnalysisExportTo(const QString& path)
     snapshot.positionsFingerprint=selection.positionsFingerprint();
     snapshot.sourceName=QFileInfo(source).fileName();snapshot.sourceUnit=m_document->sourceUnit();
     snapshot.documentRevision=revision;
+    if(m_surfaceSupportReportRevision==revision && m_surfaceSupportReportFingerprint==selection.positionsFingerprint())
+        snapshot.supportValidation=m_surfaceSupportReport;
     snapshot.surfaces=m_ui.viewer->pointCloudSurfaceDisplaySnapshot();
     snapshot.displayedSurfaces=m_ui.viewer->displayedPointCloudSurfaces();
     const auto camera=m_ui.viewer->cameraParameters();
@@ -1289,6 +1291,13 @@ void PointCloudWorkspaceController::startPointCloudAnalysis(int regionId, bool r
         }
         if (!result->error.isEmpty()) { m_ui.relationsPanel->setStatus(result->error); emit logWarning(result->error); return; }
         if (!regionId) m_surfaceAnalysis = result->analysis;
+        if(!regionId) {
+            const auto report=[](const auto& r){return QJsonDocument::fromJson(QByteArray::fromStdString(reconstruction::serializeSurfaceSupportReport(r))).object();};
+            m_surfaceSupportReport={{"version",1},{"scope","detection_active_subset"},
+                {"before_ownership",report(result->sourceSupportValidation)},{"after_ownership",report(result->finalSupportValidation)}};
+            m_surfaceSupportReportRevision=m_document->revision();
+            m_surfaceSupportReportFingerprint=m_document->selection().positionsFingerprint();
+        }
         if (result->surfaces.empty()) {
             m_ui.relationsPanel->setStatus(workspaceTr("没有识别到受支持的表面；点保持原有归属，可调整容差或手动分组。")); return;
         }
@@ -1300,6 +1309,7 @@ void PointCloudWorkspaceController::startPointCloudAnalysis(int regionId, bool r
             }
             m_document->updateRegionFit(regionId, best->surface, recordUndo);
         } else m_document->addSurfaces(result->surfaces, recordUndo);
+        if(!regionId)m_surfaceSupportReportRevision=m_document->revision();
         m_ui.relationsPanel->setStatus(workspaceTr("识别完成：%1 个表面，归属 %2 / %3 个原始点。未归属点已保留。")
             .arg(result->surfaces.size()).arg(result->assignedPoints).arg(count));
         emit logInfo(workspaceTr("Surface analysis completed: %1 surfaces, %2 source points assigned")

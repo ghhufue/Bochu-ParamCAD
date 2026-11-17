@@ -110,9 +110,15 @@ int main()
 
         AnalysisSettings display;display.meshing.minimumSurfacePoints=30;
         display.meshing.expectedHolePoints=40;display.meshing.boundaryDominanceRatio=.9;
+        display.supportValidation.mode=SupportValidationMode::Report;
+        display.supportValidation.planeDensityRatioMax=6;
+        display.supportValidation.sphereMinSolidAngle=.03;
+        display.supportValidation.cylinderMinAngularSpanRadians=1.2;
         const auto analysisFile=temporary/"analysis-round-trip.conf";
         writeFile(analysisFile,serializeAnalysisSettings(display));
         const auto restoredDisplay=loadAnalysisSettings(analysisFile);
+        require(restoredDisplay.supportValidation.mode==SupportValidationMode::Report && restoredDisplay.supportValidation.planeDensityRatioMax==6
+            && restoredDisplay.supportValidation.sphereMinSolidAngle==.03 && std::abs(restoredDisplay.supportValidation.cylinderMinAngularSpanRadians-1.2)<1e-12,"support validation settings and angle units round-trip");
         require(restoredDisplay.meshing.minimumSurfacePoints==30 && restoredDisplay.meshing.expectedHolePoints==40
             && restoredDisplay.meshing.boundaryDominanceRatio==.9,"surface support and density parameters round-trip");
         display.meshing.deepInteriorDistanceMultiplier=display.meshing.boundaryBandSpacingMultiplier;

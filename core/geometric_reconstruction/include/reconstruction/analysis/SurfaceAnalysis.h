@@ -1,4 +1,5 @@
 #pragma once
+#include "reconstruction/analysis/SurfaceSupportTypes.h"
 
 #include "reconstruction/detection/PrimitiveDetector.h"
 #include <functional>
@@ -58,6 +59,8 @@ struct SurfaceRelationHint {
 struct SurfaceAnalysisOptions {
     PrimitiveDetectionOptions detection;
     SurfaceRelationOptions relations;
+    SurfaceSupportValidationOptions supportValidation;
+    SurfaceMeshingSettings supportMeshing;
     double connectivityDistance = 0; // Zero: estimate from each surface's density.
     bool independentFamilies = true;
     bool recoverResidualSurfaces = false;
@@ -98,6 +101,10 @@ struct SurfaceAnalysisResult {
     LengthUnit unit = LengthUnit::Arbitrary;
     SurfaceAnalysisOptions options;
     std::vector<PrimitiveEvidence> surfaces;
+    std::vector<PrimitiveEvidence> supportProposals;
+    std::vector<SurfaceId> supportProposalIds; // Accepted equation -> original proposal ID.
+    SurfaceSupportValidationReport supportValidation;
+    SurfaceSupportValidationReport sourceSupportValidation;
     std::vector<SurfacePatch> patches;
     std::vector<SurfaceRelation> relations;
     std::vector<PointId> unassignedPointIds;
@@ -149,7 +156,8 @@ bool inferPatchRelations(const PointStore& points, const SurfaceAnalysisResult& 
 // candidate supports are retained; this function does not force unique labels.
 bool indexSurfaceEvidence(const PointStore& points, const std::vector<PrimitiveEvidence>& evidence,
                           const SurfaceAnalysisOptions& options, SurfaceAnalysisResult& output,
-                          std::string& error);
+                          std::string& error, const std::vector<PointId>& protectedIds={},
+                          const std::function<bool()>& cancelled={}, const SurfaceSamplingReference* frozenReference=nullptr);
 // Transactional, observation-bounded optimization of a feasible relation subset.
 bool optimizeSurfaceRelations(const PointStore& points, SurfaceAnalysisResult& analysis,
     const std::vector<SurfaceRelation>& proposals, RelationOptimizationReport& report, std::string& error);

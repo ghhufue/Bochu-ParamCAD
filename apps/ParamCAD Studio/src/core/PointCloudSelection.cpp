@@ -204,6 +204,7 @@ bool PointCloudSelection::save(const QString& path, const QString& sourcePath, Q
         }
         regions.append(QJsonObject{{"id", region.id}, {"name", region.name},
             {"geometry", region.geometry}, {"pointIndices", ids}, {"parameters", region.parameters},
+            {"supportValidation",region.supportValidation},
             {"source", region.source}, {"residual", region.residual}, {"confidence", region.confidence},
             {"fitStale", region.fitStale}, {"templateLocked", region.templateLocked}});
     }
@@ -291,6 +292,7 @@ bool PointCloudSelection::load(const QString& path, QString& error)
         }
         if (version == 2) {
             surface.parameters = region["parameters"].toObject();
+            surface.supportValidation=region["supportValidation"].toObject();
             surface.source = region["source"].toString();
             surface.residual = region["residual"].toDouble(-1);
             surface.confidence = region["confidence"].toDouble(-1);

@@ -47,7 +47,7 @@ double radius(const PrimitiveEvidence& e) {
 bool axial(PrimitiveKind k) { return k == PrimitiveKind::Cylinder || k == PrimitiveKind::Cone || k == PrimitiveKind::Torus; }
 
 bool valid(const SurfaceAnalysisOptions& o) {
-    return std::isfinite(o.connectivityDistance) && o.connectivityDistance >= 0 &&
+    return validSurfaceSupportOptions(o.supportValidation) && std::isfinite(o.connectivityDistance) && o.connectivityDistance >= 0 &&
         std::isfinite(o.relations.distanceTolerance) && o.relations.distanceTolerance > 0 &&
         std::isfinite(o.relations.angularToleranceRadians) && o.relations.angularToleranceRadians > 0 &&
         o.relations.angularToleranceRadians <= 0.5235987755982988;

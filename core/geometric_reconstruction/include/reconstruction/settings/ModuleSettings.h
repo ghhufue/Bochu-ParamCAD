@@ -93,6 +93,9 @@ bool inRange(const Setting<Options>& setting, double value)
 template <class Options>
 double parseValue(const Setting<Options>& setting, std::string_view raw, std::string_view id)
 {
+    if(std::string_view(setting.key)=="support_validation_mode") {
+        if(raw=="off")raw="0";else if(raw=="report")raw="1";else if(raw=="enforce")raw="2";
+    }
     double value = 0;
     if (setting.type == Setting<Options>::Type::Boolean && (raw == "true" || raw == "false")) {
         value = raw == "true";

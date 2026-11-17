@@ -7,9 +7,11 @@ struct PointCloudAnalysisResult
 {
     std::vector<DetectedPointCloudSurface> surfaces;
     reconstruction::SurfaceAnalysisResult analysis;
+    reconstruction::SurfaceSupportValidationReport sourceSupportValidation, finalSupportValidation;
     QString error;
     size_t processedPoints = 0;
     size_t assignedPoints = 0;
+    size_t preferredPlaneCount = 0;
 };
 
 // Runs off the UI thread. Detector point IDs refer to the input observations;

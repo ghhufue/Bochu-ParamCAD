@@ -70,6 +70,7 @@ PointCloudSurfaceMesh meshPointCloudSurface(const PointCloudRegion& region,
     const PlyCloud& cloud,const std::vector<vtkIdType>& members,const reconstruction::SurfaceMeshingSettings& settings)
 {
     PointCloudSurfaceMesh mesh;
+    if(region.supportValidation.value("verdict").toString()=="rejected")return mesh;
     if(members.size()<std::max<size_t>(3,settings.minimumSurfacePoints))return mesh;
     const auto evidence=regionEvidence(region);
     if(!evidence)return mesh;
@@ -117,7 +118,9 @@ PointCloudSurfaceMesh meshPointCloudSurface(const PointCloudRegion& region,
     if(chart.kind=="plane") {
         std::vector<PlanarSurfaceSample> samples;samples.reserve(projected.size());
         for(const auto& p:projected)samples.push_back({{p.uv.u,p.uv.v},p.source});
-        mesh=meshPlanarSurfaceDomain(samples,settings);
+        const double reference=region.supportValidation.value("reference_spacing").toDouble();
+        const double ratio=region.supportValidation.value("density_ratio_max").toDouble(1);
+        mesh=meshPlanarSurfaceDomain(samples,settings,reference>0?reference*std::sqrt(std::max(1.,ratio)):0);
         for(auto& position:mesh.positions) {
             const auto p=chart.evaluate({position[0],position[1]});position={p.x,p.y,p.z};
         }
@@ -242,7 +245,12 @@ PointCloudSurfaceDisplay meshPointCloudSurfaces(const PointCloudSelection& selec
         if(found==members.end() || found->second.size()<settings.minimumSurfacePoints)continue;
         const auto evidence=regionEvidence(region);
         if(!evidence)continue;
-        if(const auto* plane=std::get_if<reconstruction::PlaneEvidence>(&*evidence)) {
+        if(!region.supportValidation.isEmpty()) {
+            auto mesh=meshPointCloudSurface(region,selection.sourceCloud(),found->second,settings);
+            display.planeSupportChecks[region.id]=mesh.domainSupportChecks;
+            if(!mesh.triangles.empty())display.meshes.emplace(region.id,std::move(mesh));
+            display.colorRegions[region.id]=region.id;
+        } else if(const auto* plane=std::get_if<reconstruction::PlaneEvidence>(&*evidence)) {
             auto n=plane->plane.normal;double d=plane->plane.offset;
             const double major=std::abs(n.x)>=std::abs(n.y)&&std::abs(n.x)>=std::abs(n.z)?n.x:
                 (std::abs(n.y)>=std::abs(n.z)?n.y:n.z);

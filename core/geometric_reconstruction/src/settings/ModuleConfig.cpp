@@ -137,6 +137,26 @@ const std::vector<settings::Setting<AnalysisSettings>>& analysisSchema()
     using S = AnalysisSettings;
     using T = settings::Setting<S>;
     static const std::vector<T> values{
+        INT(supportValidation.mode, "support_validation_mode", "面密度与曲面展开验证", "验证模式：0关闭、1仅报告、2过滤", 0, 2),
+        REAL(supportValidation.planeDensityRatioMax, "plane_density_ratio_max", "面密度与曲面展开验证", "平面密度最大偏差倍数", 1, 1000),
+        REAL(supportValidation.sphereMinSolidAngle, "sphere_min_solid_angle_sr", "面密度与曲面展开验证", "球面最小支撑立体角 sr", .000001, 12.566370614359172),
+        DEG(supportValidation.sphereMinMinorSpanRadians, "sphere_min_minor_angular_span_deg", "面密度与曲面展开验证", "球面较小方向最小展开角"),
+        {"cylinder_min_angular_span_deg", "面密度与曲面展开验证", "圆柱最小绕轴展开角", T::Type::Real, .000001, 360,
+            [](const S& s){return s.supportValidation.cylinderMinAngularSpanRadians*kDegreesPerRadian;},
+            [](S& s,double v){s.supportValidation.cylinderMinAngularSpanRadians=v*kRadiansPerDegree;}},
+        REAL(supportValidation.minimumSagittaNoiseRatio, "curvature_min_sagitta_noise_ratio", "面密度与曲面展开验证", "弓高与噪声最低比值", 0, 1000),
+        REAL(supportValidation.referenceMinConfidence, "density_reference_min_confidence", "密度参考与高级验证", "参考平面最低置信度", 0, 1),
+        INT(supportValidation.referenceMinPoints, "density_reference_min_points", "密度参考与高级验证", "参考平面最少点数", 3, 10000000),
+        INT(supportValidation.referenceMinPlanes, "density_reference_min_planes", "密度参考与高级验证", "最少参考平面数量", 1, 10000),
+        REAL(supportValidation.referenceAreaQuantile, "density_reference_area_quantile", "密度参考与高级验证", "参考平面面积分位数", 0, 1),
+        REAL(supportValidation.referenceMaxLogSpread, "density_reference_max_log_spread", "密度参考与高级验证", "参考对数密度最大离散度", .000001, 100),
+        REAL(supportValidation.minimumExpectedPoints, "support_min_expected_points", "密度参考与高级验证", "最低可分辨期望点数", 1, 100000),
+        REAL(supportValidation.gridSpacingMultiplier, "support_grid_spacing_multiplier", "密度参考与高级验证", "占用网格与参考间距之比", .1, 20),
+        REAL(supportValidation.minimumOccupiedCellRatio, "plane_min_occupied_cell_ratio", "密度参考与高级验证", "最低实际与预期占用格比", .001, 1),
+        REAL(supportValidation.noiseFloorToleranceFraction, "curvature_noise_floor_tolerance_fraction", "密度参考与高级验证", "噪声下限占拟合容差比例", .000001, 10),
+        REAL(supportValidation.modelComplexityWeight, "curved_model_complexity_weight", "密度参考与高级验证", "模型复杂度惩罚权重", 0, 1000),
+        REAL(supportValidation.minimumModelGain, "curved_min_model_gain", "密度参考与高级验证", "曲面相对平面最低改善", 0, 1000),
+        REAL(supportValidation.planePreferenceMinReferenceAreaFraction, "plane_preference_min_reference_area_fraction", "密度参考与高级验证", "优先保留平面的面积相对参考中位数", .001, 10),
         INT(meshing.minimumSurfacePoints, "minimum_surface_points", "最终成面支持", "最终集合及连通面片最少支持点数", 3, 1000000),
         INT(meshing.meshPointBudget, "mesh_point_budget", "显示网格", "网格采样点预算", 256, 1000000),
         REAL(meshing.planarAlphaRadiusMultiplier, "planar_alpha_radius_multiplier", "显示网格", "平面 Alpha 半径与局部间距之比", .1, 20),
@@ -404,7 +424,9 @@ void validateDetection(const DetectionSettings& settings, std::string& reason)
 }
 
 void validateAnalysis(const AnalysisSettings& settings, std::string& reason) {
-    if(settings.meshing.meshPointBudget<settings.meshing.minimumSurfacePoints)
+    if(!validSurfaceSupportOptions(settings.supportValidation))
+        reason="Invalid surface support validation settings";
+    else if(settings.meshing.meshPointBudget<settings.meshing.minimumSurfacePoints)
         reason="mesh_point_budget cannot be below minimum_surface_points";
     else if(settings.meshing.deepInteriorDistanceMultiplier<=settings.meshing.boundaryBandSpacingMultiplier)
         reason="deep_interior_distance_multiplier must exceed boundary_band_spacing_multiplier";

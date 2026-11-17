@@ -19,6 +19,7 @@ struct PointCloudRegion
     QString name;
     QString geometry; // Stable keys: cuboid, sphere, cylinder, cone, plane, ring.
     QJsonObject parameters; // Fitted equations in original cloud units.
+    QJsonObject supportValidation; // Published finite-domain validation, invalidated by fit edits.
     QString source = QStringLiteral("manual");
     double residual = 0.0;
     double confidence = 0.0;

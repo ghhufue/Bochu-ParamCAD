@@ -16,7 +16,7 @@ pcad inspect --bundle . verify --full
 
 示例 ID 仅示意，先用 list 查询本包实际 ID。显示名称中的数字与集合 ID 不相同；名称重名时必须用 ID。
 
-没有安装 pcad 时，包内仍保留仅依赖 Python 3.9+ 标准库的兼容查询器：`python inspect_bundle.py list --limit 10`。两者读取同一格式。
+使用已安装或构建的 pcad CLI 查询。导出包只包含数据和本指南，不附带 Python 程序；查询不依赖 Python 或正在运行的 Studio。
 
 ## 按需读取
 

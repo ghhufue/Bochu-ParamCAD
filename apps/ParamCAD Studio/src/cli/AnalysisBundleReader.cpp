@@ -41,6 +41,19 @@ public:
         check(!candidate.isEmpty()&&candidate.startsWith(prefix,Qt::CaseInsensitive),"Missing asset or bundle path escapes directory");return candidate;}
     QByteArray read(const QString& name)const{QFile file(path(name));check(file.open(QIODevice::ReadOnly),file.errorString());return file.readAll();}
     QJsonObject json(const QString& name)const{return object(read(name));}
+    QJsonValue supportValidation(const QJsonObject* surface=nullptr)const {
+        const auto ref=manifest["support_validation"].toObject();if(ref.isEmpty())return QJsonValue::Null;
+        const auto raw=read(ref["metadata"].toString());check(digest(raw)==ref["sha256"].toString().toLatin1(),"Support validation checksum mismatch");
+        const auto report=object(raw);check(report["bundle_id"]==manifest["bundle_id"] && report["version"].toInt()==1,"Support validation belongs to a different snapshot/version");
+        if(!surface)return report;
+        const auto stage=report.contains("after_ownership")?report["after_ownership"].toObject():report;
+        const auto selected=surface->value("support_validation").toObject();QJsonArray matches;
+        if(selected.contains("proposal_id"))for(auto value:stage["decisions"].toArray()) {
+            const auto d=value.toObject();if(d["proposal_id"]==selected["proposal_id"])matches.append(d);
+        }
+        return QJsonObject{{"version",report["version"]},{"scope",report["scope"]},{"mode",stage["mode"]},
+            {"reference",stage["reference"]},{"options",stage["options"]},{"selected_decisions",matches}};
+    }
     QJsonObject surface(const QJsonObject& row)const{
         const auto raw=read(row["metadata"].toString());check(digest(raw)==row["sha256"].toString().toLatin1(),"Surface metadata checksum mismatch");
         auto result=object(raw);check(result["bundle_id"]==manifest["bundle_id"]&&result["id"]==row["id"],"Surface belongs to a different snapshot");return result;}
@@ -116,6 +129,7 @@ public:
             {"bounds",count?QJsonValue(QJsonArray{vector(low),vector(high)}):QJsonValue(QJsonValue::Null)},
             {"centroid",count?QJsonValue(vector(sum)):QJsonValue(QJsonValue::Null)},{"mesh",mesh(s)}};
         if(length>0&&count)result["measured_plane_residual"]=QJsonObject{{"mean",residualSum/count},{"max",maximum},{"rms",std::sqrt(squared/count)}};
+        if(s.contains("support_validation"))result["support_validation"]=s["support_validation"];
         return result;}
 };
 }
@@ -141,6 +155,7 @@ QJsonObject inspectAnalysisBundle(const QStringList& arguments){
             &&(!options.contains("--kind")||r["geometry"].toString()==options["--kind"]))rows.append(r);}
         QJsonArray page;for(qsizetype i=offset;i<rows.size()&&page.size()<limit;++i)page.append(rows[i]);return{{"total_matches",rows.size()},{"surfaces",page}};}
     if(command=="verify"){
+        b.supportValidation();
         for(auto row:b.index)b.group(b.surface(row.toObject()));
         if(full)for(auto asset:b.manifest["assets"].toArray()){auto a=asset.toObject();QFile file(b.path(a["path"].toString()));check(file.open(QIODevice::ReadOnly),file.errorString());
             check(file.size()==integer(a["bytes"]),"Asset size mismatch");QCryptographicHash hash(QCryptographicHash::Sha256);
@@ -150,7 +165,7 @@ QJsonObject inspectAnalysisBundle(const QStringList& arguments){
     const int id=options.contains("--id")?number("--id",0,0,INT_MAX):-1;
     for(auto row:b.index){auto r=row.toObject();if(id>=0?r["id"].toInt()==id:r["name"].toString()==options["--name"])matches.append(r);}
     check(matches.size()==1,matches.isEmpty()?"Surface not found":"Ambiguous name; use --id");auto s=b.surface(matches[0].toObject());
-    if(command=="show")return group?QJsonObject{{"surface",s},{"shared_plane",b.group(s)}}:s;
+    if(command=="show")return group?QJsonObject{{"surface",s},{"shared_plane",b.group(s)},{"support_validation_report",b.supportValidation(&s)}}:s;
     if(command=="analyze")return b.analyze(s);
     const int limit=number("--limit",10,1,100);QJsonArray points;
     b.points(s,[&](const Bundle::Point& p){points.append(QJsonObject{{"source_index",qint64(p.id)},{"position",Bundle::vector(p.p)},

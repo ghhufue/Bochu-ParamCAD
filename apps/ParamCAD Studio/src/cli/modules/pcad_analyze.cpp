@@ -8,6 +8,7 @@
 #include <QElapsedTimer>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QJsonDocument>
 
 #include <cmath>
 #include <iostream>
@@ -76,6 +77,7 @@ int run_analyze(const QStringList& commandArguments)
         const auto settings = reconstruction::loadAnalysisSettings(config);
         reconstruction::SurfaceAnalysisOptions options;
         options.detection = detection;
+        options.supportValidation=settings.supportValidation;options.supportMeshing=settings.meshing;
         options.relations.distanceTolerance = settings.relationDistanceMm > 0
             ? settings.relationDistanceMm
             : detection.plane.distanceThreshold * settings.relationDistanceToleranceMultiplier;
@@ -89,6 +91,7 @@ int run_analyze(const QStringList& commandArguments)
         if (!reconstruction::analyzeSurfaces(processed, options, analysis, failure))
             throw std::runtime_error(failure);
 
+        report["support_validation"]=QJsonDocument::fromJson(QByteArray::fromStdString(reconstruction::serializeSurfaceSupportReport(analysis.supportValidation))).object();
         QJsonArray surfaces;
         for (const auto& surface : analysis.surfaces) {
             QJsonObject entry;

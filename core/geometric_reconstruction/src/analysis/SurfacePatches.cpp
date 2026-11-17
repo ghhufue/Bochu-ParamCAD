@@ -1,5 +1,7 @@
 #include "detail/AnalysisInternal.h"
 #include "preprocessing/detail/KdTree.h"
+#include "reconstruction/analysis/SurfaceSupportValidation.h"
+#include <set>
 
 namespace reconstruction {
 using namespace detail::analysis;
@@ -73,8 +75,10 @@ bool indexSurfacePatches(const PointStore& points, const std::vector<PrimitiveEv
         if (samples.empty()) continue;
         const auto d = subtract(upper,lower);
         const double area = 2*(d.x*d.y+d.y*d.z+d.z*d.x);
+        std::set<std::array<double,3>> locations;
+        for(const auto* p:samples)locations.insert({p->position.x,p->position.y,p->position.z});
         const double radius = options.connectivityDistance > 0 ? options.connectivityDistance :
-            std::max(options.relations.distanceTolerance*4, 2.5*std::sqrt(std::max(0.0,area)/samples.size()));
+            std::max(options.relations.distanceTolerance*4, 2.5*std::sqrt(std::max(0.0,area)/std::max<std::size_t>(1,locations.size())));
         Grid grid(samples, radius);
         std::vector<bool> visited(samples.size());
         for (std::size_t i = 0; i < samples.size(); ++i) {
@@ -128,8 +132,14 @@ bool inferPatchRelations(const PointStore& points, const SurfaceAnalysisResult& 
 }
 
 bool indexSurfaceEvidence(const PointStore& points, const std::vector<PrimitiveEvidence>& evidence,
-    const SurfaceAnalysisOptions& options, SurfaceAnalysisResult& output, std::string& error) {
-    return indexSurfacePatches(points, evidence, options, output, error) &&
-        inferIndexedRelations(points, output, output.relations, error);
+    const SurfaceAnalysisOptions& options, SurfaceAnalysisResult& output, std::string& error,
+    const std::vector<PointId>& protectedIds,const std::function<bool()>& cancelled,
+    const SurfaceSamplingReference* frozenReference) {
+    std::vector<PrimitiveEvidence> accepted;SurfaceSupportValidationReport report;
+    if(!validateSurfaceSupport(points,evidence,options,accepted,report,error,frozenReference,cancelled,protectedIds))return false;
+    std::vector<SurfaceId> origins;for(const auto& e:accepted)origins.push_back(std::visit([](const auto& s){return s.id;},e));
+    SurfaceAnalysisResult staged;
+    if(!indexSurfacePatches(points,accepted,options,staged,error) || !inferIndexedRelations(points,staged,staged.relations,error))return false;
+    staged.supportProposals=evidence;staged.supportProposalIds=std::move(origins);staged.supportValidation=std::move(report);output=std::move(staged);return true;
 }
 } // namespace reconstruction

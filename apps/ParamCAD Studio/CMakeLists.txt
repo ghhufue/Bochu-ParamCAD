@@ -44,6 +44,11 @@ add_subdirectory(
 )
 if(CAD_CLIENT_BUILD_TESTS)
     enable_testing()
+    add_executable(surface_support_validation_test ../../core/geometric_reconstruction/tests/analysis/surface_support_validation_test.cpp)
+    target_link_libraries(surface_support_validation_test PRIVATE GeometricReconstruction::GeometricReconstruction)
+    add_test(NAME surface_support_validation_test COMMAND surface_support_validation_test)
+    set_tests_properties(surface_support_validation_test PROPERTIES TIMEOUT 120
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:CadPointCloudClient>")
     add_executable(native_performance_benchmark ../../tools/benchmarks/native_performance.cpp)
     target_link_libraries(native_performance_benchmark PRIVATE GeometricReconstruction::GeometricReconstruction)
     target_link_directories(native_performance_benchmark PRIVATE ${OpenCASCADE_LIBRARY_DIR})
@@ -77,6 +82,18 @@ if(CAD_CLIENT_BUILD_TESTS)
 endif()
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets Network LinguistTools)
+if(CAD_CLIENT_BUILD_VALIDATION_TOOLS OR CAD_CLIENT_BUILD_TESTS)
+    add_executable(surface_support_bundle_validation ../../tools/validation/native/SurfaceSupportBundleValidation.cpp)
+    target_sources(surface_support_bundle_validation PRIVATE src/io/PointCloudAnalysis.cpp src/io/PointCloudAdapter.cpp
+        src/io/AnalysisBundleExporter.cpp resources/analysis_export.qrc src/core/PointCloudSelection.cpp
+        src/core/PointCloudEdits.cpp src/core/PointCloudRelations.cpp src/io/PlyWriter.cpp)
+    target_include_directories(surface_support_bundle_validation PRIVATE src)
+    target_link_libraries(surface_support_bundle_validation PRIVATE GeometricReconstruction::GeometricReconstruction Qt6::Core
+        ParamCADSurfaceMeshing VTK::CommonCore VTK::CommonDataModel)
+    if(MSVC)
+        target_compile_options(surface_support_bundle_validation PRIVATE /W4 /permissive- /utf-8)
+    endif()
+endif()
 # OpenCASCADE is resolved here as well as inside CadModelCore because the client
 # names the STEP data-exchange toolkits its importer uses directly.
 find_package(OpenCASCADE REQUIRED)

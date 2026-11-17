@@ -177,6 +177,7 @@ bool exportAnalysisBundle(const AnalysisBundleSnapshot& snapshot,const QString& 
                 {"fit_residual",region.residual},{"confidence",region.confidence},
                 {"summary",summaries[id].data()},{"displayed_as_surface",snapshot.displayedSurfaces.count(id)!=0}};
             if(groupReferences.count(id))record["shared_plane"]=groupReferences.at(id);
+            if(!region.supportValidation.isEmpty())record["support_validation"]=region.supportValidation;
             const auto meshIt=snapshot.surfaces.meshes.find(id);
             if(meshIt!=snapshot.surfaces.meshes.end()) {
                 const auto& mesh=meshIt->second;
@@ -208,10 +209,18 @@ bool exportAnalysisBundle(const AnalysisBundleSnapshot& snapshot,const QString& 
         for(const auto& relation:snapshot.relations)line(relations,{{"id",relation.id},{"first",relation.first},
             {"second",relation.second},{"type",relation.type},{"automatic",relation.automatic},{"confidence",relation.confidence}});
         check(relations.flush(),relations.errorString());relations.close();
-        check(QFile::copy(":/analysis-export/inspect_bundle.py",root.filePath("inspect_bundle.py")),"Cannot write bundled inspector");
         check(QFile::copy(":/analysis-export/README.md",root.filePath("README.md")),"Cannot write analysis guide");
         QJsonArray assets;
-        for(const auto& name:{"points.bin","point-map.bin","meshes.bin","surfaces.jsonl","relations.jsonl","inspect_bundle.py","README.md"}) {
+        QJsonObject supportReference;
+        if(!snapshot.supportValidation.isEmpty()) {
+            auto report=snapshot.supportValidation;report["bundle_id"]=bundleId;
+            report["document_revision"]=QString::number(snapshot.documentRevision);
+            const QString name="support-validation.json";json(root.filePath(name),report);
+            const auto checksum=hash(root.filePath(name),stop);
+            assets.append(QJsonObject{{"path",name},{"bytes",QFileInfo(root.filePath(name)).size()},{"sha256",checksum}});
+            supportReference={{"metadata",name},{"sha256",checksum}};
+        }
+        for(const auto& name:{"points.bin","point-map.bin","meshes.bin","surfaces.jsonl","relations.jsonl","README.md"}) {
             const auto path=root.filePath(QString::fromLatin1(name));
             assets.append(QJsonObject{{"path",QString::fromLatin1(name)},{"bytes",QFileInfo(path).size()},{"sha256",hash(path,stop)}});
         }
@@ -222,7 +231,7 @@ bool exportAnalysisBundle(const AnalysisBundleSnapshot& snapshot,const QString& 
                 {"point_count",qint64(count)},{"active_point_count",qint64(active)},
                 {"has_normals",normals},{"has_colors",colors},{"positions_sha256",snapshot.positionsFingerprint}}},
             {"surface_count",qint64(snapshot.regions.size())},{"relation_count",qint64(snapshot.relations.size())},
-            {"selected_points",selectedRange},{"view",snapshot.view},{"assets",assets},
+            {"selected_points",selectedRange},{"view",snapshot.view},{"assets",assets},{"support_validation",supportReference},
             {"binary_format",QJsonObject{{"endianness","little"},{"header_bytes",48},{"point_record_bytes",32},
                 {"map_record_bytes",8},{"mesh_vertex_bytes",32},{"mesh_triangle_bytes",24},
                 {"point_identity","zero_based_original_source_row"}}}});

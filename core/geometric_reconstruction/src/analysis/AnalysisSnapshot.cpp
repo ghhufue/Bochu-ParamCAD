@@ -1,4 +1,5 @@
 #include "detail/AnalysisInternal.h"
+#include "reconstruction/analysis/SurfaceSupportValidation.h"
 
 namespace reconstruction {
 using namespace detail::analysis;
@@ -23,6 +24,7 @@ bool analysisSettingsMatch(const SurfaceAnalysisOptions& a,const SurfaceAnalysis
             d.cylinder.minimumRadius,d.cylinder.maximumRadius,d.sphere.minimumRadius,d.sphere.maximumRadius,
             d.cone.minimumOpeningAngleRadians,d.cone.maximumOpeningAngleRadians,
             d.torus.minimumMajorRadius,d.torus.maximumMajorRadius,d.torus.minimumMinorRadius,d.torus.maximumMinorRadius});
+        const auto support=surfaceSupportSettingsSignature(o);v.insert(v.end(),support.begin(),support.end());
         return v;
     };
     return signature(a)==signature(b);

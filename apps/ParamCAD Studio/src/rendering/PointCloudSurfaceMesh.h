@@ -1,24 +1,12 @@
 #pragma once
 #include "core/PointCloudSelection.h"
 #include <reconstruction/settings/SurfaceMeshingSettings.h>
+#include <reconstruction/analysis/SurfaceFootprint.h>
 #include <array>
 #include <map>
 
 // Display geometry only: neither source observations nor fitted equations change.
-struct PlanarDomainSupportCheck
-{
-    size_t observedPoints = 0;
-    size_t outerBoundaryPoints = 0;
-    size_t holeBoundaryPoints = 0;
-    size_t interiorPoints = 0;
-    size_t occupiedInteriorCells = 0;
-    double boundaryBandWidth = 0;
-    double area = 0;
-    double interiorArea = 0;
-    double expectedInteriorPoints = 0;
-    bool interiorAreaMeasured = false;
-    bool rejected = false;
-};
+using PlanarDomainSupportCheck = reconstruction::PlanarDomainSupportCheck;
 
 struct PointCloudSurfaceMesh
 {

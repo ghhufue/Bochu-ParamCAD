@@ -73,7 +73,7 @@ void PointCloudSelection::rebuildLocator()
 void PointCloudSelection::invalidateRegion(int id)
 {
     if (id <= 0) return;
-    for (auto& r : m_regions) if (r.id == id && !r.parameters.isEmpty()) r.fitStale = true;
+    for (auto& r : m_regions) if (r.id == id) {r.supportValidation={};if(!r.parameters.isEmpty())r.fitStale=true;}
     // Inferred relationships no longer have valid evidence after membership
     // edits. User-authored relationships are kept as explicit annotations.
     m_relations.erase(std::remove_if(m_relations.begin(), m_relations.end(),
@@ -120,7 +120,7 @@ void PointCloudSelection::updateRegionFit(int id, const PointCloudRegion& fitted
     checkpoint(recordUndo);
     invalidateRegion(id);
     for (auto& r : m_regions) if (r.id == id) {
-        r.parameters = fitted.parameters; r.residual = fitted.residual;
+        r.parameters = fitted.parameters; r.residual = fitted.residual; r.supportValidation=fitted.supportValidation;
         r.confidence = fitted.confidence; r.source = r.templateLocked ? "manual" : "detected"; r.fitStale = false;
     }
 }

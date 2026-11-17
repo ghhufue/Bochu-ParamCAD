@@ -78,6 +78,30 @@ class Bundle:
             raise ValueError("Plane group belongs to another snapshot")
         return result
 
+    def support_validation(self, surface=None):
+        reference = self.manifest.get("support_validation")
+        if not reference:
+            return None
+        raw = self._path(reference["metadata"]).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != reference["sha256"]:
+            raise ValueError("Support validation checksum mismatch")
+        result = json.loads(raw)
+        if result.get("bundle_id") != str(self.bundle_id) or result.get("version") != 1:
+            raise ValueError("Support validation belongs to a different snapshot/version")
+        if surface is None:
+            return result
+        stage = result.get("after_ownership", result)
+        selected = surface.get("support_validation", {})
+        matches = [d for d in stage.get("decisions", [])
+                   if "proposal_id" in selected and d.get("proposal_id") == selected["proposal_id"]]
+        summary = {"version": result["version"], "selected_decisions": matches}
+        if "scope" in result:
+            summary["scope"] = result["scope"]
+        for key in ("mode", "reference", "options"):
+            if key in stage:
+                summary[key] = stage[key]
+        return summary
+
     def _binary(self, name, magic, record_size):
         stream = self._path(name).open("rb")
         try:
@@ -201,10 +225,13 @@ class Bundle:
         if plane and count and normal_length > 0:
             result["measured_plane_residual"] = {"mean": residual_sum/count, "max": residual_max,
                                                 "rms": math.sqrt(residual_squared/count)}
+        if "support_validation" in surface:
+            result["support_validation"] = surface["support_validation"]
         return result
 
     def verify(self, full=False):
         surfaces = list(self.surfaces())
+        self.support_validation()
         for row in surfaces:
             self.plane_group(self.surface(surface_id=row["id"]))
         if full:
@@ -257,7 +284,8 @@ def main(argv=None):
         if args.command == "show":
             result = surface
             if args.group:
-                result = {"surface": surface, "shared_plane": bundle.plane_group(surface)}
+                result = {"surface": surface, "shared_plane": bundle.plane_group(surface),
+                          "support_validation_report": bundle.support_validation(surface)}
         elif args.command == "analyze":
             result = bundle.analyze(surface)
         else:

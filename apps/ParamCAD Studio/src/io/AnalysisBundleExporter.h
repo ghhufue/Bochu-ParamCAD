@@ -22,6 +22,7 @@ struct AnalysisBundleSnapshot
     QString positionsFingerprint;
     quint64 documentRevision = 0;
     QJsonObject view;
+    QJsonObject supportValidation;
 };
 
 // The destination must not already exist. A staged directory is published only

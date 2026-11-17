@@ -21,6 +21,15 @@ class InspectionTests(unittest.TestCase):
         shutil.copytree(FIXTURE, self.root)
         self.bundle = Bundle(self.root)
 
+    def test_support_report_identity_and_checksum(self):
+        report = self.bundle.support_validation()
+        self.assertEqual(report["version"], 1)
+        self.assertEqual(report["bundle_id"], str(self.bundle.bundle_id))
+        reference = self.bundle.manifest["support_validation"]
+        self.bundle._path(reference["metadata"]).write_text("{}", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "Support validation checksum"):
+            self.bundle.support_validation()
+
     def test_native_export_round_trip_and_foreign_triangle(self):
         face = self.bundle.surface(name="平面 406")
         self.assertEqual(list(self.bundle.point_indices(face)), [0, 1, 2])

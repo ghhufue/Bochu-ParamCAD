@@ -1,3 +1,4 @@
+#include "reconstruction/analysis/SurfaceSupportValidation.h"
 #include "detail/GuidedInternal.h"
 #include "reconstruction/settings/ModuleConfig.h"
 #include <algorithm>
@@ -75,11 +76,15 @@ bool fitTemplateRegions(const PointStore& points, const PlaneDetectionOptions& p
                 seeds.push_back(plane);
         } else {
             SurfaceAnalysisOptions localOptions;
+            const auto supportSettings=loadAnalysisSettings();localOptions.supportValidation=supportSettings.supportValidation;localOptions.supportMeshing=supportSettings.meshing;
             localOptions.detection = detectionFor(hint.kind, planes.distanceThreshold, options);
             localOptions.relations.distanceTolerance =
                 planes.distanceThreshold * options.relationToleranceMultiplier;
             SurfaceAnalysisResult proposals;
-            if (!analyzeSurfaces(subset, localOptions, proposals, error, {}, cancelled))
+            auto proposalOptions=localOptions;
+            if(proposalOptions.supportValidation.mode==SupportValidationMode::Enforce)
+                proposalOptions.supportValidation.mode=SupportValidationMode::Report;
+            if (!analyzeSurfaces(subset, proposalOptions, proposals, error, {}, cancelled))
                 return false;
             if (!proposals.surfaces.empty()) {
                 fit.surface = *std::max_element(
@@ -94,7 +99,9 @@ bool fitTemplateRegions(const PointStore& points, const PlaneDetectionOptions& p
                     settings.seeds.push_back(*fit.surface);
                 CurvedSolidCandidate solid;
                 std::string incomplete;
-                bool complete = recognizeCurvedSolidFromAnalysis(subset, proposals, settings, solid, incomplete);
+                SurfaceAnalysisResult validatedSubset;
+                if(!indexSurfaceEvidence(subset,proposals.surfaces,localOptions,validatedSubset,error,{},cancelled))return false;
+                bool complete = recognizeCurvedSolidFromAnalysis(subset, validatedSubset, settings, solid, incomplete);
                 if (!complete && fit.surface) {
                     const auto expanded =
                         expandCurvedSupport(*fit.surface, samples, planes.distanceThreshold, options);
@@ -180,12 +187,16 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
         const auto options = recognitionAnalysisOptions(points, planes, cylinders,
             settings ? settings->analysis : RecognitionAnalysisSettings{});
         if (sharedAnalysis && analysisInputMatches(points, *sharedAnalysis) &&
-            analysisSettingsMatch(options,sharedAnalysis->options)) {
+            analysisSettingsMatch(options,sharedAnalysis->options) &&
+            (!source || !sharedAnalysis->baseFingerprint || sharedAnalysis->recoverySourceFingerprint==pointStoreFingerprint(*source)) &&
+            (!source || !sharedAnalysis->sourceSupportValidation.pointFingerprint ||
+             sharedAnalysis->sourceSupportValidation.pointFingerprint==pointStoreFingerprint(*source))) {
             output.analysis = *sharedAnalysis;
             output.analysisReused = true;
         }
         else if (!analyzeSurfaces(points, options,
                                   output.analysis, error, {}, cancelled)) return false;
+        if(source && !revalidateSurfaceSupportOnSource(points,*source,output.analysis,error,cancelled))return false;
         RepairTransactionReport transaction;
         const bool recognized=recognizeAndRepairParametricSolid(points, output.analysis, output.candidate, error, source, &transaction, relationHints, settings);
         if(!recognized)output.analysis.localFailures=std::move(transaction.failures);

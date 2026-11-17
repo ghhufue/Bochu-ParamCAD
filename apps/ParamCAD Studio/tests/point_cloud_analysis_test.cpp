@@ -45,6 +45,7 @@ int main(int argc, char** argv)
         for (size_t i=0;i<cloud.positions.size();++i) ids.push_back(static_cast<vtkIdType>(i*2+7));
         auto result=analysePointCloud(cloud,ids,0.01);
         require(result.error.isEmpty() && result.surfaces.size()==6, "analytic box exposes six fitted faces");
+        require(result.preferredPlaneCount>=6,"validated broad faces receive region priority before curved residual competition");
         require(result.assignedPoints>=cloud.positions.size()*0.99, "face support maps to original observations");
         std::set<vtkIdType> valid(ids.begin(),ids.end()), assigned;
         for(const auto& surface:result.surfaces) for(auto id:surface.points) {
@@ -89,6 +90,10 @@ int main(int argc, char** argv)
         }
         ids.clear(); for(size_t i=0;i<dense.positions.size();++i) ids.push_back(static_cast<vtkIdType>(i+100));
         result=analysePointCloud(dense,ids,0.01);
+        if(result.assignedPoints<dense.positions.size()*.99) {
+            std::cerr<<"Dense assignments "<<result.assignedPoints<<"/"<<dense.positions.size()<<" error="<<result.error.toStdString()<<'\n';
+            for(const auto& d:result.finalSupportValidation.decisions)std::cerr<<"final kind="<<int(d.kind)<<" n="<<d.pointCount<<" effective="<<d.effectivePoints<<" covered="<<d.coveredPoints<<" verdict="<<int(d.verdict)<<" density="<<d.densityRatio<<" occupancy="<<d.occupiedCellRatio<<'\n';
+        }
         require(result.error.isEmpty() && result.processedPoints<dense.positions.size()
             && result.assignedPoints>=dense.positions.size()*0.99, "voxel downsampling does not lose original point memberships");
         PlyCloud mixedScale;

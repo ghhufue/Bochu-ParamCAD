@@ -1,5 +1,6 @@
 #include "detail/AnalysisInternal.h"
 #include "reconstruction/detection/MultiScaleDetector.h"
+#include "reconstruction/settings/ModuleConfig.h"
 #include "reconstruction/detection/PlaneSupportRecovery.h"
 
 namespace reconstruction {
@@ -69,7 +70,9 @@ bool analyzeSurfaces(const PointStore& points, const SurfaceAnalysisOptions& opt
     output = {};
     SurfaceEvidenceCollection collected;
     if (!collectSurfaceEvidence(points, options, collected, error, seeds, cancelled)) return false;
-    if (!indexSurfaceEvidence(points, collected.evidence, options, output, error)) return false;
+    std::vector<PointId> protectedIds;
+    for(const auto& seed:seeds)protectedIds.insert(protectedIds.end(),ids(seed).begin(),ids(seed).end());
+    if (!indexSurfaceEvidence(points, collected.evidence, options, output, error,protectedIds,cancelled)) return false;
     output.detectionPasses = collected.detectionPasses;
     return true;
 }
@@ -77,7 +80,9 @@ bool analyzeSurfaces(const PointStore& points, const SurfaceAnalysisOptions& opt
 SurfaceAnalysisOptions recognitionAnalysisOptions(const PointStore& points, const PlaneDetectionOptions& planes,
                                                  const CylinderDetectionOptions& cylinders,
                                                  const RecognitionAnalysisSettings& settings) {
-    SurfaceAnalysisOptions o; auto& d = o.detection;
+    SurfaceAnalysisOptions o;
+    const auto validationSettings=loadAnalysisSettings();o.supportValidation=validationSettings.supportValidation;o.supportMeshing=validationSettings.meshing;
+    auto& d = o.detection;
     d.randomSeed = planes.randomSeed; d.plane = planes; d.cylinder = cylinders;
     d.plane.maximumPlanes = settings.maximumPlanes; d.cylinder.maximumCylinders = settings.maximumCylinders;
     // A small wall/cap is not less real because a much larger host is present.

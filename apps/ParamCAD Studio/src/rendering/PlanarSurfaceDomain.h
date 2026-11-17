@@ -12,4 +12,4 @@ struct PlanarSurfaceSample
 // Local observed area density sets the resolution of internal voids. Stable
 // boundaries, open notches and disconnected support retain their own trims.
 PointCloudSurfaceMesh meshPlanarSurfaceDomain(const std::vector<PlanarSurfaceSample>& samples,
-    const reconstruction::SurfaceMeshingSettings& settings);
+    const reconstruction::SurfaceMeshingSettings& settings,double maximumSupportSpacing=0);

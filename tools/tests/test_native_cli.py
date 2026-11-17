@@ -71,7 +71,10 @@ class NativeCliTests(unittest.TestCase):
         bundle = self.root / "fixture.pcad-analysis"
         generated = subprocess.run([str(exporter), str(bundle)], capture_output=True, timeout=30)
         self.assertEqual(generated.returncode, 0, generated.stderr)
+        self.assertFalse(list(bundle.glob("*.py")))
         python_bundle = Bundle(bundle)
+        grouped = self.run_cli("inspect", "--bundle", bundle, "show", "--id", 182, "--group")
+        self.assertEqual(grouped["support_validation_report"], python_bundle.support_validation(python_bundle.surface(surface_id=182)))
         actual = self.run_cli("inspect", "--bundle", bundle, "analyze", "--id", 182)
         expected = python_bundle.analyze(python_bundle.surface(surface_id=182))
         self.assertEqual(actual["observations_read"], expected["observations_read"])

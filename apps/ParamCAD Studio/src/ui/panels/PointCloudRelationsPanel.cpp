@@ -397,6 +397,12 @@ void PointCloudRelationsPanel::setDocument(const PointCloudSelection& document, 
         if (region.id == previousRegion) m_tree->setCurrentItem(item);
         node(item, {tr("拟合状态"), region.fitStale ? tr("点集已修改，需重新拟合")
             : region.parameters.isEmpty() ? tr("手动集合，尚未拟合") : tr("已拟合")}, Region, region.id);
+        if(!region.supportValidation.isEmpty()) {
+            const auto& v=region.supportValidation;
+            if(v.value("density_evaluated").toBool())node(item,{tr("面密度 / 参考密度"),QString::number(v.value("density_ratio").toDouble(),'g',4)},Region,region.id);
+            if(region.geometry=="sphere")node(item,{tr("球面立体角 / 较小展开角"),QStringLiteral("%1 sr / %2°").arg(v.value("solid_angle_sr").toDouble(),0,'g',4).arg(v.value("minor_span_deg").toDouble(),0,'f',1)},Region,region.id);
+            if(region.geometry=="cylinder")node(item,{tr("圆柱绕轴展开角"),QStringLiteral("%1°").arg(v.value("angular_span_deg").toDouble(),0,'f',1)},Region,region.id);
+        }
         if (!region.parameters.isEmpty()) {
             node(item, {tr("平均残差 / 置信度"), QStringLiteral("%1 / %2").arg(region.residual, 0, 'g', 6)
                 .arg(region.confidence, 0, 'f', 3)}, Region, region.id);

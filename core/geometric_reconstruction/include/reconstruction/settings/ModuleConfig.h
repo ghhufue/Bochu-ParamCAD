@@ -1,4 +1,5 @@
 #pragma once
+#include "reconstruction/analysis/SurfaceSupportTypes.h"
 
 #include "reconstruction/analysis/SurfaceAnalysis.h"
 #include "reconstruction/detection/PrimitiveDetector.h"
@@ -48,6 +49,7 @@ struct DetectionSettings {
 
 struct AnalysisSettings {
     SurfaceMeshingSettings meshing;
+    SurfaceSupportValidationOptions supportValidation;
     double connectivityDistance = 0;
     bool independentFamilies = true;
     bool recoverResidualSurfaces = false;
