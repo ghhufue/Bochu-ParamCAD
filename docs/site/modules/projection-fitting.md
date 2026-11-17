@@ -1,4 +1,6 @@
-# 轮廓恢复与投影拟合
+# 二维轮廓与投影回退
+
+所属主线：[模块4：多体分组与闭合](/modules/point-cloud-to-cad)。装配路径将开放部件交给这里尝试拉伸/布尔程序；本模块还可从调试入口独立调用。孔槽的特征意义见[模块3](/modules/feature-recognition)，最终提交见[模块5](/modules/parametric-modeling)。
 
 ## 职责与入口
 
@@ -98,8 +100,6 @@
 | 操作序列搜索 | `core/geometric_reconstruction/src/recognition/projection/ProjectionSearch.cpp` |
 | 投影参数读写 | `core/geometric_reconstruction/src/recognition/projection/ProjectionSettings.cpp` |
 | 默认投影参数 | `apps/ParamCAD Studio/config/projection.conf` |
-
-## 测试与诊断
 
 ## 已知限制
 

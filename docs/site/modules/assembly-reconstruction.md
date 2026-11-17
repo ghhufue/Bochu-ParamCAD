@@ -1,4 +1,6 @@
-# 装配分离与闭合
+# 多体分组与有限边界闭合
+
+所属主线：[模块4：多体分组与闭合](/modules/point-cloud-to-cad)。这里将面片组织成部件，与[模块1的曲面分割](/modules/surface-detection)区分；本路径会独立提取面片。闭合失败后的程序拟合见[投影回退](/modules/projection-fitting)。
 
 ## 职责与入口
 
@@ -78,6 +80,7 @@
 专用闭合与回退：
 
 - 解析轮廓闭合要求拟合支持点覆盖可支持观测的 98%，部分拟合还要求可支持点至少占部件点的 80%；成功状态为 `closed_analytic_profile`。
+- 解析轮廓中的圆孔按开口、内壁、同轴关系和分段观测进一步判断，可形成贯穿孔、沉孔/阶梯孔及带圆锥钻尖的盲孔。相关分段写入 `ProfileBodyParams::cavities`，不统一写成 `ThroughHoleCandidate`；不能只统计 `throughHoles` 字段判断是否恢复了孔。该路径仍要求宿主轮廓、端面与对应孔壁受到观测支持。
 - 环形管闭合要求内外壁与两个观测端面同时成立，状态为 `closed_annular_tube`。
 - 圆盘闭合要求带符号端面、弦边和圆弧壁；推断接触时状态为 `closed_circular_slab_inferred_contact`。
 - 局部轮廓恢复另用 8–64 个平面、父子分割点数门槛、保留比例 0.98 和父支持比例 0.90 等预算，用于拆分过大的开放组。
@@ -95,8 +98,6 @@
 | 解析轮廓闭合 | `core/geometric_reconstruction/src/recognition/assembly/AnalyticProfileClosure.cpp` |
 | 环形管与圆盘闭合 | `core/geometric_reconstruction/src/recognition/assembly/AnnularTubeClosure.cpp`、`CircularSlabClosure.cpp` |
 | 默认装配参数 | `apps/ParamCAD Studio/config/assembly.conf` |
-
-## 测试与诊断
 
 ## 已知限制
 

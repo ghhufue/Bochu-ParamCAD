@@ -1,5 +1,7 @@
 # 工程保存与 STEP 导出
 
+所属主线：[模块5：参数化建模与交付](/modules/point-cloud-to-cad)。前置步骤是[候选提交与 B-Rep 重建](/modules/parametric-modeling)；本页说明模型生成后如何保存和交付。
+
 ## 职责与入口
 
 本页覆盖两条独立的持久化路径：`.pcad` 工程保存与重开，以及当前 B-Rep 的 STEP 导出。工程文件保存可继续编辑的特征历史、点云和显示状态；STEP 只导出几何，不承载编辑历史。
@@ -89,8 +91,6 @@ STEP 回读由 `StepModelLoader` 完成：使用 Unicode 感知的输入流读�
 | 核心 STEP 序列化 | `core/parametric_modeling/src/StepExporter.cpp` |
 | 特征历史恢复与重建 | `core/parametric_modeling/src/PartDocument.cpp` |
 | PLY 写入 | `apps/ParamCAD Studio/src/io/PlyWriter.cpp` |
-
-## 测试与诊断
 
 ## 已知限制
 

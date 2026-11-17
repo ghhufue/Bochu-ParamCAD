@@ -2,6 +2,8 @@
 
 本页沿一条真实的重建链路说明数据形态的变化：多视角图像如何变成带单位声明的点云，点云如何变成曲面证据与有限面片，识别候选如何变成特征历史与 B-Rep，最后又如何写入工程文件和 STEP。每一步的输入、输出与归属都以当前代码为准。
 
+只看点云转模型时，可先读[五个模块总览](/modules/point-cloud-to-cad)。下图中的1–5与该主线一致；本页进一步说明数据身份和提交契约。
+
 ```mermaid
 flowchart TD
     IMG["多视角图像 + manifest.json v2"] --> CI["CameraInfoBuilder<br/>PINHOLE 内参 + 相机位姿"]
@@ -10,13 +12,18 @@ flowchart TD
     COL --> PLY["彩色 PLY + reconstruction.json"]
     PLY --> ADP["PointCloudAdapter<br/>PointStore + 源点 ID"]
     ADP --> SNAP["ObservationSnapshot<br/>统一到毫米的全量观测"]
-    SNAP --> PRE["预处理<br/>工作点：降采样、去噪、法向"]
-    PRE --> EVI["曲面证据<br/>PrimitiveEvidence"]
-    EVI --> PATCH["有限面片 + 关系"]
-    PATCH --> CAND["CompoundCandidate<br/>候选"]
-    SNAP --> ASM["装配分解<br/>面片、分组、边界、闭合"]
+    SNAP --> PRE["1 输入准备<br/>工作点：降采样、去噪、法向"]
+    PRE --> EVI["1 曲面分割<br/>PrimitiveEvidence + 初步拆片"]
+    EVI --> SUP["2 曲面拓展与有限支撑验证"]
+    SUP --> PATCH["合格有限面片 + 几何关系"]
+    PATCH --> REC["3 特征与实体识别"]
+    REC --> CAND["CompoundCandidate<br/>通过复验的候选"]
+    REC -. "无人工约束且符合分离条件" .-> ASM["4 多体分组与闭合"]
+    SNAP -. "同源全量观测" .-> ASM
     ASM --> CAND
-    CAND --> PLAN["ModelPatch<br/>修订绑定的建模补丁"]
+    ASM -. "开放部件且启用回退" .-> PROJ["二维轮廓与投影程序试建评分"]
+    PROJ --> CAND
+    CAND --> PLAN["5 ModelPatch<br/>修订绑定的建模补丁"]
     PLAN --> APPLY["ModelingCore::apply<br/>原子重建"]
     APPLY --> BREP["特征历史 + B-Rep"]
     BREP --> PCAD["PCAD 工程"]
@@ -61,7 +68,9 @@ flowchart TD
 2. 统计离群过滤，阈值使用中位数与 MAD 抑制远处噪点；
 3. 缺失法向的 PCA 估计、曲率估计与方向传播，方向未确定的点保留但不参与自动建体。
 
-模板选区的点会加入预处理保护列表，保证降采样和过滤后仍能按原 ID 找回。预处理后的工作点进入曲面分析，由 CGAL Efficient RANSAC 检测平面、圆柱、球、圆锥与圆环候选，转换后得到 `PrimitiveEvidence`（五类证据的 `std::variant`）。`indexSurfacePatches` 再按连通性拆分有限面片：
+模板选区的点会加入预处理保护列表，保证降采样和过滤后仍能按原 ID 找回。预处理后的工作点进入曲面分析，由 CGAL Efficient RANSAC 检测五类解析曲面，得到 `PrimitiveEvidence`。`collectSurfaceEvidence()` 在收集时拓展自动平面的支持，`indexSurfaceEvidence()` 经有限支撑验证后再重建面片和关系；内部的 `indexSurfacePatches()` 仅负责初步连通索引。
+
+支撑验证区分工作点和原始点统计，保留验证前提案。客户端独占归属还会在原始点上补证、按冻结参考复验；拒绝域不能在显示网格或后续缓存中被重新接回。详见[曲面拓展、验证与局部修复](/modules/surface-analysis)。最终分析遵守以下身份约定：
 
 - 证据中的 `SurfaceId` 在索引时从头重编号为 1..N；
 - 每个 `SurfacePatch` 获得顺序 `PatchId`，并保存支持点 ID、范围、质心与材料法向；

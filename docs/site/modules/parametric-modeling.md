@@ -1,5 +1,7 @@
 # 参数化建模与 B-Rep
 
+所属主线：[模块5：参数化建模与交付](/modules/point-cloud-to-cad)。输入是前面阶段通过复验的候选或编辑命令；本模块维护特征历史并重建实体。工作区操作见[参数编辑](/modules/studio)，文件交付见[保存与导出](/modules/persistence)。
+
 ## 职责与入口
 
 本模块是 Qt/VTK/JSON 无关的参数化建模核心。持久状态是“特征历史”：由 POD 参数组成的有序特征列表；OpenCASCADE 的 B-Rep 只是由特征历史派生出的当前结果，不在特征之间保存面编号或网格。
@@ -91,8 +93,6 @@
 | 文档、依赖与删除 | `core/parametric_modeling/src/PartDocument.cpp` |
 | 重建与布尔运算 | `core/parametric_modeling/src/RebuildEngine.cpp` |
 | 原子补丁 | `core/parametric_modeling/src/ModelingCore.cpp` |
-
-## 测试与诊断
 
 ## 已知限制
 

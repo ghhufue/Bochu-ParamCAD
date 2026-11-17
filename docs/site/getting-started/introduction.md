@@ -100,30 +100,31 @@ flowchart TB
 
 ### 第二阶段：点云转参数化模型
 
-这一阶段先保存观测和来源，再逐步建立曲面、关系与实体语义。常规识别、人工引导和装配回退共享观测，但有各自的触发条件，不能把所有分支理解为每次必走的串行步骤。
+这一阶段按[五个模块](/modules/point-cloud-to-cad)理解：曲面分割、曲面拓展与验证、特征与实体识别、多体分组与闭合、参数化建模与交付。常规识别、人工引导和装配回退共享观测，但有各自的触发条件，不能把所有分支理解为每次必走的串行步骤。
 
 <RoadmapFigure label="阶段二 · 从点云证据到建模候选" :width="1100">
 
 ```mermaid
 flowchart TB
     PLY["PLY 点云 + 单位 + 可用法向"] --> SNAP["PointStore / ObservationSnapshot<br/>稳定源点 ID，全量观测统一到毫米"]
-    SNAP --> PRE["工作点预处理<br/>体素采样 → 离群过滤 → PCA 法向与方向传播"]
-    PRE --> ANALYSIS["曲面检测与共享分析<br/>平面 / 圆柱 / 球 / 圆锥 / 圆环<br/>有限面片、连通支持与几何关系"]
+    SNAP --> PRE["1 输入准备<br/>体素采样 → 离群过滤 → PCA 法向与方向传播"]
+    PRE --> ANALYSIS["1 曲面分割与类型拟合<br/>平面 / 圆柱 / 球 / 圆锥 / 圆环"]
+    ANALYSIS --> SUPPORT["2 曲面拓展与验证<br/>有限面域、面密度、曲率展开、几何关系"]
     HINT["可选人工输入<br/>模板选区、经校验的关系"]
     HINT -.-> PRE
     HINT -.-> GUIDED
-    ANALYSIS --> GUIDED["统一识别入口 reconstructGuidedSolid<br/>无模板：常规识别；有模板：选区拟合与整件复验"]
+    SUPPORT --> GUIDED["3 特征与实体识别入口 reconstructGuidedSolid<br/>无模板：常规识别；有模板：选区拟合与整件复验"]
     GUIDED --> RECOGNIZE["常规候选竞争<br/>混合特征 / 组合箱体与棱柱<br/>单箱体贯穿孔 / 独立曲面实体"]
     RECOGNIZE -. "局部失败诊断" .-> REPAIR["同源观测取回、局部重检、关系优化<br/>复验后合并；失败保留基线"]
     REPAIR -. "有界修复" .-> RECOGNIZE
     RECOGNIZE --> CANDIDATE["通过识别与边界复验的候选<br/>CompoundCandidate + 覆盖率 / 残差 / 未解释点"]
     RECOGNIZE -. "无人工约束，且失败 / 多体 / 低覆盖单箱体" .-> ASSEMBLY
     SNAP -. "全量观测" .-> ASSEMBLY
-    ASSEMBLY["装配分离与闭合<br/>面片 → 分组 → 有限边界 → 源点回填<br/>壳闭合、解析轮廓 / 环形管 / 圆盘专用恢复"]
+    ASSEMBLY["4 多体分组与闭合<br/>面片 → 分组 → 有限边界 → 源点回填<br/>壳闭合、解析轮廓 / 环形管 / 圆盘专用恢复"]
     ASSEMBLY --> CANDIDATE
     ASSEMBLY -. "仍开放且启用投影回退" .-> PROJECTION["候选轴 → 二维轮廓 → 拉伸 / 布尔程序<br/>临时建体、固定点评分与预算内搜索"]
     PROJECTION --> CANDIDATE
-    CANDIDATE --> NEXT["进入参数化建模与原子提交"]
+    CANDIDATE --> NEXT["5 参数化建模、原子提交与交付"]
     classDef interface fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
     classDef optional fill:#fef3c7,stroke:#d97706,color:#78350f
     class SNAP,CANDIDATE interface
@@ -136,7 +137,7 @@ flowchart TB
 
 | 分支 | 已有实现 | 适用边界 |
 | --- | --- | --- |
-| 曲面与关系分析 | 五类解析曲面证据、连通面片，以及平行、垂直、共面、同轴等关系；局部重检和观测约束下的关系优化。 | 曲面证据不等于实体；法向方向、有限边界和观测支持仍须验证。见[曲面分析与修复](/modules/surface-analysis)。 |
+| 曲面分割、拓展与验证 | 五类解析曲面提案、自动平面拓展、有限域与面密度验证、球面/圆柱曲率展开验证，以及几何关系、同源补证和局部修复。 | 曲面证据不等于实体；工作点与原始点分别统计，集合归属后仍需复验。见[曲面拓展与验证](/modules/surface-analysis)。 |
 | 常规实体识别 | 共享正交框架下的组合长方体与加强筋、贯穿孔、独立球 / 带端面圆柱 / 圆锥或圆台 / 完整圆环体；薄矩形宿主上的受支持凸台与通槽。 | 候选受方向、端面、材料占据和边界覆盖约束；最少箱体数只针对已检测网格。见[实体识别与人工引导](/modules/feature-recognition)。 |
 | 人工引导 | 六类模板选区、人工关系确认、选区保护、局部拟合与有限 CAD 面复验。 | 人工标签不提供缺失的端面或厚度；关系必须通过观测校验。 |
 | 装配分离与闭合 | 有限面片分组、轮廓恢复、壳闭合，以及解析轮廓、环形管、圆盘等专用分支。 | 只提交通过验证的实体，可能保留未解释部分；分组结果不保证等同原始装配实例。见[装配分离与闭合](/modules/assembly-reconstruction)。 |

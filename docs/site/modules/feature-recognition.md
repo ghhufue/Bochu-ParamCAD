@@ -1,4 +1,6 @@
-# 实体识别与人工引导
+# 特征与实体识别：孔、凸台与类型
+
+所属主线：[模块3：特征与实体识别](/modules/point-cloud-to-cad)。本页回答几何面如何获得孔、凸台、槽或实体的语义。圆柱/球等几何类型的拟合见[曲面分割](/modules/surface-detection)，面范围和支撑判定见[曲面拓展与验证](/modules/surface-analysis)。
 
 ## 职责与入口
 
@@ -43,6 +45,22 @@
 
 ## 常规识别、模板约束与候选复验
 
+### 孔、凸台与独立实体怎样区分
+
+仅有一个圆柱方程不能决定语义。实现结合材料法向、宿主、侧壁的有限范围、端面和开口条件判断：
+
+| 对象 | 实现依据 | 产物或入口 |
+| --- | --- | --- |
+| 圆柱内壁形成贯穿孔 | 相对宿主的轴向覆盖、端点位置、横向边界；混合特征还筛选内向法向 | `recognizeThroughHoles()`，输出 `ThroughHoleCandidate` |
+| 宿主上的圆柱/圆锥凸台 | 轴与宿主关系、向外侧壁、顶面、周向和轴向支撑 | `attachedCurved()`，输出带合并语义的 `CurvedSolidCandidate` |
+| 矩形通槽 | 内向壁、相对宿主的跨度和材料一致性 | `rectangularCut()`，输出 `subtract=true` 的棱柱 |
+| 独立圆柱或圆锥/圆台 | 定向外壁、观测端面、有限边界覆盖 | `recognizeCurvedSolidFromAnalysis()` |
+| 盲孔及更复杂孔型 | 由相应路径验证孔底/钻尖、开口和分段侧壁 | [解析轮廓闭合](/modules/assembly-reconstruction)、[投影切除](/modules/projection-fitting) |
+
+“孔的位置”由孔轴/截面中心确定，“类型”取决于贯通或有底等观测，“尺寸”再由半径、深度或宿主厚度确定。短圆柱未通过通孔检查时只保留壁证据，不能直接归为盲孔。二维面域中的孔洞也不直接等于三维孔特征。
+
+### 常规接受条件
+
 常规识别的接受条件：
 
 - 箱体拼装函数要求恰好六个平面候选、三组互相平行的正交面对，且尺寸为正；拒绝原因包括平面数不为六、无法组成正交平行面对和退化箱体。
@@ -53,11 +71,13 @@
 - 独立曲面实体要求表面覆盖率与边界覆盖率均不低于 0.90，且必须观测到端面或满足角度分箱覆盖；缺面扫描不会被补成封闭实体。
 - 旧“单箱体加贯穿孔”路径另做整体材料一致性检查，边界覆盖低于 0.80 时转入曲面实体分支。
 
+### 人工模板与最终复验
+
 模板引导的约束方式：
 
 1. 选区少于 20 个有效点时直接拒绝；选区重叠时返回“Overlapping template groups”。
 2. 长方体模板先在选区内拟合并用全景点云补全，要求至少 90% 的选区点落在 3 倍容差带内，否则返回“No observed box boundary supports this template patch”。
-3. 曲面模板先做局部检测与精修；端面不完全时仅用真实观测扩展支持，扩展后仍不完整则失败。曲面模板还要求选区表面支持不低于 70%。
+3. 曲面模板先以局部检测结果作为提案；小选区可用全景真实观测补全，但发布时须通过指定类型的支撑验证和端面完整性检查。扩展后仍不完整则失败，选区表面支持还须不低于70%。
 4. 所有模板通过后，把候选真正提交到临时 `ModelingCore`，按模板类型逐面检查：每个选区点必须落在对应解析面类型的 CAD 面或候选曲面边界 3 倍容差带内，匹配比例不得低于 90%，否则报出失败选区和“support m/n”。
 
 人工关系在进入识别前校验：两组点各自匹配到当前分析中的有限面片，重叠比例至少为较小支持集的 60%；同类型关系必须已由自动推断给出，否则拒绝并提示“Manual relation conflicts with observed geometry”。人工关系只提升为确认关系，不移动几何。
@@ -74,14 +94,17 @@
 | 模板边界复验 | `core/geometric_reconstruction/src/recognition/guided/HintValidation.cpp` |
 | 箱体识别 | `core/geometric_reconstruction/src/recognition/BoxRecognizer.cpp` |
 | 贯穿孔识别 | `core/geometric_reconstruction/src/recognition/ThroughHoleRecognizer.cpp` |
+| 宿主与混合特征 | `core/geometric_reconstruction/src/recognition/mixed/MixedFeatureRecognizer.cpp`、`AttachedFeatures.cpp` |
 | 独立曲面实体 | `core/geometric_reconstruction/src/recognition/curved/CurvedSolidRecognizer.cpp` |
 | 人工关系校验 | `core/geometric_reconstruction/src/analysis/SurfaceRelations.cpp` |
 
 ## 测试与诊断
 
+孔的正反例见[贯穿孔与盲孔](/validation/hole-cases)。`ThroughHoleTests` 验证短壁不能变通孔，`CurvedDetectionTests` 验证曲面证据与实体边界，`cad_reconstruction_task_test` 覆盖人工引导与生产任务。盲孔的投影回归、解析轮廓闭合回归分别属于模块4，不应把一个通孔分支的拒绝当作全部路径的能力结论。
+
 ## 已知限制
 
-- 识别覆盖范围有限：长方体组合、平面加强筋、单箱体贯穿孔，以及独立球、圆柱、圆锥/圆台和完整圆环体；盲孔、凸台、口袋和任意机械零件仍不能稳定恢复。
+- 常规路径覆盖长方体组合、平面加强筋、轴向贯穿圆孔、独立曲面实体，以及薄矩形宿主上受观测支持的圆柱/圆锥凸台和矩形通槽。解析轮廓与投影路径还能处理特定盲孔、台阶和槽；这些都是条件化分支，不能推广为任意机械零件或口袋的通用恢复。
 - 模板只支持平面、圆柱、球、圆锥、圆环和长方体六类；选区必须至少有 20 个有效点，且不同选区不能重叠。
 - 曲面实体必须观测到端面或足够的边界角度覆盖。被夹具遮挡、只扫描到侧壁的零件会被拒绝，而不是补出虚构端面。
 - 单箱体路径只取支持点最强的六个平面证据；若这六面不能组成三组正交平行面，就转入组合体、混合特征或装配分支。

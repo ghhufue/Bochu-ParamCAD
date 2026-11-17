@@ -1,10 +1,12 @@
-# 曲面检测与证据
+# 曲面分割与几何类型拟合
+
+所属主线：[模块1：曲面分割](/modules/point-cloud-to-cad)。本页说明如何得到平面、圆柱等几何类型和支持点；孔、凸台等特征语义由[特征与实体识别](/modules/feature-recognition)结合宿主和材料判断。
 
 ## 职责与入口
 
 本模块把预处理后的点云提议为平面、圆柱、球、圆锥和圆环五类解析基元，并输出带支持点、残差、覆盖率和置信度的 `PrimitiveEvidence`。它是 Qt/VTK 无关的库，只依赖 `PointStore` 和项目自有数据类型。
 
-对外的唯一检测入口是 `detectPrimitiveEvidence(points, options, result, error)`。生产流程不直接反复调用它，而是通过 `collectSurfaceEvidence()` 汇集分族或多尺度检测结果，再交给曲面分析建立面片和关系。CGAL 类型只出现在 `detection/cgal/` 私有后端中，不跨过公开头文件。
+对外的检测入口是 `detectPrimitiveEvidence(points, options, result, error)`。生产流程通过 `collectSurfaceEvidence()` 汇集分族或多尺度检测结果，并在收集阶段运行自动平面拓展，再交给曲面分析做有限支撑验证、建立面片和关系。CGAL 类型只出现在 `detection/cgal/` 私有后端中，不跨过公开头文件。
 
 ## 输入与输出
 
@@ -19,7 +21,9 @@
 - `evidence`：按检测顺序排列的五类证据；
 - `unassignedPointIds`：没有被任何基元解释的点。
 
-默认阈值按毫米给出：平面距离 0.1、最少支持 50 点、最多 6 个；圆柱、球、圆锥、圆环距离 0.1、最少支持 100 点、最多各 4 个；法向一致性门槛 0.9；随机概率 0.01。圆锥张角限制在 0.01–1.56 rad，半径上下限可显式收紧。所有族默认使用种子 4500，保证同一输入和选项可复现。
+公开选项结构的初值按毫米给出：平面距离0.1、最少支持50点、最多6个；圆柱、球、圆锥、圆环距离0.1、最少支持100点、最多各4个；法向一致性门槛0.9，随机概率0.01。圆锥张角限制在0.01–1.56 rad，半径上下限可显式收紧。统一检测默认使用种子4500，保证同一输入和选项可复现。
+
+生产流程会加载 `detection.conf`：其中距离和支持点配置的0表示由点云尺度推导，数量上限当前为平面6、圆柱8、球/圆锥/圆环各32。CAD识别和客户端又可按任务覆盖这些值，因此裸选项初值、配置值与一次任务的有效值应分别查看。配置规则见[超参数配置](/development/configuration)。
 
 证据中的公共质量字段：
 
@@ -83,6 +87,8 @@
 | 默认阈值 | `apps/ParamCAD Studio/config/detection.conf` |
 
 ## 测试与诊断
+
+几何拟合回归包括 `CylinderDetectionTests`、`CurvedDetectionTests`；平面拓展见 `plane_support_recovery_test`，有限支撑检查见 `surface_support_validation_test`。初始提案可能重叠或被拒绝，分析包中的支撑验证报告用于说明后续接受/拒绝原因。
 
 ## 已知限制
 

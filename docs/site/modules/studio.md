@@ -1,5 +1,7 @@
 # 桌面工作区与参数编辑
 
+所属主线：[模块5：参数化建模与交付](/modules/point-cloud-to-cad)。本页介绍操作界面；界面中的“识别表面”和“重建 CAD”分别编排不同的几何任务，职责与分支见五个模块总览。
+
 ## 职责与入口
 
 本页描述 ParamCAD Studio 桌面端的组织方式和用户可见的参数编辑流程。它不实现几何算法：点云、识别、投影和建模都调用 `core/` 下的库；客户端负责编排任务、维护编辑状态、显示结果并把用户意图转换成结构化命令。
@@ -94,8 +96,6 @@ CAD 特征编辑：
 | 点云属性页 | `apps/ParamCAD Studio/src/ui/panels/PointCloudRelationsPanel.cpp` |
 | 特征参数面板 | `apps/ParamCAD Studio/src/ui/panels/FeatureEditorPanel.cpp` |
 | 中文指令解析 | `apps/ParamCAD Studio/src/core/TextParameterCommand.cpp` |
-
-## 测试与诊断
 
 ## 已知限制
 

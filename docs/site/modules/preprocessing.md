@@ -1,5 +1,7 @@
 # 点云输入与预处理
 
+所属主线：[模块1：曲面分割的输入准备](/modules/point-cloud-to-cad)。本页负责单位、采样和法向；下一步由[曲面分割与几何类型拟合](/modules/surface-detection)建立曲面证据。
+
 ## 职责与入口
 
 本模块把 PLY 文件或客户端活动点云转换为统一毫米尺度的不可变观测，并完成体素降采样、统计离群过滤、缺失法向估计、曲率估计和方向传播。核心实现位于 `core/geometric_reconstruction`，不依赖 Qt、VTK 或 PCL；Qt 只出现在客户端适配层。
@@ -86,8 +88,6 @@ threshold = min(threshold,
 | 观测存储与指纹 | `core/geometric_reconstruction/include/reconstruction/data/PointStore.h` |
 | PLY 读取 | `apps/ParamCAD Studio/src/io/PlyReader.cpp` |
 | 客户端单位与选项适配 | `apps/ParamCAD Studio/src/io/PointCloudAdapter.cpp` |
-
-## 测试与诊断
 
 ## 已知限制
 

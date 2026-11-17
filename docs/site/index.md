@@ -10,12 +10,12 @@ hero:
       text: 快速开始
       link: /getting-started/
     - theme: alt
-      text: 系统架构
-      link: /architecture/
+      text: 点云转模型：五个模块
+      link: /modules/point-cloud-to-cad
 
 features:
   - title: 模块手册
-    details: 从相机采集、点云重建到参数化建模的模块索引。
+    details: 从图像生成点云，再按分割、拓展验证、特征识别、分组闭合和建模交付理解点云转模型。
     link: /modules/
   - title: 算法原理
     details: 记录几何处理方法、判定条件和适用范围。

@@ -13,6 +13,7 @@
 | [多视角重建与相机几何](/algorithms/multiview-geometry) | 相机模型、位姿约定、匹配与三角化、稠密重建 | 说明图像如何变成带尺度语义的观测快照 |
 | [点云采样与法向估计](/algorithms/point-cloud-processing) | 体素降采样、统计离群过滤、PCA 法向与定向传播 | 说明工作点如何保留源点 ID 并建立材料方向 |
 | [解析曲面拟合和连通扩展](/algorithms/primitive-fitting) | 五类解析基元的参数、Efficient RANSAC、平面支持连通扩展、候选精修 | 说明曲面证据如何从点集变成带参数的候选 |
+| [面密度与曲面展开验证](/algorithms/surface-support-validation) | 固定密度参考、有限面域、立体角、弓高与归属复验 | 说明跨空白平面和近似平面的曲面为何被拒绝 |
 | [特征识别与几何判定](/algorithms/feature-inference) | 箱体、组合体、通孔、曲面实体与人工约束 | 说明几何判定在哪些观测条件下成立或拒绝 |
 | [装配分组与壳闭合](/algorithms/shell-closure) | 装配面片连接、点归属、有限边界、壳闭合 | 说明多体如何分组、闭合，以及开放结果如何保留 |
 | [二维轮廓与投影评分](/algorithms/projection-scoring) | 候选轴、截面轮廓、操作提案、试建评分 | 说明未闭合部件如何用二维投影回退为挤出程序 |
@@ -34,7 +35,15 @@
 
 ## 阅读顺序
 
-初次阅读建议按“输入—证据—判定—成型”推进：先看多视角几何理解快照来源，再看点云处理理解源点 ID、保护点与法向状态，然后看解析拟合理解曲面证据的置信度与覆盖率，最后看特征判定、壳闭合与投影评分理解三类候选路径。
+点云转模型先读[五个模块总览](/modules/point-cloud-to-cad)，再按下面的对应关系进入算法细节。图像生成点云属于上游采集路线，另见多视角几何。
+
+| 主线模块 | 本栏目对应内容 |
+| --- | --- |
+| 1. 曲面分割 | [采样与法向](/algorithms/point-cloud-processing)、[解析曲面拟合](/algorithms/primitive-fitting) |
+| 2. 曲面拓展与验证 | [平面支持连通扩展](/algorithms/primitive-fitting#plane-support-recovery)、[有限支撑与曲率展开](/algorithms/surface-support-validation) |
+| 3. 特征与实体识别 | [孔、凸台、实体类型与人工约束](/algorithms/feature-inference) |
+| 4. 多体分组与闭合 | [面片分组与壳闭合](/algorithms/shell-closure)、[二维轮廓与投影评分](/algorithms/projection-scoring) |
+| 5. 参数化建模与交付 | 接口和提交规则见[参数化建模](/modules/parametric-modeling)，文件规则见[保存与导出](/modules/persistence) |
 
 如果只关心某类零件的失败原因，可以按现象跳转：
 

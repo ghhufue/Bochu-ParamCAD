@@ -1,15 +1,20 @@
-# 曲面分析与修复
+# 曲面拓展、验证与局部修复
+
+所属主线：[模块2：曲面拓展与验证](/modules/point-cloud-to-cad)。本页集中说明面范围、支撑、关系和补证；检测器细节见[曲面分割](/modules/surface-detection)，孔、凸台和实体分类见[特征与实体识别](/modules/feature-recognition)。
 
 ## 职责与入口
 
-本模块把曲面检测得到的解析证据整理成有限连通面片，推断并优化面片之间的几何关系，并在识别失败时提供局部观测恢复与修复事务的公共接口。它不决定最终 CAD 实体，但识别器读取的 `SurfaceAnalysisResult` 由这里生成。
+本模块组织自动平面拓展，把解析证据验证为有观测支撑的有限连通面片，再建立几何关系；识别失败时提供局部观测恢复与修复事务。面片通过只证明该面的支撑足够，最终孔、凸台及实体分类仍由识别器完成。
 
 主要入口：
 
-- `analyzeSurfaces(points, options, result, error, seeds, cancelled)`：组合检测、面片索引和关系推断；
-- `collectSurfaceEvidence()`：分族或多尺度汇集证据，合并人工种子，输出未分配点；
-- `indexSurfacePatches()`：把证据支持点拆成 `SurfacePatch`；
-- `indexSurfaceEvidence()`：索引面片并立即推断关系；
+- `analyzeSurfaces(points, options, result, error, seeds, cancelled)`：组合检测、拓展、有限支撑验证和关系推断；
+- `collectSurfaceEvidence()`：分族或多尺度汇集证据，拓展自动平面、合并人工种子；
+- `recoverPlaneSupport()`：自动平面连通生长与重拟合；
+- `indexSurfacePatches()`：仅把证据支持点拆成初步 `SurfacePatch`，不代表通过支撑验证；
+- `validateSurfaceSupport()`：按有限连通域检查面支撑，输出接受集与诊断；
+- `indexSurfaceEvidence()`：验证后重建面片与关系，保留原始提案；
+- `revalidateSurfaceSupportOnSource()`：在同源原始观测上独立补证、验证，再更新工作分析；
 - `inferPatchRelations()` / `inferSurfaceRelations()`：对已有面片或自定义关系节点推断关系；
 - `applySurfaceRelationHints()`：校验并确认人工关系；
 - `optimizeSurfaceRelations()`：对可接受的关系子集做观测约束下的联合优化；
@@ -21,15 +26,17 @@
 输入：
 
 - `PointStore`：同一观测快照中的点，支持 ID 必须存在；
-- `SurfaceAnalysisOptions`：检测选项、关系容差、连通距离、是否分族、是否恢复残余曲面、局部恢复参数；
+- `SurfaceAnalysisOptions`：检测选项、支撑验证与有限域设置、关系容差、连通距离和局部恢复参数；
 - 可选的 `seeds` 人工证据与取消回调。
 
-关键默认值：`connectivityDistance = 0` 表示按支持密度自动估计连通半径；`independentFamilies = true` 让五类基元分别检测；`recoverResidualSurfaces = false` 默认关闭多尺度残余恢复；`expandPlaneSupport = true` 对自动平面运行连通支持扩展。局部恢复最少区域点数 20，halo 容差倍率 2、关系倍率 16，稳定平面重叠比例 0.1、法向余弦 0.95，局部连通容差倍率 2、自适应上限倍率 4。
+公开分析选项的关键初值：`connectivityDistance = 0` 表示按支持密度自动估计连通半径；`independentFamilies = true` 让五类基元分别检测；`recoverResidualSurfaces = false` 关闭多尺度残余恢复；`expandPlaneSupport = true` 对自动平面运行连通支持扩展。局部恢复最少区域点数20，halo容差倍率2、关系倍率16，稳定平面重叠比例0.1、法向余弦0.95，局部连通容差倍率2、自适应上限倍率4。生产入口会加载配置并按任务覆盖选项；例如客户端整景“识别表面”会启用残余恢复，不能仅由结构体初值判断某次任务走了哪条路径。
 
 输出 `SurfaceAnalysisResult`：
 
 - `pointFingerprint`、`unit`、`options`：本分析快照的身份；
 - `surfaces`、`patches`、`relations`、`unassignedPointIds`：重新编号的证据、有限面片、关系假设和未解释点；
+- `supportProposals`、`supportProposalIds`：验证前提案和已接受方程到原提案的映射；
+- `supportValidation`、`sourceSupportValidation`：工作点与原始点各自的参考密度、设置及判定；
 - `detectionPasses`、`localFailures`：检测轮数与识别返回的局部失败诊断；
 - `baseFingerprint`、`recoverySourceFingerprint`、`supplementalPoints`：修复合并后的基线与补点；
 - `repairMappings`、`repairPatchMappings`：局部基元/面片到全局 ID 的映射。
@@ -51,7 +58,13 @@
 
 ## 面片索引、关系优化、局部恢复与复验
 
-**面片索引。** 每个基元的支持点先按 ID 去重，再由广度优先搜索拆成连通分量。连通半径取 `connectivityDistance`；为 0 时取 `max(关系距离容差 × 4, 2.5 × sqrt(2 × (dx·dy + dy·dz + dz·dx) / n))`，其中包围范围来自支持点。每个面片记录质心、范围、支持点平均法向；只有全部支持点都带已知定向法向时 `orientationKnown` 才为真。
+**自动平面拓展。** `collectSurfaceEvidence()` 调用 `recoverPlaneSupport()`，合并相容种子，按局部间距生长，累计重拟合并重访先前拒绝的边界点。距离容差保持不变，方向漂移与全部支持点继续受约束。该通用生长流程针对自动平面；曲面模板补全和识别失败后的局部重检属于各自的有界路径。方法见[平面支持连通扩展](/algorithms/primitive-fitting#plane-support-recovery)。
+
+**初步面片索引。** 每个基元的支持点先按 ID 去重，再由广度优先搜索拆成连通分量。连通半径取 `connectivityDistance`；为0时按包围范围和不同坐标位置数估计，重复位置不人为缩小连接尺度。每个面片记录质心、范围和平均法向；只有全部支持点都带已知定向法向时 `orientationKnown` 才为真。这一步仅拆片，最终面域还须通过下面的支撑验证。
+
+**有限支撑验证。** 默认使用 `enforce`。从高置信度大平面建立固定参考密度，按连通域检查面密度与内部占用；参考不足或不稳定时明确回退到局部支撑。球面另检查立体角与较小方向展开角，圆柱检查连续绕轴展开角，二者都要求弓高超过噪声且优于稳健平面替代。可靠点建立有限域后，域内全部有效观测计入覆盖，孔洞和域外线尾保留。具体阈值与面积口径统一放在[面密度与曲面展开验证](/algorithms/surface-support-validation)。
+
+**原始点与最终归属。** 工作点、原始观测分别建立统计上下文，不能混用密度。客户端 `analysePointCloud()` 在源点补证后处理独占归属；通过验证的大平面优先保留有限域和原容差内的点。归属后按冻结参考再验证，释放点最多重分配一轮并复验。未解释点保留，显示网格不能重新跨接拒绝域。核心分析仍可保留重叠证据，不把客户端独占标签当作唯一识别依据。
 
 **关系推断。** 两个面片先做包围盒距离剪枝，再用网格邻域确认是否在距离容差内相邻。随后按基元类型追加关系：
 
@@ -73,7 +86,7 @@
 
 识别侧的 `recognizeAndRepairParametricSolid()` 按源点 ID 去重合并观测与修复候选，重建全局索引，再用原始点 ID 重新绑定人工关系。提交前要求长方体、棱柱、贯穿孔和曲面实体数量不变，每个修复区域的局部边界覆盖率不下降，曲面实体平均残差不增加超过 `0.15 × 距离容差`，几何签名漂移不超过 `0.25 × 距离容差`，全局边界覆盖率不下降且 `surfaceCoverage ≥ 0.98`。任一项失败即拒绝合并，保留原分析和基线候选。成功时写入 `baseFingerprint`、`recoverySourceFingerprint`、补点和局部到全局映射；已有 `baseFingerprint` 的快照若再次出现待修复区域，会要求新的恢复事务，而不是无限叠加。
 
-**快照指纹与缓存复用。** `pointStoreFingerprint()` 混合单位、ID、位置、法向存在性、定向状态、法向分量和置信度。`analysisMatches()` 要求单位与指纹同时一致；`analysisInputMatches()` 在存在 `baseFingerprint` 时改比基线指纹；`analysisSettingsMatch()` 比较检测种子、启用的基元族、阈值、关系容差和平面支持扩展开关等选项。客户端只有在输入与设置都匹配时才复用 `sharedAnalysis`，并标记 `analysisReused = true`。
+**快照指纹与缓存复用。** `pointStoreFingerprint()` 混合单位、ID、位置、法向存在性、定向状态、法向分量和置信度。`analysisMatches()` 要求单位与指纹同时一致；`analysisInputMatches()` 在存在 `baseFingerprint` 时改比基线指纹；`analysisSettingsMatch()` 比较检测、关系、拓展和支撑验证设置。影响有限域的设置参与签名，纯显示采样预算不改变支撑统计。原始点补证还检查源指纹；只有身份与设置匹配时才复用缓存。
 
 ## 源码位置
 
@@ -81,6 +94,9 @@
 | --- | --- |
 | 分析入口与公共类型 | `core/geometric_reconstruction/include/reconstruction/analysis/SurfaceAnalysis.h` |
 | 证据汇集与分析组合 | `core/geometric_reconstruction/src/analysis/SurfaceAnalysis.cpp` |
+| 自动平面拓展 | `core/geometric_reconstruction/src/detection/PlaneSupportRecovery.cpp` |
+| 有限面域与支撑验证 | `core/geometric_reconstruction/src/analysis/SurfaceFootprint.cpp`、`SurfaceSupportValidation.cpp` |
+| 原始点集合归属与复验 | `apps/ParamCAD Studio/src/io/PointCloudAnalysis.cpp` |
 | 面片索引与关系推断入口 | `core/geometric_reconstruction/src/analysis/SurfacePatches.cpp` |
 | 关系计算 | `core/geometric_reconstruction/src/analysis/SurfaceRelations.cpp` |
 | 关系优化 | `core/geometric_reconstruction/src/analysis/RelationOptimization.cpp` |
@@ -90,8 +106,11 @@
 
 ## 测试与诊断
 
+`plane_support_recovery_test` 验证平面拓展；`surface_support_validation_test` 覆盖密度参考、浅曲面、孔洞、窄条和分离域；`surface_analysis_test` 验证分析与修复；`point_cloud_analysis_test` 验证客户端集合发布。分析包的 `support-validation.json` 保存归属前后判定，见[分析结果导出与查询](/validation/analysis-export)。
+
 ## 已知限制
 
+- 自动平面生长不等于所有解析曲面都有通用拓展器；球面、圆柱的展开验证也不等于孔或实体识别。
 - 关系只是几何假设，默认不强制模型满足；人工关系只能在已有自动关系中确认同类型、同端点项，冲突时直接报错。
 - 关系优化只覆盖平面、圆柱和圆锥，且只接受六类关系；球、圆环以及 `Tangent`、`Intersect` 等关系不会参与联合拟合。
 - 优化默认预算为 32 次尝试、12 个活跃曲面和 15 次迭代，超出预算的提议会被拒绝；预算可在 `analysis.conf` 调整，但结果不是全局最优保证。
