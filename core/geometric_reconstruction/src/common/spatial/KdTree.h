@@ -42,6 +42,11 @@ public:
         std::reverse(result.begin(),result.end());return result;
     }
 
+    template<class Visitor>
+    void visitBox(Vec3 lower, Vec3 upper, const Visitor& visit) const {
+        visitBox(root_, lower, upper, visit);
+    }
+
 private:
     struct Node {
         std::size_t pointIndex = 0;
@@ -73,6 +78,18 @@ private:
         nodes_[static_cast<std::size_t>(nodeIndex)].left = left;
         nodes_[static_cast<std::size_t>(nodeIndex)].right = right;
         return nodeIndex;
+    }
+
+    template<class Visitor>
+    void visitBox(int nodeIndex, Vec3 lower, Vec3 upper, const Visitor& visit) const {
+        if (nodeIndex < 0) return;
+        const auto& node = nodes_[static_cast<std::size_t>(nodeIndex)];
+        const auto p = points_[node.pointIndex].position;
+        if (lower.x <= p.x && p.x <= upper.x && lower.y <= p.y && p.y <= upper.y &&
+            lower.z <= p.z && p.z <= upper.z) visit(points_[node.pointIndex]);
+        const double split = coordinate(p, node.axis);
+        if (coordinate(lower, node.axis) <= split) visitBox(node.left, lower, upper, visit);
+        if (coordinate(upper, node.axis) >= split) visitBox(node.right, lower, upper, visit);
     }
 
     void search(

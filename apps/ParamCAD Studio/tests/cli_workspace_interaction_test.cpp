@@ -40,6 +40,10 @@ int main(int argc,char** argv){
         require(document&&document->pointCount()>0,"CLI open updated actual document");
         auto info=command(exe,{"cloud","info"});require(info["unit"]=="mm","unit sidecar survives preprocessing");
         command(exe,{"detect"});require(!document->selection().regions().empty(),"online detection published GUI collections");
+        const auto detectedBundle=temp.filePath("detected.pcad-analysis");
+        command(exe,{"export","analysis","--out",detectedBundle});
+        require(QFile::exists(detectedBundle+"/support-validation.json"),
+            "automatic relation inference preserves the freshly detected support report");
         auto cad=command(exe,{"reconstruct","cad"});require(cad["status"]=="complete"&&!model->features().empty(),"online CAD committed actual GUI feature graph");
         // The ordinary CAD workflow may schedule a follow-up surface analysis.
         QElapsedTimer elapsed;elapsed.start();while(elapsed.elapsed()<15000){auto status=command(exe,{"status"});if(!status["busy"].toBool())break;QApplication::processEvents();}

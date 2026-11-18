@@ -112,7 +112,6 @@ private:
     double m_lastDownsampleSpacing = 10.0;
     std::optional<reconstruction::SurfaceAnalysisResult> m_surfaceAnalysis;
     QJsonObject m_surfaceSupportReport;
-    quint64 m_surfaceSupportReportRevision=0;
-    QString m_surfaceSupportReportFingerprint;
+    QByteArray m_surfaceSupportReportFingerprint;
     QString m_cliOperation;
 };

@@ -21,6 +21,7 @@ struct Fixture {
 };
 SurfaceSupportValidationReport run(const Fixture& f,std::vector<PrimitiveEvidence>& accepted,SurfaceAnalysisOptions options={}) {
     options.detection.plane.distanceThreshold=.02;options.detection.sphere.distanceThreshold=.02;options.detection.cylinder.distanceThreshold=.02;
+    options.detection.cone.distanceThreshold=.02;
     PointStore points(f.points);std::string error;SurfaceSupportValidationReport report;
     require(validateSurfaceSupport(points,f.evidence,options,accepted,report,error),error.c_str());return report;
 }
@@ -65,6 +66,37 @@ void spheres() {
     for(int i=0;i<20;++i){PointSample p;p.position={0,0,0};centers.add(p,invalid.supportPointIds);}centers.evidence.emplace_back(invalid);
     const auto degenerate=run(centers,accepted);
     require(accepted.empty() && !degenerate.decisions.empty(),"sphere-center observations are rejected without undefined radial normalization");
+}
+void cones() {
+    for (bool shallow:{false,true}) {
+        Fixture fixture;
+        ConeEvidence cone;
+        const double angle=shallow?89*pi/180:pi/6;
+        cone.cone={{0,0,0},{0,0,1},angle};
+        const double radius=shallow?30:2;
+        const double span=shallow?.2:1.6;
+        for (int row=0;row<12;++row) for (int column=0;column<24;++column) {
+            const double a=span*(column/23.-.5);
+            const double slant=radius/std::sin(angle)+row*.2;
+            const double r=slant*std::sin(angle);
+            PointSample p;
+            p.position={r*std::cos(a),r*std::sin(a),slant*std::cos(angle)};
+            fixture.add(p,cone.supportPointIds);
+        }
+        fixture.evidence.emplace_back(cone);
+        std::vector<PrimitiveEvidence> accepted;
+        const auto report=run(fixture,accepted);
+        const auto& decision=report.decisions.front();
+        require(decision.effectivePoints>200 && decision.area>0,"cone checks its sampled two-dimensional domain");
+        if (shallow) {
+            require(accepted.empty(),"near-planar cone is rejected");
+            require(std::find(decision.reasons.begin(),decision.reasons.end(),"CurvatureBelowNoise")!=decision.reasons.end(),
+                "cone sagitta includes the half opening angle");
+        } else {
+            require(accepted.size()==1 && decision.planeCost>decision.curvedCost,
+                "a small cone across the angular seam keeps its support");
+        }
+    }
 }
 void transactionAndSettings() {
     Fixture f;f.plane(0);PointStore points(f.points);SurfaceAnalysisOptions o;
@@ -123,4 +155,4 @@ void disconnectedDomainMembership() {
     require(std::count_if(report.decisions.begin(),report.decisions.end(),[](const auto& d){return d.verdict==SupportVerdict::Accepted;})==2,"independent finite domains are checked independently");
 }
 }
-int main(){try{densityAndModes();cylinder(false);cylinder(true);spheres();transactionAndSettings();heterogeneousReference();invalidRing();footprintsKeepHolesAndStrips();disconnectedDomainMembership();std::cout<<"surface_support_validation_test passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{densityAndModes();cylinder(false);cylinder(true);spheres();cones();transactionAndSettings();heterogeneousReference();invalidRing();footprintsKeepHolesAndStrips();disconnectedDomainMembership();std::cout<<"surface_support_validation_test passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

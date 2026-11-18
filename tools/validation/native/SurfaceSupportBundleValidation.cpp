@@ -1,4 +1,5 @@
 #include <reconstruction/surface/SurfaceSupportValidation.h>
+#include <reconstruction/surface/SurfaceOwnership.h>
 #include <reconstruction/settings/ModuleConfig.h>
 #include "io/PointCloudAnalysis.h"
 #include "io/AnalysisBundleExporter.h"
@@ -31,11 +32,14 @@ modeling::Vec3 vector(const QJsonObject& p,const char* key){auto a=p[key].toArra
 int main(int argc,char** argv) {
     QCoreApplication app(argc,argv);
     try {
-        check(argc>=3,"Usage: surface_support_bundle_validation BUNDLE REPORT.json [tolerance] [--detect] [--export-bundle DIRECTORY]");
-        bool detect=false;QString exportDirectory;double explicitTolerance=0;
+        check(argc>=3,"Usage: surface_support_bundle_validation BUNDLE REPORT.json [tolerance] [--detect | --resolve-ownership] [--export-bundle DIRECTORY]");
+        bool detect=false,resolveOwnership=false;QString exportDirectory;double explicitTolerance=0;
         for(int i=3;i<argc;++i){const auto arg=QString::fromLocal8Bit(argv[i]);if(arg=="--detect")detect=true;
-            else if(arg=="--export-bundle"){check(i+1<argc,"Missing export directory");exportDirectory=QString::fromLocal8Bit(argv[++i]);detect=true;}
+            else if(arg=="--resolve-ownership")resolveOwnership=true;
+            else if(arg=="--export-bundle"){check(i+1<argc,"Missing export directory");exportDirectory=QString::fromLocal8Bit(argv[++i]);}
             else{bool ok=false;explicitTolerance=arg.toDouble(&ok);check(ok && explicitTolerance>0,"Invalid tolerance/argument");}}
+        check(!detect || !resolveOwnership,"Choose either detection or ownership replay");
+        detect=detect || (!exportDirectory.isEmpty() && !resolveOwnership);
         QDir root(QString::fromLocal8Bit(argv[1]));const auto manifest=object(read(root,"manifest.json"));
         check(manifest["schema"]=="paramcad.analysis" && manifest["version"].toInt()==1,"Unsupported bundle");
         auto bytes=read(root,"points.bin");check(bytes.size()>=48,"Truncated observations");
@@ -66,20 +70,51 @@ int main(int argc,char** argv) {
         if(explicitTolerance>0)tolerance=explicitTolerance;
         check(tolerance>0 && std::isfinite(tolerance),"Cannot derive positive fit tolerance");
         const auto settings=loadAnalysisSettings();SurfaceAnalysisOptions options;options.supportValidation=settings.supportValidation;options.supportMeshing=settings.meshing;
-        options.detection.plane.distanceThreshold=options.detection.sphere.distanceThreshold=options.detection.cylinder.distanceThreshold=tolerance;options.relations.distanceTolerance=tolerance*4;
+        options.detection.plane.distanceThreshold=options.detection.sphere.distanceThreshold=options.detection.cylinder.distanceThreshold=tolerance;
+        options.detection.cone.distanceThreshold=tolerance;options.relations.distanceTolerance=tolerance*4;
         PointStore points(std::move(samples),LengthUnit::Arbitrary);std::vector<PrimitiveEvidence> accepted;SurfaceSupportValidationReport report;std::string error;QElapsedTimer timer;timer.start();
         std::optional<PointCloudAnalysisResult> detected;PlyCloud cloud;
-        if(detect)check(manifest["source"].toObject()["active_point_count"].toInteger()==count,"Production replay requires an all-active source snapshot");
-        if(detect) {
+        if(detect || resolveOwnership) {
+            check(manifest["source"].toObject()["active_point_count"].toInteger()==count,"Replay requires an all-active source snapshot");
             for(const auto& p:points.points()){cloud.positions.push_back({float(p.position.x),float(p.position.y),float(p.position.z)});const auto n=p.normal.value_or(modeling::Vec3{});cloud.normals.push_back({float(n.x),float(n.y),float(n.z)});}
+        }
+        if(detect) {
             std::vector<vtkIdType> ids(cloud.positions.size());std::iota(ids.begin(),ids.end(),0);
             detected=analysePointCloud(cloud,ids,tolerance);check(detected->error.isEmpty(),qPrintable(detected->error));
             report=detected->sourceSupportValidation;
+        } else if (resolveOwnership) {
+            SurfaceAnalysisResult analysis;
+            if (!indexSurfaceEvidence(points,proposals,options,analysis,error)) throw std::runtime_error(error);
+            SurfaceOwnershipResult owned;
+            SurfaceOwnershipOptions ownershipOptions;
+            ownershipOptions.distanceTolerance=tolerance;ownershipOptions.supportRadius=4*tolerance;
+            ownershipOptions.useSourceNormals=manifest["source"].toObject()["has_normals"].toBool();
+            if (!resolveSurfaceOwnership(points,analysis,ownershipOptions,owned,error)) throw std::runtime_error(error);
+            report=std::move(analysis.supportValidation);
+            detected.emplace();
+            detected->finalSupportValidation=std::move(owned.finalSupportValidation);
+            detected->processedPoints=points.size();detected->assignedPoints=owned.assignedPoints;
+            detected->preferredPlaneCount=owned.preferredPlaneCount;
+            for (const auto& evidence:owned.surfaces) {
+                TemplateFit fit;fit.regionId=int(detected->surfaces.size()+1);fit.surface=evidence;
+                DetectedPointCloudSurface region;region.surface=describeTemplateFit(fit,1);
+                const auto& validation=detected->finalSupportValidation;
+                if (validation.mode==SupportValidationMode::Enforce) {
+                    region.surface.supportValidation={{"verdict","accepted"},
+                        {"reference_spacing",validation.reference.available?validation.reference.spacing:0},
+                        {"density_ratio_max",options.supportValidation.planeDensityRatioMax}};
+                }
+                std::visit([&](const auto& e){for (auto id:e.supportPointIds) region.points.push_back(vtkIdType(id-1));},evidence);
+                detected->surfaces.push_back(std::move(region));
+            }
         } else check(validateSurfaceSupport(points,proposals,options,accepted,report,error),error.c_str());
         auto result=object(QByteArray::fromStdString(serializeSurfaceSupportReport(report)));result["bundle_id"]=manifest["bundle_id"];result["elapsed_ms"]=timer.elapsed();result["tolerance"]=tolerance;result["source_metadata"]=sourceMetadata;result["accepted_equations"]=qint64(accepted.size());
+        if (resolveOwnership) result["accepted_equations"]=qint64(detected->surfaces.size());
         if(!detect){QJsonArray named;for(auto value:result["decisions"].toArray()){auto d=value.toObject();const auto id=d["proposal_id"].toInt()-1;if(id>=0 && id<sourceMetadata.size())d["source"]=sourceMetadata[id];named.append(d);}result["decisions"]=named;}
-        else {
-            result["run_mode"]="production_detection";
+        if(detected) {
+            auto beforeOwnership=object(QByteArray::fromStdString(serializeSurfaceSupportReport(report)));
+            beforeOwnership["decisions"]=result["decisions"];
+            result["run_mode"]=detect?"production_detection":"ownership_replay";
             result["final_validation"]=object(QByteArray::fromStdString(serializeSurfaceSupportReport(detected->finalSupportValidation)));
             result["processed_points"]=qint64(detected->processedPoints);result["assigned_points"]=qint64(detected->assignedPoints);
             result["preferred_planes"]=qint64(detected->preferredPlaneCount);
@@ -87,7 +122,7 @@ int main(int argc,char** argv) {
             AnalysisBundleSnapshot snapshot;snapshot.cloud=cloud;snapshot.deleted.resize(cloud.positions.size());snapshot.memberships.resize(cloud.positions.size());
             snapshot.sourceName=manifest["source"].toObject()["name"].toString();snapshot.sourceUnit=manifest["source"].toObject()["unit"].toString();snapshot.positionsFingerprint=manifest["source"].toObject()["positions_sha256"].toString();
             snapshot.view=manifest["view"].toObject();
-            snapshot.supportValidation={{"version",1},{"scope","full_source"},{"before_ownership",object(QByteArray::fromStdString(serializeSurfaceSupportReport(report)))},{"after_ownership",result["final_validation"]}};
+            snapshot.supportValidation={{"version",1},{"scope","full_source"},{"before_ownership",beforeOwnership},{"after_ownership",result["final_validation"]}};
             for(const auto& item:detected->surfaces) {
                 auto region=item.surface;region.id=int(snapshot.regions.size()+1);snapshot.regions.push_back(region);
                 for(auto id:item.points){check(id>=0 && std::size_t(id)<snapshot.memberships.size(),"Invalid published membership");check(snapshot.memberships[std::size_t(id)]==0,"Duplicate published membership");snapshot.memberships[std::size_t(id)]=region.id;}

@@ -1,5 +1,6 @@
 #include "reconstruction/surface/SurfaceOwnership.h"
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <set>
 #include <stdexcept>
@@ -61,8 +62,61 @@ void ownershipAndModes() {
         }
     }
 }
+void recoverSupportedPlaneHolesAndRejectedConePoints() {
+    Fixture fixture;
+    fixture.evidence.pop_back();
+    std::set<PointId> missing,opposite;
+    for (auto& p:fixture.points) {
+        const auto x=p.position.x-10,y=p.position.y-10;
+        if (x*x+y*y>=36) continue;
+        if (p.position.z==0) missing.insert(p.id);
+        if (p.position.z==50) {
+            opposite.insert(p.id);
+            // Even a similarly oriented layer is separate if it sits below the rim.
+            if (x<0) {p.position.z-=.01;p.normal=modeling::Vec3{0,0,-1};}
+            else p.position.z-=.04;
+        }
+    }
+    for (auto& e:fixture.evidence) {
+        auto& ids=std::get<PlaneEvidence>(e).supportPointIds;
+        ids.erase(std::remove_if(ids.begin(),ids.end(),[&](auto id){return missing.count(id)||opposite.count(id);}),ids.end());
+    }
+    ConeEvidence cone;
+    cone.cone={{3,3,-1},{0,0,1},std::atan(1.)};
+    for (int i=0;i<5;++i) {
+        PointSample p;p.id=9000001+i;
+        p.position={3+1.08*std::cos(i*.1),3+1.08*std::sin(i*.1),.08};
+        if (i==4)p.normal=modeling::Vec3{0,0,-1};
+        fixture.points.push_back(p);cone.supportPointIds.push_back(p.id);
+    }
+    fixture.evidence.push_back(cone);
+    const PointStore source(fixture.points);
+    SurfaceAnalysisOptions settings;
+    settings.detection.plane.distanceThreshold=.05;
+    settings.detection.cone.distanceThreshold=.05;
+    SurfaceAnalysisResult analysis;
+    std::string error;
+    require(indexSurfaceEvidence(source,fixture.evidence,settings,analysis,error),error.c_str());
+    SurfaceOwnershipOptions options;options.distanceTolerance=.05;options.supportRadius=1;
+    SurfaceOwnershipResult result;
+    require(resolveSurfaceOwnership(source,analysis,options,result,error),error.c_str());
+    require(result.surfaces.size()==3,"sparse circular trace does not become a cone");
+    require(result.finalSupportValidation.planeHoleRecoveredPoints==missing.size(),
+        "missing plane interior is recovered within the original fit tolerance");
+    require(result.finalSupportValidation.planeRelaxedRecoveredPoints==4,
+        "rejected cone trace on the host returns without its opposing observation");
+    std::set<PointId> used;
+    for (const auto& e:result.surfaces) {
+        const auto& plane=std::get<PlaneEvidence>(e);
+        require(plane.maxAbsoluteResidual<.001,"relaxed ownership does not change the fitted residual");
+        for (auto id:plane.supportPointIds) {
+            require(!opposite.count(id) && id!=9000005 && used.insert(id).second,
+                "an oppositely oriented layer in an opening stays separate");
+        }
+    }
+}
 }
 int main() {
-    try {ownershipAndModes();std::cout<<"surface_ownership_test passed\n";return 0;}
+    try {ownershipAndModes();recoverSupportedPlaneHolesAndRejectedConePoints();std::cout<<"surface_ownership_test passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

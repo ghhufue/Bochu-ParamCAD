@@ -16,6 +16,10 @@ struct PlanarSurfaceSample {
     std::array<double,2> position{};
     PointId sourcePointId=0;
 };
+struct PlanarFootprintHole {
+    std::vector<std::array<double,2>> boundary;
+    double area=0, spacing=0;
+};
 struct SurfaceFootprint {
     modeling::Vec3 origin{},axisU{1,0,0},axisV{0,1,0};
     std::vector<std::array<double,3>> positions;
@@ -23,6 +27,7 @@ struct SurfaceFootprint {
     std::vector<PointId> sourcePointIds, coveredPointIds;
     std::size_t effectiveCoveredPoints=0;
     std::vector<PlanarDomainSupportCheck> domainSupportChecks;
+    std::vector<PlanarFootprintHole> holes;
 };
 class SurfaceFootprintQuery {
 public:

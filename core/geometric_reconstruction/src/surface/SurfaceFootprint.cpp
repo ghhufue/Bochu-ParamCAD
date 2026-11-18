@@ -565,6 +565,17 @@ SurfaceFootprint triangulateDomain(const std::vector<Sample>& samples,const Opti
         CGAL::Polygon_2<Kernel> polygon;
         for (size_t id:loop) polygon.push_back(input[id].first);
         if (!polygon.is_simple() || polygon.orientation()==CGAL::COLLINEAR) return {};
+        if (polygon.orientation()==CGAL::CLOCKWISE) {
+            PlanarFootprintHole hole;
+            hole.area=std::abs(CGAL::to_double(polygon.area()));
+            std::vector<double> spacings;
+            for (size_t id:loop) {
+                hole.boundary.push_back(samples[id].position);
+                spacings.push_back(samples[id].observedSpacing);
+            }
+            hole.spacing=median(std::move(spacings));
+            output.holes.push_back(std::move(hole));
+        }
         std::vector<CDT::Vertex_handle> vertices;
         for (size_t id:loop) { auto vertex=cdt.insert(input[id].first);vertex->info()=id;vertices.push_back(vertex); }
         for (size_t i=0;i<vertices.size();++i) cdt.insert_constraint(vertices[i],vertices[(i+1)%vertices.size()]);
@@ -612,6 +623,7 @@ SurfaceFootprint buildPlanarSurfaceFootprint(const std::vector<PlanarSurfaceSamp
         for (size_t id:component) local.push_back(samples[id]);
         auto mesh=triangulateDomain(local,settings);const auto offset=std::uint64_t(output.positions.size());
         output.domainSupportChecks.insert(output.domainSupportChecks.end(),mesh.domainSupportChecks.begin(),mesh.domainSupportChecks.end());
+        for(auto& hole:mesh.holes)output.holes.push_back(std::move(hole));
         output.positions.insert(output.positions.end(),mesh.positions.begin(),mesh.positions.end());
         output.sourcePointIds.insert(output.sourcePointIds.end(),mesh.sourcePointIds.begin(),mesh.sourcePointIds.end());
         output.coveredPointIds.insert(output.coveredPointIds.end(),mesh.coveredPointIds.begin(),mesh.coveredPointIds.end());

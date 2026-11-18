@@ -29,6 +29,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCryptographicHash>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QFileDialog>
@@ -63,6 +64,33 @@ reconstruction::LengthUnit cloudUnit(const PointCloudDocument& document)
     const auto& unit = document.sourceUnit();
     return unit == "mm" ? reconstruction::LengthUnit::Millimeter
         : unit == "m" ? reconstruction::LengthUnit::Meter : reconstruction::LengthUnit::Arbitrary;
+}
+
+QByteArray surfaceSupportFingerprint(const PointCloudDocument& document)
+{
+    const auto& selection=document.selection();
+    const auto& cloud=selection.sourceCloud();
+    QCryptographicHash fingerprint(QCryptographicHash::Sha256);
+    const auto hashVector=[&](const auto& values) {
+        const auto size=values.size();
+        fingerprint.addData(QByteArrayView(reinterpret_cast<const char*>(&size),sizeof(size)));
+        if (size) fingerprint.addData(QByteArrayView(reinterpret_cast<const char*>(values.data()),
+            qsizetype(size*sizeof(values.front()))));
+    };
+    fingerprint.addData(selection.positionsFingerprint().toUtf8());
+    fingerprint.addData(document.sourceUnit().toUtf8());
+    hashVector(cloud.normals);
+    hashVector(cloud.sourceRows);
+    hashVector(selection.deleted());
+    hashVector(selection.memberships());
+    QJsonArray regions;
+    for (const auto& region:selection.regions()) {
+        regions.append(QJsonObject{{"id",region.id},{"geometry",region.geometry},
+            {"parameters",region.parameters},{"stale",region.fitStale},{"locked",region.templateLocked},
+            {"residual",region.residual},{"confidence",region.confidence},{"support",region.supportValidation}});
+    }
+    fingerprint.addData(QJsonDocument(regions).toJson(QJsonDocument::Compact));
+    return fingerprint.result();
 }
 
 QString projectionOperationLabel(modeling::ExtrudeOperation operation)
@@ -896,7 +924,7 @@ void PointCloudWorkspaceController::startAnalysisExportTo(const QString& path)
     snapshot.positionsFingerprint=selection.positionsFingerprint();
     snapshot.sourceName=QFileInfo(source).fileName();snapshot.sourceUnit=m_document->sourceUnit();
     snapshot.documentRevision=revision;
-    if(m_surfaceSupportReportRevision==revision && m_surfaceSupportReportFingerprint==selection.positionsFingerprint())
+    if(!m_surfaceSupportReport.isEmpty() && m_surfaceSupportReportFingerprint==surfaceSupportFingerprint(*m_document))
         snapshot.supportValidation=m_surfaceSupportReport;
     snapshot.surfaces=m_ui.viewer->pointCloudSurfaceDisplaySnapshot();
     snapshot.displayedSurfaces=m_ui.viewer->displayedPointCloudSurfaces();
@@ -1292,11 +1320,11 @@ void PointCloudWorkspaceController::startPointCloudAnalysis(int regionId, bool r
         if (!result->error.isEmpty()) { m_ui.relationsPanel->setStatus(result->error); emit logWarning(result->error); return; }
         if (!regionId) m_surfaceAnalysis = result->analysis;
         if(!regionId) {
+            m_document->addSurfaces(result->surfaces, recordUndo);
             const auto report=[](const auto& r){return QJsonDocument::fromJson(QByteArray::fromStdString(reconstruction::serializeSurfaceSupportReport(r))).object();};
             m_surfaceSupportReport={{"version",1},{"scope","detection_active_subset"},
                 {"before_ownership",report(result->sourceSupportValidation)},{"after_ownership",report(result->finalSupportValidation)}};
-            m_surfaceSupportReportRevision=m_document->revision();
-            m_surfaceSupportReportFingerprint=m_document->selection().positionsFingerprint();
+            m_surfaceSupportReportFingerprint=surfaceSupportFingerprint(*m_document);
         }
         if (result->surfaces.empty()) {
             m_ui.relationsPanel->setStatus(workspaceTr("没有识别到受支持的表面；点保持原有归属，可调整容差或手动分组。")); return;
@@ -1308,8 +1336,7 @@ void PointCloudWorkspaceController::startPointCloudAnalysis(int regionId, bool r
                 m_ui.relationsPanel->setStatus(workspaceTr("拟合表面覆盖不足 70%，保留原集合；可修正点归属后重试。")); return;
             }
             m_document->updateRegionFit(regionId, best->surface, recordUndo);
-        } else m_document->addSurfaces(result->surfaces, recordUndo);
-        if(!regionId)m_surfaceSupportReportRevision=m_document->revision();
+        }
         m_ui.relationsPanel->setStatus(workspaceTr("识别完成：%1 个表面，归属 %2 / %3 个原始点。未归属点已保留。")
             .arg(result->surfaces.size()).arg(result->assignedPoints).arg(count));
         emit logInfo(workspaceTr("Surface analysis completed: %1 surfaces, %2 source points assigned")

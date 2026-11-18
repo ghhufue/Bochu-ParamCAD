@@ -52,6 +52,7 @@ struct SurfaceSupportValidationReport {
     SurfaceSupportValidationOptions options;
     std::vector<double> settingsSignature;
     SurfaceSamplingReference reference;
+    std::size_t planeHoleRecoveredPoints=0, planeRelaxedRecoveredPoints=0;
     std::vector<SurfaceSupportDecision> decisions;
 };
 const char* supportVerdictName(SupportVerdict verdict) noexcept;

@@ -46,6 +46,7 @@ struct Metrics {
     std::vector<PlanarSurfaceSample> samples;
     std::unordered_map<PointId,Vec3> positions;
     double planeNoise=0, confidence=0;
+    double coneRadius=0;
     PlaneEquation localPlane;
     bool geometryValid=true;
 };
@@ -63,7 +64,7 @@ bool validGeometry(const PrimitiveEvidence& evidence) {
 }
 // Repeated dense samples along one chart axis must not erase a legitimately
 // coarser transverse scan step. Only bounded, independently observed steps vote.
-double cylinderChartStretch(const std::vector<PlanarSurfaceSample>& samples) {
+double axialChartStretch(const std::vector<PlanarSurfaceSample>& samples) {
     std::vector<PointSample> points;points.reserve(samples.size());
     for(const auto& s:samples){PointSample p;p.id=points.size()+1;p.position={s.position[0],s.position[1],0};points.push_back(p);}
     detail::spatial::KdTree tree(points);std::vector<double> ratios;
@@ -116,20 +117,45 @@ void buildDomain(Metrics& m,const SurfaceMeshingSettings& settings,double maxSpa
         m.domain=buildPlanarSurfaceFootprint(m.samples,settings,maxSpacing);
         m.domain.origin=origin;m.domain.axisU=x;m.domain.axisV=y;
         for(const auto& t:m.domain.triangles){const auto a=m.domain.positions[t[0]],b=m.domain.positions[t[1]],c=m.domain.positions[t[2]];d.area+=area2({a[0],a[1]},{b[0],b[1]},{c[0],c[1]});}
-    } else if(kind==PrimitiveKind::Cylinder) {
-        const auto& p=std::get<CylinderEvidence>(m.evidence).cylinder;const auto z=normalized(p.axisDirection),x=tangent(z),y=cross(z,x);
-        std::vector<double> angles;std::unordered_map<PointId,std::pair<double,double>> uv;
-        for(auto id:d.supportPointIds) {const auto q=subtract(m.positions.at(id),p.axisPoint);double a=std::atan2(dot(q,y),dot(q,x));if(a<0)a+=2*pi;angles.push_back(a);uv[id]={a,dot(q,z)};}
+    } else if(kind==PrimitiveKind::Cylinder || kind==PrimitiveKind::Cone) {
+        const auto* cone=std::get_if<ConeEvidence>(&m.evidence);
+        const auto* cylinder=std::get_if<CylinderEvidence>(&m.evidence);
+        const auto origin=cone?cone->cone.apex:cylinder->cylinder.axisPoint;
+        const auto z=normalized(cone?cone->cone.axisDirection:cylinder->cylinder.axisDirection);
+        const auto x=tangent(z),y=cross(z,x);
+        const double sine=cone?std::sin(cone->cone.openingAngleRadians):0;
+        const double cosine=cone?std::cos(cone->cone.openingAngleRadians):1;
+        std::vector<double> angles,radii;
+        std::unordered_map<PointId,XY> uv;
+        for(auto id:d.supportPointIds) {
+            const auto q=subtract(m.positions.at(id),origin);
+            const double u=dot(q,x),v=dot(q,y),axial=dot(q,z);
+            const double slant=axial*cosine+std::hypot(u,v)*sine;
+            double a=std::atan2(v,u);if(a<0)a+=2*pi;
+            angles.push_back(a);uv[id]={a,slant};
+            if(cone)radii.push_back(slant*sine);
+        }
+        const double radius=cone?median(radii):cylinder->cylinder.radius;
+        if(radius<=1e-12)return;
         std::sort(angles.begin(),angles.end());double gap=angles.front()+2*pi-angles.back(),seam=angles.front();
         for(std::size_t i=1;i<angles.size();++i)if(angles[i]-angles[i-1]>gap){gap=angles[i]-angles[i-1];seam=angles[i];}
-        for(auto id:d.supportPointIds){auto q=uv.at(id);double a=q.first-seam;if(a<0)a+=2*pi;m.samples.push_back({{a*p.radius,q.second},id});}
-        const double stretch=cylinderChartStretch(m.samples);
+        for(auto id:d.supportPointIds){auto q=uv.at(id);double a=q[0]-seam;if(a<0)a+=2*pi;m.samples.push_back({{a*radius,q[1]},id});}
+        const double stretch=axialChartStretch(m.samples);
         for(auto& sample:m.samples)sample.position[0]*=stretch;
         m.domain=buildPlanarSurfaceFootprint(m.samples,settings,maxSpacing);
-        for(const auto& t:m.domain.triangles){const auto a=m.domain.positions[t[0]],b=m.domain.positions[t[1]],c=m.domain.positions[t[2]];d.area+=area2({a[0],a[1]},{b[0],b[1]},{c[0],c[1]})/stretch;}
-        std::unordered_set<PointId> covered(m.domain.coveredPointIds.begin(),m.domain.coveredPointIds.end());std::vector<double> supportedAngles;
-        for(auto id:covered)supportedAngles.push_back(uv.at(id).first);
+        for(const auto& t:m.domain.triangles){
+            const auto a=m.domain.positions[t[0]],b=m.domain.positions[t[1]],c=m.domain.positions[t[2]];
+            // The cone's circumferential metric grows linearly with slant.
+            const double areaScale=cone?(a[1]+b[1]+c[1])*sine/(3*radius):1;
+            d.area+=area2({a[0],a[1]},{b[0],b[1]},{c[0],c[1]})*areaScale/stretch;
+        }
+        std::vector<double> supportedAngles,supportedRadii;
+        for(auto id:m.domain.coveredPointIds){
+            supportedAngles.push_back(uv.at(id)[0]);
+            if(cone)supportedRadii.push_back(uv.at(id)[1]*sine);
+        }
         d.angularSpanRadians=angularSpan(supportedAngles);
+        if(cone)m.coneRadius=median(supportedRadii);
     } else if(kind==PrimitiveKind::Sphere) {
         const auto& sphere=std::get<SphereEvidence>(m.evidence).sphere;
         std::unordered_map<PointId,Vec3> rays;Vec3 mean{};
@@ -241,10 +267,11 @@ std::vector<Metrics> splitDomains(std::vector<Metrics> input,const SurfaceMeshin
         } else if(domainRoots.size()>1) {
             const SurfaceFootprintQuery query(m.domain);
             std::unordered_map<PointId,XY> chart;
-            if(m.decision.kind==PrimitiveKind::Cylinder)for(const auto& p:m.samples)chart.emplace(p.sourcePointId,p.position);
+            if(m.decision.kind==PrimitiveKind::Cylinder || m.decision.kind==PrimitiveKind::Cone)
+                for(const auto& p:m.samples)chart.emplace(p.sourcePointId,p.position);
             for(auto id:m.domain.coveredPointIds)if(!domainRoots.count(root(id))) {
                 auto point=m.positions.at(id);
-                if(m.decision.kind==PrimitiveKind::Cylinder){const auto p=chart.at(id);point={p[0],p[1],0};}
+                if(!chart.empty()){const auto p=chart.at(id);point={p[0],p[1],0};}
                 const auto anchor=query.anchorAtProjection(point);if(anchor)parent[root(id)]=root(*anchor);
             }
         }
@@ -275,9 +302,11 @@ std::vector<Metrics> splitDomains(std::vector<Metrics> input,const SurfaceMeshin
 }
 void curvedChecks(Metrics& m,const SurfaceSupportValidationOptions& o,double tolerance,const SurfaceSamplingReference& reference) {
     auto& d=m.decision;const bool sphere=d.kind==PrimitiveKind::Sphere;
+    const auto* cone=std::get_if<ConeEvidence>(&m.evidence);
     if(sphere){if(d.solidAngle<o.sphereMinSolidAngle)fail(d,"SphereSolidAngleTooSmall");if(d.minorSpanRadians<o.sphereMinMinorSpanRadians)fail(d,"SphereMinorSpanTooSmall");}
-    else if(d.angularSpanRadians<o.cylinderMinAngularSpanRadians)fail(d,"CylinderAngularSpanTooSmall");
-    const double radius=sphere?std::get<SphereEvidence>(m.evidence).sphere.radius:std::get<CylinderEvidence>(m.evidence).cylinder.radius;
+    else if(!cone && d.angularSpanRadians<o.cylinderMinAngularSpanRadians)fail(d,"CylinderAngularSpanTooSmall");
+    const double radius=sphere?std::get<SphereEvidence>(m.evidence).sphere.radius:
+        cone?m.coneRadius*std::cos(cone->cone.openingAngleRadians):std::get<CylinderEvidence>(m.evidence).cylinder.radius;
     const double theta=std::min(pi,sphere?d.minorSpanRadians:d.angularSpanRadians);
     d.sagitta=2*radius*std::pow(std::sin(theta*.25),2);
     d.noise=std::max(reference.available?reference.noise:tolerance/3,o.noiseFloorToleranceFraction*tolerance);
@@ -285,17 +314,18 @@ void curvedChecks(Metrics& m,const SurfaceSupportValidationOptions& o,double tol
     d.noiseSource=reference.available?"reference_plane_mad_with_tolerance_floor":"fit_tolerance_divided_by_three";
     if(d.sagitta/d.noise<o.minimumSagittaNoiseRatio)fail(d,"CurvatureBelowNoise");
     // Iteratively reweighted plane on exactly the same observations as the curved score.
+    const auto& observations=cone?m.domain.coveredPointIds:d.supportPointIds;
     auto plane=m.localPlane;
     for(int iteration=0;iteration<5;++iteration) {
         Vec3 center{};double total=0;
-        for(auto id:d.supportPointIds){const auto p=m.positions.at(id);const double r=std::abs(dot(plane.normal,p)+plane.offset)/d.noise;const double w=r>1.345?1.345/r:1;center=add(center,scale(p,w));total+=w;}
+        for(auto id:observations){const auto p=m.positions.at(id);const double r=std::abs(dot(plane.normal,p)+plane.offset)/d.noise;const double w=r>1.345?1.345/r:1;center=add(center,scale(p,w));total+=w;}
         center=scale(center,1/total);Eigen::Matrix3d covariance=Eigen::Matrix3d::Zero();
-        for(auto id:d.supportPointIds){const auto p=m.positions.at(id);const double r=std::abs(dot(plane.normal,p)+plane.offset)/d.noise,w=r>1.345?1.345/r:1;const auto q=subtract(p,center);Eigen::Vector3d v(q.x,q.y,q.z);covariance+=w*v*v.transpose();}
+        for(auto id:observations){const auto p=m.positions.at(id);const double r=std::abs(dot(plane.normal,p)+plane.offset)/d.noise,w=r>1.345?1.345/r:1;const auto q=subtract(p,center);Eigen::Vector3d v(q.x,q.y,q.z);covariance+=w*v*v.transpose();}
         Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> e(covariance);const auto n=e.eigenvectors().col(0);plane={{n.x(),n.y(),n.z()},-dot({n.x(),n.y(),n.z()},center)};
     }
-    for(auto id:d.supportPointIds){const auto p=m.positions.at(id);d.planeCost+=huber((dot(plane.normal,p)+plane.offset)/d.noise);d.curvedCost+=huber(surfaceResidual(m.evidence,p)/d.noise);}
-    const double count=double(d.supportPointIds.size()),penalty=o.modelComplexityWeight*std::log(count)/count;
-    d.planeCost=d.planeCost/count+3*penalty;d.curvedCost=d.curvedCost/count+(sphere?4:5)*penalty;
+    for(auto id:observations){const auto p=m.positions.at(id);d.planeCost+=huber((dot(plane.normal,p)+plane.offset)/d.noise);d.curvedCost+=huber(surfaceResidual(m.evidence,p)/d.noise);}
+    const double count=double(observations.size()),penalty=o.modelComplexityWeight*std::log(count)/count;
+    d.planeCost=d.planeCost/count+3*penalty;d.curvedCost=d.curvedCost/count+(sphere?4:cone?6:5)*penalty;
     if(d.planeCost-d.curvedCost<o.minimumModelGain)fail(d,"PlanarAlternativePreferred");
 }
 } // namespace
@@ -348,9 +378,22 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
             ids.erase(std::remove_if(ids.begin(),ids.end(),[&](auto id){return length(subtract(m.positions.at(id),center))<=1e-12;}),ids.end());
             m.positions.clear();for(auto id:ids)m.positions.emplace(id,map.at(id)->position);
         }
-        if(d.kind==PrimitiveKind::Plane || d.kind==PrimitiveKind::Sphere || d.kind==PrimitiveKind::Cylinder) {
+        if(const auto* cone=std::get_if<ConeEvidence>(&m.evidence)) {
+            const auto axis=normalized(cone->cone.axisDirection);
+            auto& ids=d.supportPointIds;
+            ids.erase(std::remove_if(ids.begin(),ids.end(),[&](auto id){
+                const auto point=m.positions.at(id);
+                const auto q=subtract(point,cone->cone.apex);
+                return dot(q,axis)<=0 || length(cross(q,axis))<=1e-12 ||
+                    surfaceResidual(m.evidence,point)>options.detection.cone.distanceThreshold;
+            }),ids.end());
+            m.positions.clear();for(auto id:ids)m.positions.emplace(id,map.at(id)->position);
+        }
+        if(d.kind!=PrimitiveKind::Torus) {
             if(d.supportPointIds.size()>=3){planeFit(m);buildDomain(m,settings,0);}
-            if(d.area<=0 || d.coveredPoints<settings.minimumSurfacePoints){d.verdict=SupportVerdict::NeedsMoreSupport;d.reasons.emplace_back("InsufficientTwoDimensionalSupport");}
+            const auto support=d.kind==PrimitiveKind::Cone?d.effectivePoints:d.coveredPoints;
+            if(d.area<=0 || support<settings.minimumSurfacePoints){d.verdict=SupportVerdict::NeedsMoreSupport;d.reasons.emplace_back("InsufficientTwoDimensionalSupport");}
+        }
         }
         metrics.push_back(std::move(m));
     }
@@ -394,6 +437,8 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
         }
         if(m.geometryValid && (d.kind==PrimitiveKind::Sphere || d.kind==PrimitiveKind::Cylinder) && d.supportPointIds.size()>=3)
             curvedChecks(m,o,d.kind==PrimitiveKind::Sphere?options.detection.sphere.distanceThreshold:options.detection.cylinder.distanceThreshold,report.reference);
+        if(d.kind==PrimitiveKind::Cone && d.verdict==SupportVerdict::Accepted)
+            curvedChecks(m,o,options.detection.cone.distanceThreshold,report.reference);
         if(d.verdict==SupportVerdict::Accepted) {
             if(d.kind==PrimitiveKind::Plane && report.reference.available) {
                 // Freeze rejection metrics above; clipping can only create accepted subdomains.
@@ -404,7 +449,7 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
             }
             if(d.verdict==SupportVerdict::Accepted) {
                 auto e=m.evidence;
-                const bool finite=d.kind==PrimitiveKind::Plane || d.kind==PrimitiveKind::Sphere || d.kind==PrimitiveKind::Cylinder;
+                const bool finite=d.kind!=PrimitiveKind::Torus;
                 std::visit([&](auto& s){s.supportPointIds=finite?m.domain.coveredPointIds:d.supportPointIds;double sum=0;s.maxAbsoluteResidual=0;for(auto id:s.supportPointIds){const double r=surfaceResidual(e,map.at(id)->position);sum+=r;s.maxAbsoluteResidual=std::max(s.maxAbsoluteResidual,r);}if(!s.supportPointIds.empty())s.meanAbsoluteResidual=sum/s.supportPointIds.size();s.coverage=double(s.supportPointIds.size())/std::max<std::size_t>(1,points.size());},e);
                 retained.push_back(std::move(e));
             }
@@ -434,6 +479,20 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
     }
     retained.clear();for(auto& item:equations) {
         auto& evidence=item.second;
+        if (auto* cone=std::get_if<ConeEvidence>(&evidence)) {
+            const auto axis=normalized(cone->cone.axisDirection);
+            const auto u=tangent(axis),v=cross(axis,u);
+            cone->axialMinimum=INFINITY;cone->axialMaximum=-INFINITY;
+            std::vector<double> angles;
+            for (auto id:cone->supportPointIds) {
+                const auto q=subtract(map.at(id)->position,cone->cone.apex);
+                const double axial=dot(q,axis);
+                cone->axialMinimum=std::min(cone->axialMinimum,axial);
+                cone->axialMaximum=std::max(cone->axialMaximum,axial);
+                angles.push_back(std::atan2(dot(q,v),dot(q,u)));
+            }
+            cone->angularCoverage=angularSpan(std::move(angles))/(2*pi);
+        }
         std::visit([&](auto& s){double sum=0;s.maxAbsoluteResidual=0;
             for(auto id:s.supportPointIds){const double r=surfaceResidual(evidence,map.at(id)->position);sum+=r;s.maxAbsoluteResidual=std::max(s.maxAbsoluteResidual,r);}
             s.meanAbsoluteResidual=s.supportPointIds.empty()?0:sum/s.supportPointIds.size();
@@ -459,7 +518,8 @@ std::string serializeSurfaceSupportReport(const SurfaceSupportValidationReport& 
     option("density_reference_area_quantile",o.referenceAreaQuantile);option("density_reference_max_log_spread",o.referenceMaxLogSpread);
     option("support_min_expected_points",o.minimumExpectedPoints);option("support_grid_spacing_multiplier",o.gridSpacingMultiplier);option("plane_min_occupied_cell_ratio",o.minimumOccupiedCellRatio);
     option("curvature_noise_floor_tolerance_fraction",o.noiseFloorToleranceFraction);option("curved_model_complexity_weight",o.modelComplexityWeight);option("curved_min_model_gain",o.minimumModelGain);option("plane_preference_min_reference_area_fraction",o.planePreferenceMinReferenceAreaFraction);
-    s<<"},\"decisions\":[";
+    s<<"},\"plane_hole_recovered_points\":"<<r.planeHoleRecoveredPoints
+     <<",\"plane_relaxed_recovered_points\":"<<r.planeRelaxedRecoveredPoints<<",\"decisions\":[";
     bool first=true;for(const auto& d:r.decisions){if(!first)s<<',';first=false;
         s<<"{\"proposal_id\":"<<d.proposalId<<",\"patch_id\":"<<d.patchId<<",\"kind\":"<<int(d.kind)<<",\"verdict\":\""<<supportVerdictName(d.verdict)<<"\",\"point_count\":"<<d.pointCount<<",\"covered_points\":"<<d.coveredPoints<<",\"effective_points\":"<<d.effectivePoints<<",\"final_covered_points\":"<<d.finalCoveredPoints;
         auto field=[&](const char* name,double v){s<<",\""<<name<<"\":";number(v);};
