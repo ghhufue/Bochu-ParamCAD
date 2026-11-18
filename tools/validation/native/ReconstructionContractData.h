@@ -1,7 +1,7 @@
 #pragma once
 
 #include <reconstruction/data/PointStore.h>
-#include <reconstruction/recognition/ProjectionExtrusion.h>
+#include <reconstruction/parts/ProjectionExtrusion.h>
 #include <QJsonArray>
 #include <QJsonObject>
 

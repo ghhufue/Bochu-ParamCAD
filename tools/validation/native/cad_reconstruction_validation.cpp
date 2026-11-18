@@ -1,3 +1,5 @@
+#include "reconstruction/pipeline/ParametricReconstruction.h"
+#include "reconstruction/recognition/RecognitionAnalysisOptions.h"
 #include "ReconstructionContractStages.h"
 // Repository-owned validation: generate exact STEP fixtures, then exercise the
 // same cloud -> semantic features -> ModelingCore path as the desktop client.
@@ -54,7 +56,7 @@
 #include <modeling/StepExporter.h>
 #include <random>
 #include <reconstruction/modeling/ModelingAdapter.h>
-#include <reconstruction/detection/PrimitiveDetector.h>
+#include <reconstruction/segmentation/PrimitiveDetector.h>
 #include <reconstruction/recognition/ThroughHoleRecognizer.h>
 #include <stdexcept>
 #ifdef _WIN32

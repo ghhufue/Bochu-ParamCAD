@@ -1,6 +1,6 @@
 #pragma once
-#include "reconstruction/detection/PrimitiveDetector.h"
-#include "reconstruction/analysis/SurfaceAnalysis.h"
+#include "reconstruction/segmentation/PrimitiveDetector.h"
+#include "reconstruction/surface/SurfaceAnalysis.h"
 #include "modeling/PrimitiveParams.h"
 #include <optional>
 namespace reconstruction {

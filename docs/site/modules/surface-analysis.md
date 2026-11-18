@@ -15,6 +15,7 @@
 - `validateSurfaceSupport()`：按有限连通域检查面支撑，输出接受集与诊断；
 - `indexSurfaceEvidence()`：验证后重建面片与关系，保留原始提案；
 - `revalidateSurfaceSupportOnSource()`：在同源原始观测上独立补证、验证，再更新工作分析；
+- `resolveSurfaceOwnership()`：将源点分析发布为唯一点归属，执行大平面优先、冻结参考复验和有界重新分配；
 - `inferPatchRelations()` / `inferSurfaceRelations()`：对已有面片或自定义关系节点推断关系；
 - `applySurfaceRelationHints()`：校验并确认人工关系；
 - `optimizeSurfaceRelations()`：对可接受的关系子集做观测约束下的联合优化；
@@ -64,7 +65,7 @@
 
 **有限支撑验证。** 默认使用 `enforce`。从高置信度大平面建立固定参考密度，按连通域检查面密度与内部占用；参考不足或不稳定时明确回退到局部支撑。球面另检查立体角与较小方向展开角，圆柱检查连续绕轴展开角，二者都要求弓高超过噪声且优于稳健平面替代。可靠点建立有限域后，域内全部有效观测计入覆盖，孔洞和域外线尾保留。具体阈值与面积口径统一放在[面密度与曲面展开验证](/algorithms/surface-support-validation)。
 
-**原始点与最终归属。** 工作点、原始观测分别建立统计上下文，不能混用密度。客户端 `analysePointCloud()` 在源点补证后处理独占归属；通过验证的大平面优先保留有限域和原容差内的点。归属后按冻结参考再验证，释放点最多重分配一轮并复验。未解释点保留，显示网格不能重新跨接拒绝域。核心分析仍可保留重叠证据，不把客户端独占标签当作唯一识别依据。
+**原始点与最终归属。** 工作点、原始观测分别建立统计上下文，不能混用密度。核心 `resolveSurfaceOwnership()`在源点补证后处理独占归属；通过验证的大平面优先保留有限域和原容差内的点。归属后按冻结参考再验证，释放点最多重分配一轮并复验。该接口只使用源点ID和显式设置，检查快照及验证签名，取消或失败时保持输出不变。客户端只映射文档行和描述结果。未解释点保留，显示网格不能重新跨接拒绝域；用于识别的原分析仍可保留重叠证据。
 
 **关系推断。** 两个面片先做包围盒距离剪枝，再用网格邻域确认是否在距离容差内相邻。随后按基元类型追加关系：
 
@@ -92,17 +93,18 @@
 
 | 内容 | 路径 |
 | --- | --- |
-| 分析入口与公共类型 | `core/geometric_reconstruction/include/reconstruction/analysis/SurfaceAnalysis.h` |
-| 证据汇集与分析组合 | `core/geometric_reconstruction/src/analysis/SurfaceAnalysis.cpp` |
-| 自动平面拓展 | `core/geometric_reconstruction/src/detection/PlaneSupportRecovery.cpp` |
-| 有限面域与支撑验证 | `core/geometric_reconstruction/src/analysis/SurfaceFootprint.cpp`、`SurfaceSupportValidation.cpp` |
-| 原始点集合归属与复验 | `apps/ParamCAD Studio/src/io/PointCloudAnalysis.cpp` |
-| 面片索引与关系推断入口 | `core/geometric_reconstruction/src/analysis/SurfacePatches.cpp` |
-| 关系计算 | `core/geometric_reconstruction/src/analysis/SurfaceRelations.cpp` |
-| 关系优化 | `core/geometric_reconstruction/src/analysis/RelationOptimization.cpp` |
-| 局部观测恢复 | `core/geometric_reconstruction/src/analysis/LocalRecovery.cpp` |
-| 快照指纹与复用判定 | `core/geometric_reconstruction/src/analysis/AnalysisSnapshot.cpp` |
-| 修复合并与复验 | `core/geometric_reconstruction/src/recognition/RepairTransaction.cpp` |
+| 分析入口与公共类型 | `core/geometric_reconstruction/include/reconstruction/surface/SurfaceAnalysis.h` |
+| 证据汇集与分析组合 | `core/geometric_reconstruction/src/surface/SurfaceAnalysis.cpp` |
+| 自动平面拓展 | `core/geometric_reconstruction/src/surface/expansion/PlaneSupportRecovery.cpp` |
+| 有限面域与支撑验证 | `core/geometric_reconstruction/src/surface/SurfaceFootprint.cpp`、`SurfaceSupportValidation.cpp` |
+| 原始点集合归属与复验 | `core/geometric_reconstruction/src/surface/SurfaceOwnership.cpp` |
+| 客户端数据与结果适配 | `apps/ParamCAD Studio/src/io/PointCloudAnalysis.cpp` |
+| 面片索引与关系推断入口 | `core/geometric_reconstruction/src/surface/SurfacePatches.cpp` |
+| 关系计算 | `core/geometric_reconstruction/src/surface/SurfaceRelations.cpp` |
+| 关系优化 | `core/geometric_reconstruction/src/surface/RelationOptimization.cpp` |
+| 局部观测恢复 | `core/geometric_reconstruction/src/surface/LocalRecovery.cpp` |
+| 快照指纹与复用判定 | `core/geometric_reconstruction/src/surface/AnalysisSnapshot.cpp` |
+| 修复合并与复验 | `core/geometric_reconstruction/src/pipeline/recovery/RepairTransaction.cpp` |
 
 ## 测试与诊断
 

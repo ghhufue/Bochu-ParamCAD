@@ -1,7 +1,7 @@
 #pragma once
 
 #include "io/PlyReader.h"
-#include <reconstruction/analysis/SurfaceAnalysis.h>
+#include <reconstruction/surface/SurfaceAnalysis.h>
 
 #include <QString>
 #include <QJsonObject>

@@ -21,7 +21,7 @@
 5. 尺度未知时要求用户确认“1 个源单位 = 1 毫米”，取消则退出；
 6. 尺度确认会打开嵌套事件循环，返回后重新比对点云、模型与视口实体修订，防止期间发生导入或编辑。
 
-分支选择只取决于是否存在模板约束：`hints.empty() ? Conventional : Guided`。模板与常规两条分支最终都调用同一个 `reconstructGuidedSolid`，区别仅是是否传入模板、以及模板选区是否参与拟合与复验（`core/geometric_reconstruction/src/recognition/guided/GuidedSolidRecognizer.cpp`）。人工关系随快照一起传入，不因为分支不同而被忽略。
+分支选择只取决于是否存在模板约束：`hints.empty() ? Conventional : Guided`。模板与常规两条分支最终都调用同一个 `reconstructGuidedSolid`，区别仅是是否传入模板、以及模板选区是否参与拟合与复验（`core/geometric_reconstruction/src/pipeline/guided/GuidedSolidRecognizer.cpp`）。人工关系随快照一起传入，不因为分支不同而被忽略。
 
 装配回退必须同时满足以下条件（`apps/ParamCAD Studio/src/app/CadReconstructionTask.cpp`）：
 

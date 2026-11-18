@@ -1,0 +1,125 @@
+#pragma once
+#include "reconstruction/data/PointStore.h"
+#include "reconstruction/recognition/CompoundRecognition.h"
+#include "reconstruction/parts/ProjectionExtrusion.h"
+#include <functional>
+#include <string>
+
+namespace reconstruction {
+struct AssemblyOptions {
+    double distanceTolerance=0; // Millimetres. Zero estimates noise from observations.
+    std::size_t maximumWorkingPoints=200000;
+    std::size_t neighbors=32,minimumPatchPoints=24;
+    std::size_t maximumPrimitiveAttempts=32;
+    double normalAngleRadians=.174532925199433;
+    double connectivityFactor=2.5,alphaFactor=2.5;
+    bool buildSolids=true;
+    // Zero disables projection-based recovery.
+    std::size_t maximumProjectionParts=6;
+    // Refit open groups from their full observations after global sampling.
+    std::size_t maximumLocalProfileAttempts=48;
+    bool enableSpecializedRecovery=true;
+    std::optional<ProjectionExtrusionOptions> projectionOptions;
+
+    // Closure and local-recovery gates previously embedded in the assembly
+    // implementation. Defaults reproduce the historical behaviour.
+    std::size_t minimumPartPatches=4, maximumPartPatches=32;
+    std::size_t maximumClosurePatches=128, maximumClosureVertices=4096;
+    double weldToleranceMultiplier=4;
+    double minimumPartSpanMultiplier=5;
+    std::size_t minimumClosureSamples=80, maximumClosureSamples=20000;
+    double closureSampleToleranceMultiplier=4;
+    double curvedClosureCoverage=0.95;
+    std::size_t minimumClosureConflicts=2, closureConflictPointDivisor=200;
+    std::size_t minimumProjectionPartPoints=60;
+    double patchSpacingToleranceMultiplier=2;
+    double connectionToleranceMultiplier=2;
+    double minimumConvexLinkFraction=0.7;
+    std::size_t minimumLinkCount=3;
+    std::size_t minimumPartPointsForLocalRecovery=400;
+    std::size_t minimumProfileSplitPoints=600;
+    std::size_t minimumParentSplitPoints=1200;
+    std::size_t minimumLargeParentPoints=3000;
+    std::size_t minimumHugeParentPoints=6000;
+    std::size_t minimumProfileSamples=600;
+    std::size_t minimumLargeProfileSamples=3000;
+    double minimumRetainedFraction=0.98;
+    std::size_t minimumResidualSamples=24;
+    double minimumParentSupportFraction=0.90;
+    std::size_t minimumPlaneCount=8, maximumPlaneCount=64;
+    std::size_t maximumBroadPairs=3, maximumProfilePairs=8;
+};
+// Counters only: diagnostics do not repair, filter or change recovered geometry.
+struct BoundaryRecoveryDiagnostics {
+    std::size_t tracedLoops=0,nonSimpleAlphaLoops=0,nonSimpleSimplifiedLoops=0;
+    std::size_t nonSimpleRecoveredLoops=0,discardedConstraintLoops=0;
+    std::size_t splitAlphaLoops=0,rejectedAlphaLoops=0,simplificationFallbacks=0;
+    std::size_t constraintFallbacks=0,snappingFallbacks=0,topologyFallbacks=0;
+};
+enum class BoundaryRevisionSource { ConvexSupportPlanes, MergedCoplanarPatch };
+
+// The boundary as recovered from working observations before shell closure.
+struct ObservedPatchBoundary {
+    modeling::Vec3 normal{};
+    std::vector<std::vector<modeling::Vec3>> loops;
+    std::size_t snappedVertices = 0;
+    BoundaryRevisionSource revisionSource = BoundaryRevisionSource::ConvexSupportPlanes;
+};
+
+struct FiniteSurfacePatch {
+    std::size_t id=0;
+    modeling::Vec3 origin{},normal{},xDirection{},lower{},upper{};
+    double spacing=0,residual=0;
+    bool planar=false,orientationKnown=false;
+    std::vector<PointId> pointIds;
+    // Ordered finite boundaries in world coordinates. First loop encloses the
+    // largest area; additional loops can describe holes or disconnected islands.
+    std::vector<std::vector<modeling::Vec3>> loops;
+    std::size_t snappedVertices=0;
+    BoundaryRecoveryDiagnostics boundaryDiagnostics;
+    // Retained when closure replaces or removes the observed loops.
+    std::optional<ObservedPatchBoundary> boundaryBeforeClosure;
+    // Working IDs support the fitted plane and observed loops. pointIds
+    // records the separate assignment from the full-resolution snapshot.
+    std::vector<PointId> workingPointIds;
+};
+struct PatchConnection {
+    std::size_t first=0,second=0;
+    bool convex=false;
+    std::size_t observations=0;
+    double distance=0;
+    bool accepted=false,orientationKnown=false;
+};
+struct AssemblyPart {
+    std::size_t id=0;
+    std::vector<std::size_t> patchIds;
+    std::vector<PointId> pointIds;
+    modeling::Vec3 lower{},upper{};
+    bool closed=false,orientationKnown=false;
+    bool normalOrientationInferred=false;
+    std::size_t openEdges=0,nonmanifoldEdges=0;
+    double confidence=0;
+    std::string status,reason;
+    std::optional<ProjectionExtrusionResult> projection;
+    std::vector<PointId> workingPointIds;
+};
+struct AssemblyReconstructionResult {
+    std::size_t inputPoints=0,workingPoints=0;
+    double distanceTolerance=0;
+    std::vector<FiniteSurfacePatch> patches;
+    std::vector<PatchConnection> connections;
+    std::vector<AssemblyPart> parts;
+    std::vector<PointId> unassignedPointIds;
+    // CAD contains only parts that pass geometric validation and B-Rep checks.
+    // candidate.surfaceCoverage counts observations assigned to those parts;
+    // it is not a source completeness score or an independent surface distance.
+    CompoundCandidate candidate;
+    std::vector<PointId> unassignedWorkingPointIds;
+};
+// Observation-only convex-patch decomposition. Candidates are not asserted to
+// be original assembly instances; concave parts/contacts can remain ambiguous.
+// No source shape, file path, reference labels or topology input is accepted.
+bool reconstructAssembly(const PointStore& points,const AssemblyOptions& options,
+    AssemblyReconstructionResult& output,std::string& error,
+    const std::function<bool()>& cancelled={});
+}

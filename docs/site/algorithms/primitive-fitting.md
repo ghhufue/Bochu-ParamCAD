@@ -1,6 +1,6 @@
 # 解析曲面拟合和连通扩展
 
-曲面证据由 `core/geometric_reconstruction/src/detection` 生成：CGAL 6.2.1 的 Efficient RANSAC 提出候选，项目代码归一化参数、按支持点精修、计算残差与覆盖率，最后交给多轮检测做区域级竞争。证据只是候选，不保证对应真实 CAD 面；可能产生部分面、重复面或伪面。
+曲面证据由 `core/geometric_reconstruction/src/segmentation` 生成：CGAL 6.2.1 的 Efficient RANSAC 提出候选，项目代码归一化参数、按支持点精修、计算残差与覆盖率，最后交给多轮检测做区域级竞争。证据只是候选，不保证对应真实 CAD 面；可能产生部分面、重复面或伪面。
 
 ## 基元的参数表达
 

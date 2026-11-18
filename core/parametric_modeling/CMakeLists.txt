@@ -13,6 +13,14 @@ find_package(OpenCASCADE REQUIRED COMPONENTS
     DataExchange
 )
 
+# Numerical reconstruction only needs the POD geometry types, not the CAD engine.
+add_library(CadGeometryTypes INTERFACE)
+add_library(CadModelCore::GeometryTypes ALIAS CadGeometryTypes)
+target_compile_features(CadGeometryTypes INTERFACE cxx_std_17)
+target_include_directories(CadGeometryTypes INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+
 add_library(CadModelCore
     src/ModelingCore.cpp
     src/PartDocument.cpp
@@ -45,6 +53,7 @@ target_include_directories(CadModelCore
 )
 target_link_directories(CadModelCore PRIVATE ${OpenCASCADE_LIBRARY_DIR})
 target_link_libraries(CadModelCore PUBLIC
+    CadModelCore::GeometryTypes
     TKernel
     TKMath
     TKG2d

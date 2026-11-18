@@ -5,8 +5,8 @@
 #include "io/ProjectStore.h"
 #include "io/FeatureCodec.h"
 #include <reconstruction/modeling/ModelingAdapter.h>
-#include <reconstruction/recognition/ProjectionExtrusion.h>
-#include <reconstruction/recognition/ProjectionSettings.h>
+#include <reconstruction/parts/ProjectionExtrusion.h>
+#include <reconstruction/parts/ProjectionSettings.h>
 #include <modeling/StepExporter.h>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepBndLib.hxx>

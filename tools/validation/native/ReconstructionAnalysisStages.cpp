@@ -1,10 +1,11 @@
+#include "reconstruction/pipeline/ParametricReconstruction.h"
 #include "ReconstructionContractData.h"
 #include "io/FeatureCodec.h"
 
 #include "common/Math3.h"
 #include "preprocessing/detail/PreprocessingInternal.h"
-#include "recognition/RepairInternal.h"
-#include <reconstruction/recognition/GuidedSolidRecognizer.h>
+#include "pipeline/recovery/RepairInternal.h"
+#include <reconstruction/pipeline/GuidedSolidRecognizer.h>
 #include <reconstruction/recognition/MixedFeatureRecognizer.h>
 #include <reconstruction/recognition/ThroughHoleRecognizer.h>
 

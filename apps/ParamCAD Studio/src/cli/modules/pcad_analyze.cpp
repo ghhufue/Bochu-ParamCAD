@@ -1,6 +1,6 @@
 #include "ModuleCli.h"
 
-#include <reconstruction/analysis/SurfaceAnalysis.h>
+#include <reconstruction/surface/SurfaceAnalysis.h>
 #include <reconstruction/preprocessing/PointCloudPreprocessor.h>
 #include <reconstruction/settings/ModuleConfig.h>
 

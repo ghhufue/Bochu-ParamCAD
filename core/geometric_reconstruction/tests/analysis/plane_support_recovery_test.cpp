@@ -1,5 +1,5 @@
-#include "reconstruction/detection/PlaneSupportRecovery.h"
-#include "reconstruction/analysis/SurfaceAnalysis.h"
+#include "reconstruction/surface/PlaneSupportRecovery.h"
+#include "reconstruction/surface/SurfaceAnalysis.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>

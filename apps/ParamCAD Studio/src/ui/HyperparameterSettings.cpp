@@ -3,7 +3,7 @@
 #include "app/CaptureSettings.h"
 #include "app/SchemaTranslation.h"
 
-#include <reconstruction/recognition/ProjectionSettings.h>
+#include <reconstruction/parts/ProjectionSettings.h>
 #include <reconstruction/settings/ModuleConfig.h>
 #include <reconstruction/settings/ModuleSettings.h>
 

@@ -1,4 +1,4 @@
-#include "recognition/projection/ProjectionInternal.h"
+#include "parts/projection/ProjectionInternal.h"
 
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>

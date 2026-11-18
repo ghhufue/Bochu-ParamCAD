@@ -1,8 +1,8 @@
 #include "ReconstructionContractData.h"
 
 #include "io/FeatureCodec.h"
-#include "recognition/projection/ProjectionInternal.h"
-#include <reconstruction/recognition/ProjectionSettings.h>
+#include "parts/projection/ProjectionInternal.h"
+#include <reconstruction/parts/ProjectionSettings.h>
 
 #include <algorithm>
 

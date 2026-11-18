@@ -2,7 +2,7 @@
 #include <QCoreApplication>
 #include "io/PointCloudAdapter.h"
 #include <modeling/ModelingCore.h>
-#include <reconstruction/recognition/ProjectionSettings.h>
+#include <reconstruction/parts/ProjectionSettings.h>
 #include <reconstruction/settings/ModuleConfig.h>
 
 #include <QElapsedTimer>

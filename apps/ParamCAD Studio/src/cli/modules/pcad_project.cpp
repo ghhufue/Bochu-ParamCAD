@@ -3,8 +3,8 @@
 
 #include <modeling/ModelingCore.h>
 #include <modeling/StepExporter.h>
-#include <reconstruction/recognition/ProjectionExtrusion.h>
-#include <reconstruction/recognition/ProjectionSettings.h>
+#include <reconstruction/parts/ProjectionExtrusion.h>
+#include <reconstruction/parts/ProjectionSettings.h>
 
 #include <QCoreApplication>
 #include <QElapsedTimer>

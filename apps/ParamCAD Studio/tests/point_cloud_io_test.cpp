@@ -2,7 +2,7 @@
 #include "io/PointCloudAdapter.h"
 
 #include <reconstruction/recognition/BoxRecognizer.h>
-#include <reconstruction/detection/PrimitiveDetector.h>
+#include <reconstruction/segmentation/PrimitiveDetector.h>
 
 #include <QDir>
 #include <QFile>

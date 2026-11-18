@@ -2,7 +2,7 @@
 #include "rendering/PointCloudActor.h"
 #include "rendering/SketchActor.h"
 
-#include <reconstruction/recognition/ProjectionExtrusion.h>
+#include <reconstruction/parts/ProjectionExtrusion.h>
 
 #include <vtkActor.h>
 #include <vtkCellArray.h>

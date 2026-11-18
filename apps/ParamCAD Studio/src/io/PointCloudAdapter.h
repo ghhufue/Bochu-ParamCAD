@@ -4,7 +4,7 @@
 
 #include <reconstruction/preprocessing/PointCloudPreprocessor.h>
 #include <reconstruction/data/PointStore.h>
-#include <reconstruction/detection/PrimitiveDetector.h>
+#include <reconstruction/segmentation/PrimitiveDetector.h>
 #include <reconstruction/settings/ModuleConfig.h>
 
 #include <QString>

@@ -1,7 +1,7 @@
 #pragma once
 #include "core/PointCloudSelection.h"
 #include <reconstruction/settings/SurfaceMeshingSettings.h>
-#include <reconstruction/analysis/SurfaceFootprint.h>
+#include <reconstruction/surface/SurfaceFootprint.h>
 #include <array>
 #include <map>
 

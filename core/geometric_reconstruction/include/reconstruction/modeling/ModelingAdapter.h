@@ -1,8 +1,8 @@
 #pragma once
 
 #include "modeling/ModelingCore.h"
-#include "reconstruction/data/ReconstructionCandidate.h"
-#include "reconstruction/recognition/CompoundRecognizer.h"
+#include "reconstruction/recognition/FeatureCandidate.h"
+#include "reconstruction/recognition/CompoundRecognition.h"
 
 #include <optional>
 

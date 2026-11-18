@@ -19,6 +19,8 @@
 
 客户端 `src/` 内部按职责分为 `app`（工作区与命令控制器）、`ui`（面板和视口交互）、`io`（STEP、PLY、工程文件适配）、`rendering`（几何到 VTK actor）和 `core`（场景、相机与草图坐标）。
 
+点云转模型的源码按 `preprocessing/segmentation`、`surface`、`recognition`、`parts`、`modeling`组织，跨阶段编排位于 `pipeline`。数值库与CAD上层已拆分，公开接口、兼容路径和CMake目标见[点云转模型的代码边界](/architecture/point-cloud-code-boundaries)。
+
 ## 开发依赖与构建目标
 
 | 依赖 | 当前要求 | 说明 |

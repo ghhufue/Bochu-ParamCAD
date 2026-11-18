@@ -1,0 +1,85 @@
+# Explicit source ownership; a source belongs to exactly one library.
+
+set(RECONSTRUCTION_DATA_SOURCES
+    src/data/PointStore.cpp
+    src/data/PrimitiveGeometry.cpp
+)
+
+set(RECONSTRUCTION_INPUT_SOURCES
+    src/preprocessing/Downsampling.cpp
+    src/preprocessing/NormalEstimation.cpp
+    src/preprocessing/OutlierFilter.cpp
+    src/preprocessing/PointCloudPreprocessor.cpp
+    src/preprocessing/PointCloudOperations.cpp
+)
+
+set(RECONSTRUCTION_SEGMENTATION_SOURCES
+    src/segmentation/PrimitiveDetector.cpp
+    src/segmentation/MultiScaleDetector.cpp
+    src/segmentation/cgal/CgalEfficientRansacDetector.cpp
+    src/segmentation/cgal/CurvedEvidence.cpp
+    src/segmentation/cgal/CylinderEvidence.cpp
+    src/segmentation/cgal/EvidenceGeometry.cpp
+    src/segmentation/cgal/PlaneEvidence.cpp
+    src/segmentation/cgal/RansacOptions.cpp
+)
+
+set(RECONSTRUCTION_SURFACES_SOURCES
+    src/surface/AnalysisSnapshot.cpp
+    src/surface/RepairSnapshot.cpp
+    src/surface/LocalRecovery.cpp
+    src/surface/RelationOptimization.cpp
+    src/surface/SurfaceFootprint.cpp
+    src/surface/SurfaceSupportValidation.cpp
+    src/surface/SurfaceAnalysis.cpp
+    src/surface/SurfaceGeometry.cpp
+    src/surface/SurfacePatches.cpp
+    src/surface/SurfaceRelations.cpp
+    src/surface/expansion/PlaneSupportRecovery.cpp
+    src/surface/SurfaceOwnership.cpp
+)
+
+set(RECONSTRUCTION_WORKFLOW_SOURCES
+    src/pipeline/recovery/RepairTransaction.cpp
+    src/modeling/ModelingAdapter.cpp
+    src/settings/ModuleSettings.cpp
+    src/settings/ModuleConfig.cpp
+    src/recognition/AxisAlignedBoxRecognizer.cpp
+    src/recognition/BoxRecognizer.cpp
+    src/recognition/ParametricSolidRecognizer.cpp
+    src/parts/projection/ProjectionExtrusion.cpp
+    src/parts/projection/ProjectionProfile.cpp
+    src/parts/projection/ProjectionProposals.cpp
+    src/parts/projection/ProjectionScoring.cpp
+    src/parts/projection/ProjectionSearch.cpp
+    src/parts/projection/ProjectionSettings.cpp
+    src/parts/assembly/AssemblyReconstruction.cpp
+    src/parts/assembly/BoundaryGeometry.cpp
+    src/parts/assembly/AnalyticProfileClosure.cpp
+    src/parts/assembly/LocalProfileRecovery.cpp
+    src/parts/assembly/AnnularTubeClosure.cpp
+    src/parts/assembly/CircularSlabClosure.cpp
+    src/parts/assembly/FiniteBoundaries.cpp
+    src/parts/assembly/PartClosure.cpp
+    src/recognition/ThroughHoleRecognizer.cpp
+    src/recognition/compound/BoundaryValidation.cpp
+    src/recognition/compound/BoxCover.cpp
+    src/recognition/compound/CompoundRecognizer.cpp
+    src/recognition/compound/MaterialCells.cpp
+    src/recognition/compound/PlanarFrame.cpp
+    src/recognition/compound/PlanarGeometry.cpp
+    src/recognition/curved/BoundaryAssessment.cpp
+    src/recognition/curved/CapDetection.cpp
+    src/recognition/curved/CurvedFitting.cpp
+    src/recognition/curved/CurvedSolidRecognizer.cpp
+    src/pipeline/guided/GuidedSolidRecognizer.cpp
+    src/pipeline/guided/HintFitting.cpp
+    src/pipeline/guided/HintValidation.cpp
+    src/recognition/mixed/AttachedFeatures.cpp
+    src/recognition/mixed/HostDetection.cpp
+    src/recognition/mixed/MixedFeatureRecognizer.cpp
+    src/recognition/mixed/MixedMaterial.cpp
+    src/testing/SyntheticPointCloud.cpp
+    src/pipeline/RecognitionAnalysisOptions.cpp
+    src/pipeline/ParametricReconstruction.cpp
+)

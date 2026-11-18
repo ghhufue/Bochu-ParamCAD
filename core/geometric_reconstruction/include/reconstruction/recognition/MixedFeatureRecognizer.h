@@ -1,5 +1,5 @@
 #pragma once
-#include "reconstruction/recognition/CompoundRecognizer.h"
+#include "reconstruction/recognition/CompoundRecognition.h"
 namespace reconstruction {
 struct RecognitionSettings;
 

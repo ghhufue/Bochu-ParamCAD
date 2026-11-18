@@ -41,16 +41,16 @@
 
 | 当前代码 | 现状 | 修改方向 |
 | --- | --- | --- |
-| `core/geometric_reconstruction/src/detection/cgal/CgalEfficientRansacDetector.cpp` | 默认聚类半径与整组包围盒对角线有关；同类候选可汇集不相连的支撑 | 保留候选生成，不把 RANSAC 通过当作最终有限面片通过 |
-| `core/geometric_reconstruction/src/detection/cgal/CurvedEvidence.cpp` | 球面检查半径、距离、法线、点数 | 保留基本合法性检查；完整覆盖验证放在独立分析阶段 |
-| `core/geometric_reconstruction/src/detection/MultiScaleDetector.cpp` | 分族生成候选，按局部区域覆盖和代价竞争 | 保留原始候选来源；最终过滤后，被拒类型不得继续占据归属资格 |
-| `core/geometric_reconstruction/src/detection/PlaneSupportRecovery.cpp` | 邻域生长、重拟合和平面合并 | 候选恢复后验证；验证后的再次生长、合并必须使旧验证结果失效 |
-| `core/geometric_reconstruction/src/analysis/SurfaceAnalysis.cpp` | 候选收集后直接索引面片并推断关系 | 改为候选索引、建立参考、验证、重建有效面片和关系 |
-| `core/geometric_reconstruction/src/analysis/SurfacePatches.cpp` | 自动连通尺度由面片包围盒与点数推导 | 增加受参考间距限制的最终拆分，防止远处稀疏点撑大尺度 |
+| `core/geometric_reconstruction/src/segmentation/cgal/CgalEfficientRansacDetector.cpp` | 默认聚类半径与整组包围盒对角线有关；同类候选可汇集不相连的支撑 | 保留候选生成，不把 RANSAC 通过当作最终有限面片通过 |
+| `core/geometric_reconstruction/src/segmentation/cgal/CurvedEvidence.cpp` | 球面检查半径、距离、法线、点数 | 保留基本合法性检查；完整覆盖验证放在独立分析阶段 |
+| `core/geometric_reconstruction/src/segmentation/MultiScaleDetector.cpp` | 分族生成候选，按局部区域覆盖和代价竞争 | 保留原始候选来源；最终过滤后，被拒类型不得继续占据归属资格 |
+| `core/geometric_reconstruction/src/surface/expansion/PlaneSupportRecovery.cpp` | 邻域生长、重拟合和平面合并 | 候选恢复后验证；验证后的再次生长、合并必须使旧验证结果失效 |
+| `core/geometric_reconstruction/src/surface/SurfaceAnalysis.cpp` | 候选收集后直接索引面片并推断关系 | 改为候选索引、建立参考、验证、重建有效面片和关系 |
+| `core/geometric_reconstruction/src/surface/SurfacePatches.cpp` | 自动连通尺度由面片包围盒与点数推导 | 增加受参考间距限制的最终拆分，防止远处稀疏点撑大尺度 |
 | `apps/ParamCAD Studio/src/io/PointCloudAnalysis.cpp` | 原始点恢复后重新拆片；98% 重叠抑制与逐点残差决定 UI 归属 | 在归属前验证原始点候选，归属后复验，统一使用有效候选集合 |
 | `apps/ParamCAD Studio/src/rendering/PlanarSurfaceDomain.cpp` | 平面域、密度、孔洞和内部支撑逻辑集中在 Qt/VTK 客户端 | 抽取数值域构建能力到核心库，新增固定参考尺度的支撑检查 |
 | `apps/ParamCAD Studio/src/rendering/PointCloudSurfaceMesh.cpp` | 共面集合联合网格化，再分回集合 | 只能消费已接受的域，禁止联合网格化重新跨接被拒绝的空白 |
-| `core/geometric_reconstruction/src/analysis/AnalysisSnapshot.cpp` | 缓存比较未包含本次新增设置 | 加入全部影响验证、域构建及修复的设置和算法版本 |
+| `core/geometric_reconstruction/src/surface/AnalysisSnapshot.cpp` | 缓存比较未包含本次新增设置 | 加入全部影响验证、域构建及修复的设置和算法版本 |
 
 核心库继续保持对 Qt/VTK 无依赖。不能将正式过滤只写在渲染层，否则 CAD 识别仍可能消费错误几何。
 
@@ -415,16 +415,16 @@ bool validateSurfaceSupport(
 
 | 文件或目录 | 计划修改 |
 | --- | --- |
-| 新增 `core/geometric_reconstruction/include/reconstruction/analysis/SurfaceFootprint.h` | 脱离客户端的有限域及面积接口 |
-| 新增 `core/geometric_reconstruction/src/analysis/SurfaceFootprint.cpp` | 平面、球面和圆柱的有限域数值计算；必要时按图表拆分实现文件 |
-| 新增 `core/geometric_reconstruction/include/reconstruction/analysis/SurfaceSupportTypes.h` | 独立的设置、参考、状态及报告数据类型，避免头文件循环依赖 |
-| 新增 `core/geometric_reconstruction/include/reconstruction/analysis/SurfaceSupportValidation.h` | 验证接口 |
-| 新增 `core/geometric_reconstruction/src/analysis/SurfaceSupportValidation.cpp` | 密度参考、面支撑与类型门槛 |
-| `core/geometric_reconstruction/include/reconstruction/analysis/SurfaceAnalysis.h` | 接入设置、正式结果与候选诊断 |
-| `core/geometric_reconstruction/src/analysis/SurfaceAnalysis.cpp` | 调整候选、验证、正式索引及关系推断的顺序 |
-| `core/geometric_reconstruction/src/analysis/SurfacePatches.cpp` | 最终连通尺度约束及域拆分 |
-| `core/geometric_reconstruction/src/analysis/AnalysisSnapshot.cpp` | 设置比较、验证版本及上下文匹配 |
-| `core/geometric_reconstruction/src/analysis/LocalRecovery.cpp`、`RelationOptimization.cpp`、`src/recognition/RepairTransaction.cpp` | 几何变化后的复验及事务回退 |
+| 新增 `core/geometric_reconstruction/include/reconstruction/surface/SurfaceFootprint.h` | 脱离客户端的有限域及面积接口 |
+| 新增 `core/geometric_reconstruction/src/surface/SurfaceFootprint.cpp` | 平面、球面和圆柱的有限域数值计算；必要时按图表拆分实现文件 |
+| 新增 `core/geometric_reconstruction/include/reconstruction/surface/SurfaceSupportTypes.h` | 独立的设置、参考、状态及报告数据类型，避免头文件循环依赖 |
+| 新增 `core/geometric_reconstruction/include/reconstruction/surface/SurfaceSupportValidation.h` | 验证接口 |
+| 新增 `core/geometric_reconstruction/src/surface/SurfaceSupportValidation.cpp` | 密度参考、面支撑与类型门槛 |
+| `core/geometric_reconstruction/include/reconstruction/surface/SurfaceAnalysis.h` | 接入设置、正式结果与候选诊断 |
+| `core/geometric_reconstruction/src/surface/SurfaceAnalysis.cpp` | 调整候选、验证、正式索引及关系推断的顺序 |
+| `core/geometric_reconstruction/src/surface/SurfacePatches.cpp` | 最终连通尺度约束及域拆分 |
+| `core/geometric_reconstruction/src/surface/AnalysisSnapshot.cpp` | 设置比较、验证版本及上下文匹配 |
+| `core/geometric_reconstruction/src/surface/LocalRecovery.cpp`、`RelationOptimization.cpp`、`src/pipeline/recovery/RepairTransaction.cpp` | 几何变化后的复验及事务回退 |
 | `core/geometric_reconstruction/include/reconstruction/settings/ModuleConfig.h`、`src/settings/ModuleConfig.cpp` | 配置读取、序列化、校验及界面设置模型 |
 | `apps/ParamCAD Studio/config/analysis.conf` | 新增主要及高级超参数 |
 | `apps/ParamCAD Studio/src/io/PointCloudAnalysis.cpp` | 原始点补证、有效候选归属、最终复验及缓存失效 |

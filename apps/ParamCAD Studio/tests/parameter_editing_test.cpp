@@ -15,7 +15,7 @@
 #include "ui/panels/ProjectionSketchPanel.h"
 #include "ui/viewport/VTKViewer.h"
 #include <modeling/PrimitiveEditing.h>
-#include <reconstruction/recognition/ProjectionSettings.h>
+#include <reconstruction/parts/ProjectionSettings.h>
 #include <reconstruction/settings/ModuleConfig.h>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>

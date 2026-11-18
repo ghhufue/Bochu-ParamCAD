@@ -6,6 +6,8 @@ outline: [2, 3]
 
 从点云到可编辑 CAD，可以按五个问题理解：**点属于哪些面？面应拓展到哪里？这些面构成什么特征？哪些面属于同一个实体？怎样生成可编辑模型？** 下面按这些职责组织现有实现，具体接口和阈值放在对应模块及算法页。
 
+对应的本地目录、公开接口和库依赖见[点云转模型的代码边界](/architecture/point-cloud-code-boundaries)。
+
 ## 先看整体流程
 
 | 模块 | 回答的问题 | 主要产物 | 继续阅读 |
@@ -66,7 +68,7 @@ flowchart TD
 
 最近加入的密度与展开验证属于这一模块：平面262的跨空白连接是**面支撑问题**；近乎平的球面793是**弯曲类型证据不足**。两者都应在孔、凸台等特征判断之前处理。具体口径见[面密度与曲面展开验证](/algorithms/surface-support-validation)。
 
-实现入口：`recoverPlaneSupport()`、`validateSurfaceSupport()`、`indexSurfaceEvidence()`、`revalidateSurfaceSupportOnSource()`、`recognizeAndRepairParametricSolid()`。客户端的 `analysePointCloud()` 负责原始点集合发布前后的归属检查。
+实现入口：`recoverPlaneSupport()`、`validateSurfaceSupport()`、`indexSurfaceEvidence()`、`revalidateSurfaceSupportOnSource()`；唯一归属和归属后复验由核心的 `resolveSurfaceOwnership()`执行。识别后的修复事务由 `pipeline/`中的 `recognizeAndRepairParametricSolid()`组织。客户端的 `analysePointCloud()`负责数据适配和结果描述。
 
 ## 3. 特征与实体识别：判断哪里是孔、是什么类型
 

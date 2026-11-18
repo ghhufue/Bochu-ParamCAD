@@ -1,4 +1,4 @@
-#include "reconstruction/recognition/ProjectionSettings.h"
+#include "reconstruction/parts/ProjectionSettings.h"
 #include "reconstruction/settings/ModuleConfig.h"
 
 #include <cstdlib>

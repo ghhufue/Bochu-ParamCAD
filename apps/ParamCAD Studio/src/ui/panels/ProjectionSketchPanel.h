@@ -1,6 +1,6 @@
 #pragma once
 
-#include <reconstruction/recognition/ProjectionExtrusion.h>
+#include <reconstruction/parts/ProjectionExtrusion.h>
 
 #include <QWidget>
 

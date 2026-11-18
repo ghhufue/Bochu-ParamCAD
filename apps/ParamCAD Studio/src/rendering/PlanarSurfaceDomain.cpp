@@ -1,5 +1,5 @@
 #include "rendering/PlanarSurfaceDomain.h"
-#include <reconstruction/analysis/SurfaceFootprint.h>
+#include <reconstruction/surface/SurfaceFootprint.h>
 
 PointCloudSurfaceMesh meshPlanarSurfaceDomain(const std::vector<PlanarSurfaceSample>& input,
     const reconstruction::SurfaceMeshingSettings& settings,double maximumSupportSpacing)

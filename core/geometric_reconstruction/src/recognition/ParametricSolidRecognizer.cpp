@@ -1,4 +1,4 @@
-#include "reconstruction/recognition/CompoundRecognizer.h"
+#include "reconstruction/recognition/CompoundRecognition.h"
 #include "common/Math3.h"
 #include "reconstruction/recognition/ThroughHoleRecognizer.h"
 #include "reconstruction/recognition/MixedFeatureRecognizer.h"
@@ -84,16 +84,6 @@ bool recognizeOrientedComponents(const PointStore& points, const SurfaceAnalysis
     return recognized;
 }
 } // namespace
-
-bool reconstructParametricSolid(const PointStore &points, const PlaneDetectionOptions &planes,
-                                const CylinderDetectionOptions &cylinders,
-                                CompoundCandidate &output, std::string &error,
-                                const std::vector<PrimitiveEvidence>& seeds) {
-    output={};
-    SurfaceAnalysisResult analysis;
-    if (!analyzeSurfaces(points, recognitionAnalysisOptions(points, planes, cylinders), analysis, error, seeds)) return false;
-    return recognizeAndRepairParametricSolid(points, analysis, output, error);
-}
 
 bool recognizeParametricSolidFromAnalysis(const PointStore& points, const SurfaceAnalysisResult& analysis,
                                         CompoundCandidate& output, std::string& error,

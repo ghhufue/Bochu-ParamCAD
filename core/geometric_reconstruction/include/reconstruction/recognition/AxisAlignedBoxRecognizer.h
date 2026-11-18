@@ -1,6 +1,6 @@
 #pragma once
 
-#include "reconstruction/data/ReconstructionCandidate.h"
+#include "reconstruction/recognition/FeatureCandidate.h"
 
 #include <string>
 

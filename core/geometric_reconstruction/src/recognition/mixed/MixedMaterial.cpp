@@ -1,4 +1,5 @@
 #include "detail/MixedInternal.h"
+#include "reconstruction/recognition/CandidateMaterial.h"
 
 namespace reconstruction::detail::mixed {
 double median(std::vector<double> values) {
@@ -63,3 +64,9 @@ bool material(const CompoundCandidate& model,Vec3 p) {
     return true;
 }
 } // namespace reconstruction::detail::mixed
+
+namespace reconstruction {
+bool recognizedMaterialContains(const CompoundCandidate& candidate,modeling::Vec3 point) {
+    return detail::mixed::material(candidate,point);
+}
+} // namespace reconstruction

@@ -1,6 +1,6 @@
 # 二维轮廓与投影评分
 
-投影路径用于未闭合但有足够观测的部件：它沿候选轴把三维点压成二维截面，生成挤出与切除操作，再做临时试建与统一评分。实现位于 `core/geometric_reconstruction/src/recognition/projection`，对外入口是 `fitProjectionExtrusion`。这条路径只表达挤出类操作，不处理旋转、扫掠或放样。
+投影路径用于未闭合但有足够观测的部件：它沿候选轴把三维点压成二维截面，生成挤出与切除操作，再做临时试建与统一评分。实现位于 `core/geometric_reconstruction/src/parts/projection`，对外入口是 `fitProjectionExtrusion`。这条路径只表达挤出类操作，不处理旋转、扫掠或放样。
 
 ## 候选轴与截面观测
 

@@ -1,8 +1,8 @@
 #include "ModuleCli.h"
 
 #include <reconstruction/preprocessing/PointCloudPreprocessor.h>
-#include <reconstruction/recognition/AssemblyReconstruction.h>
-#include <reconstruction/recognition/ProjectionSettings.h>
+#include <reconstruction/parts/AssemblyReconstruction.h>
+#include <reconstruction/parts/ProjectionSettings.h>
 #include <reconstruction/settings/ModuleConfig.h>
 
 #include <QCoreApplication>

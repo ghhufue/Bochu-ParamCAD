@@ -1,7 +1,9 @@
-#include "detail/KdTree.h"
+#include "common/spatial/KdTree.h"
+#include "detail/PreprocessingInternal.h"
 #include "common/Parallel.h"
 
 namespace reconstruction::detail::preprocessing {
+using spatial::KdTree;
 std::vector<PointSample> removeOutliers(
     const std::vector<PointSample>& points,
     const PointCloudPreprocessingOptions& options,

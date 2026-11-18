@@ -90,13 +90,13 @@
 
 | 内容 | 路径 |
 | --- | --- |
-| 公开入口与选项 | `core/geometric_reconstruction/include/reconstruction/recognition/AssemblyReconstruction.h` |
-| 面片、分组、回填与调度 | `core/geometric_reconstruction/src/recognition/assembly/AssemblyReconstruction.cpp` |
-| 有限边界恢复 | `core/geometric_reconstruction/src/recognition/assembly/FiniteBoundaries.cpp` |
-| 轮廓几何与拓扑 | `core/geometric_reconstruction/src/recognition/assembly/BoundaryGeometry.cpp` |
-| 壳闭合与实体验证 | `core/geometric_reconstruction/src/recognition/assembly/PartClosure.cpp` |
-| 解析轮廓闭合 | `core/geometric_reconstruction/src/recognition/assembly/AnalyticProfileClosure.cpp` |
-| 环形管与圆盘闭合 | `core/geometric_reconstruction/src/recognition/assembly/AnnularTubeClosure.cpp`、`CircularSlabClosure.cpp` |
+| 公开入口与选项 | `core/geometric_reconstruction/include/reconstruction/parts/AssemblyReconstruction.h` |
+| 面片、分组、回填与调度 | `core/geometric_reconstruction/src/parts/assembly/AssemblyReconstruction.cpp` |
+| 有限边界恢复 | `core/geometric_reconstruction/src/parts/assembly/FiniteBoundaries.cpp` |
+| 轮廓几何与拓扑 | `core/geometric_reconstruction/src/parts/assembly/BoundaryGeometry.cpp` |
+| 壳闭合与实体验证 | `core/geometric_reconstruction/src/parts/assembly/PartClosure.cpp` |
+| 解析轮廓闭合 | `core/geometric_reconstruction/src/parts/assembly/AnalyticProfileClosure.cpp` |
+| 环形管与圆盘闭合 | `core/geometric_reconstruction/src/parts/assembly/AnnularTubeClosure.cpp`、`CircularSlabClosure.cpp` |
 | 默认装配参数 | `apps/ParamCAD Studio/config/assembly.conf` |
 
 ## 已知限制

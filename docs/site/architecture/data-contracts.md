@@ -39,7 +39,7 @@
 
 ## 证据、部件与特征 ID
 
-`SurfaceId` 是 `std::uint64_t`，0 为无效值，随 `PrimitiveEvidence` 一起传递。`indexSurfacePatches` 在建立面片索引时会把证据 ID 从头重编号为 1..N，因此**证据 ID 与面片 ID 的有效范围都是当前分析快照**，不能跨快照引用（`core/geometric_reconstruction/src/analysis/SurfacePatches.cpp`）。
+`SurfaceId` 是 `std::uint64_t`，0 为无效值，随 `PrimitiveEvidence` 一起传递。`indexSurfacePatches` 在建立面片索引时会把证据 ID 从头重编号为 1..N，因此**证据 ID 与面片 ID 的有效范围都是当前分析快照**，不能跨快照引用（`core/geometric_reconstruction/src/surface/SurfacePatches.cpp`）。
 
 | ID | 类型 | 分配方式 | 有效范围 |
 | --- | --- | --- | --- |

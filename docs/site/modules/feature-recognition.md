@@ -88,15 +88,15 @@
 
 | 内容 | 路径 |
 | --- | --- |
-| 模板与引导入口 | `core/geometric_reconstruction/include/reconstruction/recognition/GuidedSolidRecognizer.h` |
+| 模板与引导入口 | `core/geometric_reconstruction/include/reconstruction/pipeline/GuidedSolidRecognizer.h` |
 | 常规候选竞争 | `core/geometric_reconstruction/src/recognition/ParametricSolidRecognizer.cpp` |
-| 模板拟合 | `core/geometric_reconstruction/src/recognition/guided/GuidedSolidRecognizer.cpp` |
-| 模板边界复验 | `core/geometric_reconstruction/src/recognition/guided/HintValidation.cpp` |
+| 模板拟合 | `core/geometric_reconstruction/src/pipeline/guided/GuidedSolidRecognizer.cpp` |
+| 模板边界复验 | `core/geometric_reconstruction/src/pipeline/guided/HintValidation.cpp` |
 | 箱体识别 | `core/geometric_reconstruction/src/recognition/BoxRecognizer.cpp` |
 | 贯穿孔识别 | `core/geometric_reconstruction/src/recognition/ThroughHoleRecognizer.cpp` |
 | 宿主与混合特征 | `core/geometric_reconstruction/src/recognition/mixed/MixedFeatureRecognizer.cpp`、`AttachedFeatures.cpp` |
 | 独立曲面实体 | `core/geometric_reconstruction/src/recognition/curved/CurvedSolidRecognizer.cpp` |
-| 人工关系校验 | `core/geometric_reconstruction/src/analysis/SurfaceRelations.cpp` |
+| 人工关系校验 | `core/geometric_reconstruction/src/surface/SurfaceRelations.cpp` |
 
 ## 测试与诊断
 

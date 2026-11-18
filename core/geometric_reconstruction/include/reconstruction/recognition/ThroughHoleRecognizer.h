@@ -1,7 +1,7 @@
 #pragma once
 
 #include "reconstruction/recognition/BoxRecognizer.h"
-#include "reconstruction/data/ReconstructionCandidate.h"
+#include "reconstruction/recognition/FeatureCandidate.h"
 
 #include <string>
 #include <vector>

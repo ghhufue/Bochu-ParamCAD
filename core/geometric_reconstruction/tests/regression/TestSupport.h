@@ -3,9 +3,9 @@
 #include "reconstruction/recognition/AxisAlignedBoxRecognizer.h"
 #include "reconstruction/recognition/BoxRecognizer.h"
 #include "reconstruction/modeling/ModelingAdapter.h"
-#include "reconstruction/recognition/GuidedSolidRecognizer.h"
+#include "reconstruction/pipeline/GuidedSolidRecognizer.h"
 #include "reconstruction/preprocessing/PointCloudPreprocessor.h"
-#include "reconstruction/detection/PrimitiveDetector.h"
+#include "reconstruction/segmentation/PrimitiveDetector.h"
 #include "reconstruction/testing/SyntheticPointCloud.h"
 #include "reconstruction/recognition/ThroughHoleRecognizer.h"
 

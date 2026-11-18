@@ -3,7 +3,7 @@
 #include "app/WorkspaceController.h"
 #include <modeling/ModelPatch.h>
 #include <reconstruction/data/PointStore.h>
-#include <reconstruction/analysis/SurfaceAnalysis.h>
+#include <reconstruction/surface/SurfaceAnalysis.h>
 #include <QPointer>
 #include <QStringList>
 #include <QJsonObject>

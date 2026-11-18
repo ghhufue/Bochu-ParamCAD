@@ -2,8 +2,8 @@
 #include "io/PlyReader.h"
 #include "io/PointCloudAdapter.h"
 #include "io/PointCloudAnalysis.h"
-#include <reconstruction/analysis/SurfaceAnalysis.h>
-#include <reconstruction/detection/MultiScaleDetector.h>
+#include <reconstruction/surface/SurfaceAnalysis.h>
+#include <reconstruction/segmentation/MultiScaleDetector.h>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>

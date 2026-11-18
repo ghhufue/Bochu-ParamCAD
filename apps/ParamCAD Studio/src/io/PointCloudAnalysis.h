@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/PointCloudSelection.h"
-#include <reconstruction/recognition/GuidedSolidRecognizer.h>
+#include <reconstruction/pipeline/GuidedSolidRecognizer.h>
 
 struct PointCloudAnalysisResult
 {

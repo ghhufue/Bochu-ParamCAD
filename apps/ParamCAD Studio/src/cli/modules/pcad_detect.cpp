@@ -1,6 +1,6 @@
 #include "ModuleCli.h"
 
-#include <reconstruction/detection/PrimitiveDetector.h>
+#include <reconstruction/segmentation/PrimitiveDetector.h>
 #include <reconstruction/preprocessing/PointCloudPreprocessor.h>
 #include <reconstruction/settings/ModuleConfig.h>
 

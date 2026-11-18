@@ -29,100 +29,57 @@ if(NOT TARGET CadModelCore::CadModelCore)
     )
 endif()
 
-add_library(GeometricReconstruction
-    src/analysis/AnalysisSnapshot.cpp
-    src/analysis/RepairSnapshot.cpp
-    src/recognition/RepairTransaction.cpp
-    src/analysis/LocalRecovery.cpp
-    src/analysis/RelationOptimization.cpp
-    src/analysis/SurfaceFootprint.cpp
-    src/analysis/SurfaceSupportValidation.cpp
-    src/analysis/SurfaceAnalysis.cpp
-    src/analysis/SurfaceGeometry.cpp
-    src/analysis/SurfacePatches.cpp
-    src/analysis/SurfaceRelations.cpp
-    src/data/PointStore.cpp
-    src/detection/PrimitiveDetector.cpp
-    src/detection/PlaneSupportRecovery.cpp
-    src/detection/MultiScaleDetector.cpp
-    src/detection/cgal/CgalEfficientRansacDetector.cpp
-    src/detection/cgal/CurvedEvidence.cpp
-    src/detection/cgal/CylinderEvidence.cpp
-    src/detection/cgal/EvidenceGeometry.cpp
-    src/detection/cgal/PlaneEvidence.cpp
-    src/detection/cgal/RansacOptions.cpp
-    src/modeling/ModelingAdapter.cpp
-    src/preprocessing/Downsampling.cpp
-    src/preprocessing/NormalEstimation.cpp
-    src/preprocessing/OutlierFilter.cpp
-    src/preprocessing/PointCloudPreprocessor.cpp
-    src/settings/ModuleSettings.cpp
-    src/settings/ModuleConfig.cpp
-    src/recognition/AxisAlignedBoxRecognizer.cpp
-    src/recognition/BoxRecognizer.cpp
-    src/recognition/ParametricSolidRecognizer.cpp
-    src/recognition/projection/ProjectionExtrusion.cpp
-    src/recognition/projection/ProjectionProfile.cpp
-    src/recognition/projection/ProjectionProposals.cpp
-    src/recognition/projection/ProjectionScoring.cpp
-    src/recognition/projection/ProjectionSearch.cpp
-    src/recognition/projection/ProjectionSettings.cpp
-    src/recognition/assembly/AssemblyReconstruction.cpp
-    src/recognition/assembly/BoundaryGeometry.cpp
-    src/recognition/assembly/AnalyticProfileClosure.cpp
-    src/recognition/assembly/LocalProfileRecovery.cpp
-    src/recognition/assembly/AnnularTubeClosure.cpp
-    src/recognition/assembly/CircularSlabClosure.cpp
-    src/recognition/assembly/FiniteBoundaries.cpp
-    src/recognition/assembly/PartClosure.cpp
-    src/recognition/ThroughHoleRecognizer.cpp
-    src/recognition/compound/BoundaryValidation.cpp
-    src/recognition/compound/BoxCover.cpp
-    src/recognition/compound/CompoundRecognizer.cpp
-    src/recognition/compound/MaterialCells.cpp
-    src/recognition/compound/PlanarFrame.cpp
-    src/recognition/compound/PlanarGeometry.cpp
-    src/recognition/curved/BoundaryAssessment.cpp
-    src/recognition/curved/CapDetection.cpp
-    src/recognition/curved/CurvedFitting.cpp
-    src/recognition/curved/CurvedSolidRecognizer.cpp
-    src/recognition/guided/GuidedSolidRecognizer.cpp
-    src/recognition/guided/HintFitting.cpp
-    src/recognition/guided/HintValidation.cpp
-    src/recognition/mixed/AttachedFeatures.cpp
-    src/recognition/mixed/HostDetection.cpp
-    src/recognition/mixed/MixedFeatureRecognizer.cpp
-    src/recognition/mixed/MixedMaterial.cpp
-    src/testing/SyntheticPointCloud.cpp
-)
-add_library(GeometricReconstruction::GeometricReconstruction ALIAS
-    GeometricReconstruction)
+include(cmake/ReconstructionModules.cmake)
 
-target_compile_features(GeometricReconstruction PUBLIC cxx_std_17)
+function(configure_reconstruction_library target)
+    target_compile_features(${target} PUBLIC cxx_std_17)
+    target_include_directories(${target} PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    # The core libraries never use Qt code generation, even in a Qt host project.
+    set_target_properties(${target} PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endfunction()
+
+add_library(ReconstructionData STATIC ${RECONSTRUCTION_DATA_SOURCES})
+add_library(GeometricReconstruction::Data ALIAS ReconstructionData)
+configure_reconstruction_library(ReconstructionData)
+target_link_libraries(ReconstructionData PUBLIC CadModelCore::GeometryTypes)
+
+add_library(ReconstructionInput STATIC ${RECONSTRUCTION_INPUT_SOURCES})
+add_library(GeometricReconstruction::Input ALIAS ReconstructionInput)
+configure_reconstruction_library(ReconstructionInput)
+target_link_libraries(ReconstructionInput PUBLIC ReconstructionData PRIVATE Eigen3::Eigen Threads::Threads)
+
+add_library(ReconstructionSegmentation STATIC ${RECONSTRUCTION_SEGMENTATION_SOURCES})
+add_library(GeometricReconstruction::Segmentation ALIAS ReconstructionSegmentation)
+configure_reconstruction_library(ReconstructionSegmentation)
+target_link_libraries(ReconstructionSegmentation PUBLIC ReconstructionData PRIVATE CGAL::CGAL Eigen3::Eigen Threads::Threads)
+
+add_library(ReconstructionSurfaces STATIC ${RECONSTRUCTION_SURFACES_SOURCES})
+add_library(GeometricReconstruction::Surfaces ALIAS ReconstructionSurfaces)
+configure_reconstruction_library(ReconstructionSurfaces)
+target_link_libraries(ReconstructionSurfaces PUBLIC ReconstructionSegmentation ReconstructionInput PRIVATE CGAL::CGAL Eigen3::Eigen Threads::Threads)
+
+# CAD-backed feature/part recognition and workflow orchestration live above the
+# numerical libraries. Existing clients retain the same aggregate target name.
+add_library(GeometricReconstruction ${RECONSTRUCTION_WORKFLOW_SOURCES})
+add_library(GeometricReconstruction::GeometricReconstruction ALIAS GeometricReconstruction)
+configure_reconstruction_library(GeometricReconstruction)
 target_compile_definitions(GeometricReconstruction PRIVATE
     PARAMCAD_CONFIG_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../apps/ParamCAD Studio/config")
-target_include_directories(GeometricReconstruction PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-target_link_libraries(GeometricReconstruction PUBLIC
-    CadModelCore::CadModelCore
-    PRIVATE
-    ContourFitting::ContourFitting
-    CGAL::CGAL
-    Eigen3::Eigen
-    Threads::Threads
-)
-
-if(MSVC)
-    target_compile_options(GeometricReconstruction PRIVATE /W4 /permissive- /utf-8)
-else()
-    target_compile_options(GeometricReconstruction PRIVATE -Wall -Wextra -Wpedantic)
-endif()
+target_link_libraries(GeometricReconstruction PUBLIC ReconstructionSurfaces CadModelCore::CadModelCore
+    PRIVATE ContourFitting::ContourFitting CGAL::CGAL Eigen3::Eigen Threads::Threads)
 
 if(GEOMETRIC_RECONSTRUCTION_BUILD_TESTS)
     include(CTest)
+    include(cmake/BoundaryTests.cmake)
+    add_reconstruction_boundary_tests()
     add_executable(surface_support_validation_test tests/analysis/surface_support_validation_test.cpp)
     target_link_libraries(surface_support_validation_test PRIVATE GeometricReconstruction::GeometricReconstruction)
     add_test(NAME surface_support_validation_test COMMAND surface_support_validation_test)

@@ -19,6 +19,7 @@ const sections = [
     collapsed: true,
     items: [
       { text: '系统分层与依赖', link: '/architecture/system-layers' },
+      { text: '点云转模型的代码边界', link: '/architecture/point-cloud-code-boundaries' },
       { text: '端到端数据流', link: '/architecture/data-flow' },
       { text: '数据契约与坐标约定', link: '/architecture/data-contracts' },
       { text: '后台任务与结果提交', link: '/architecture/background-workflow' },

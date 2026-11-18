@@ -1,7 +1,7 @@
 #include "ReconstructionContractData.h"
 
-#include "preprocessing/detail/KdTree.h"
-#include "recognition/assembly/AssemblyInternal.h"
+#include "common/spatial/KdTree.h"
+#include "parts/assembly/AssemblyInternal.h"
 #include <reconstruction/modeling/ModelingAdapter.h>
 
 #include <BRepCheck_Analyzer.hxx>
@@ -190,7 +190,7 @@ QJsonObject assemblyStage(int module, const PointStore& source, const QJsonObjec
     } else {
         PatchGrouping grouping;
         if (module == 19 && !backfill) {
-            detail::preprocessing::KdTree tree(work.points);
+            detail::spatial::KdTree tree(work.points);
             for (std::size_t i = 0; i < work.points.size(); ++i)
                 work.neighbors.push_back(tree.nearest(i, std::min(options.neighbors, work.points.size() - 1)));
             grouping = groupPatches(work, patches, options);

@@ -1,3 +1,4 @@
+#include "reconstruction/recognition/RecognitionAnalysisOptions.h"
 #include "detail/CurvedInternal.h"
 
 namespace reconstruction {

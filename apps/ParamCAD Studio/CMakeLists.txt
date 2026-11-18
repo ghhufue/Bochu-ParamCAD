@@ -44,6 +44,8 @@ add_subdirectory(
 )
 if(CAD_CLIENT_BUILD_TESTS)
     enable_testing()
+    include("${CMAKE_CURRENT_SOURCE_DIR}/../../core/geometric_reconstruction/cmake/BoundaryTests.cmake")
+    add_reconstruction_boundary_tests()
     add_executable(surface_support_validation_test ../../core/geometric_reconstruction/tests/analysis/surface_support_validation_test.cpp)
     target_link_libraries(surface_support_validation_test PRIVATE GeometricReconstruction::GeometricReconstruction)
     add_test(NAME surface_support_validation_test COMMAND surface_support_validation_test)

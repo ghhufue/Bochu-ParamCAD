@@ -7,28 +7,52 @@ use matching functional groups:
 
 | Group | Responsibility |
 | --- | --- |
-| `data/` | Immutable point observations, analytic evidence and basic candidates |
+| `data/` | Immutable observations, analytic evidence and primitive geometry queries |
 | `preprocessing/` | Voxel sampling, robust outlier filtering and normal recovery |
-| `detection/` | Primitive proposal API and private `cgal/` backend |
-| `analysis/` | Shared analysis orchestration, snapshot validation, connected patches and relationships |
-| `recognition/` | Box/hole entry points and parametric-solid orchestration |
+| `segmentation/` | Primitive proposal API and private `cgal/` backend |
+| `surface/` | Finite domains, support validation, connected patches, relations and unique ownership |
+| `surface/expansion/` | Observation-bounded plane support recovery |
+| `recognition/` | Feature candidates, box/hole recognition and candidate competition |
 | `recognition/compound/` | Local planar frames, material cells, box-cover search and boundary validation |
 | `recognition/curved/` | Parameter fitting, cap detection and complete-boundary scoring |
-| `recognition/guided/` | Manual-region fitting, completion and CAD-face verification |
+| `pipeline/guided/` | Manual-region fitting, completion and CAD-face verification |
 | `recognition/mixed/` | Host detection, attached features and material membership |
+| `parts/assembly/` | Part grouping, finite boundaries and validated closure |
+| `parts/projection/` | Projection profiles, CAD trial programs and scoring |
+| `pipeline/` | Recognition option policy and reconstruction orchestration |
+| `pipeline/recovery/` | Recognition/repair transactions and stability checks |
 | `modeling/` | Atomic candidate-to-modeling-core adaptation |
 | `testing/` | Analytic point-cloud generation |
 
-The public recognition headers stay together in `include/reconstruction/recognition/`;
-the implementation-only subdirectories hold their private helper types and functions.
-`src/common/Math3.h` contains shared numerical helpers. Headers in `src/**/detail/`
+Public feature, part and orchestration interfaces live under `recognition/`,
+`parts/` and `pipeline/`, respectively. Private subdirectories hold helper types.
+`src/common/Math3.h` and `src/common/spatial/` contain shared numerical helpers. Headers in `src/**/detail/`
 are private implementation contracts; the `src` include directory is not exported
 to library consumers. CGAL types stay inside the private backend.
 
-For example, use `reconstruction/analysis/SurfaceAnalysis.h` and
-`reconstruction/recognition/CompoundRecognizer.h`. The C++ namespace and public
-function signatures are unchanged by this layout reorganization. In-repository
-consumers use the new include paths directly.
+For example, use `reconstruction/surface/SurfaceAnalysis.h` and
+`reconstruction/recognition/CompoundRecognition.h`. The C++ namespace and existing
+function signatures are preserved. Historical `analysis/`, `detection/`, and
+recognition entry headers remain compatibility facades; in-repository consumers
+use canonical headers. Reconstruction/repair calls are declared separately in
+`reconstruction/pipeline/ParametricReconstruction.h`.
+
+## Build boundaries
+
+`ReconstructionData`, `ReconstructionInput`, `ReconstructionSegmentation`, and
+`ReconstructionSurfaces` form numerical libraries with no Qt/VTK or CAD-engine
+link dependency. They share only `CadModelCore::GeometryTypes` header types.
+`GeometricReconstruction` remains the aggregate CAD-backed workflow target,
+linking the numerical layers and `CadModelCore`; existing CMake consumers retain
+`GeometricReconstruction::GeometricReconstruction`. Numerical callers can link
+`GeometricReconstruction::Surfaces` independently. Each source has one owner in
+`cmake/ReconstructionModules.cmake`.
+
+`resolveSurfaceOwnership()` accepts source `PointId` values and explicit options,
+preserves unassigned observations, and publishes transactionally. Studio converts
+document rows and translated labels around this call; it no longer implements
+geometric ownership or post-ownership validation. See the
+[code boundary guide](../../docs/site/architecture/point-cloud-code-boundaries.md).
 
 Each `.cpp` is a separate translation unit. Large implementations are split by
 responsibility rather than textually including `.cpp`/`.inc` fragments:
@@ -47,12 +71,18 @@ regression suite into preprocessing, box, cylinder, curved, hole and modeling
 cases; `main.cpp` retains the original test order. Both standalone and client
 builds consume `cmake/RegressionSources.cmake` to keep their test source lists aligned.
 
+`surface_ownership_test` links only `GeometricReconstruction::Surfaces` and checks
+unique source IDs, validation modes and transactional failures.
+`reconstruction_compatibility_test` builds against the historical public headers.
+`tools/tests/test_reconstruction_boundaries.py` enforces numerical dependency and
+source-ownership rules; it is also registered with CTest when Python is available.
+
 ## Pipeline
 
 The shared pipeline starts with `analyzeSurfaces()` and passes one typed
 `SurfaceAnalysisResult` to semantic recognizers. Production analysis gathers
 surface families independently. The current module inventory records the code
-entry points and proposed interface boundaries. [Module contracts and refactoring plan](../../docs/Point_Cloud_to_CAD_Module_Contracts_and_Refactoring_Plan.md)
+entry points and implemented boundaries. See the [five-module workflow](../../docs/site/modules/point-cloud-to-cad.md).
 
 This module is the Qt/VTK-free boundary between observed point clouds and the
 parametric modeling core. It keeps three kinds of state separate:

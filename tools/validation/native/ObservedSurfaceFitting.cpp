@@ -1,14 +1,14 @@
 #include "SurfaceCoverageValidation.h"
 #include "io/PlyReader.h"
 #include "io/PointCloudAdapter.h"
-#include "preprocessing/detail/KdTree.h"
+#include "common/spatial/KdTree.h"
 
 #include <Eigen/QR>
 
 #include <modeling/StepExporter.h>
-#include <reconstruction/analysis/SurfaceAnalysis.h>
+#include <reconstruction/surface/SurfaceAnalysis.h>
 #include <reconstruction/preprocessing/PointCloudPreprocessor.h>
-#include <reconstruction/recognition/AssemblyReconstruction.h>
+#include <reconstruction/parts/AssemblyReconstruction.h>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRep_Builder.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -1083,7 +1083,7 @@ std::vector<ObservedPatch> fitResidualSplines(const std::vector<reconstruction::
                                            double tolerance, bool refineTransitions) {
     constexpr std::size_t minimumSamples = 64;
     if (samples.size()<minimumSamples) return {};
-    const reconstruction::detail::preprocessing::KdTree tree(samples);
+    const reconstruction::detail::spatial::KdTree tree(samples);
     std::vector<double> spacings;
     spacings.reserve(samples.size());
     for (std::size_t i=0; i<samples.size(); ++i)

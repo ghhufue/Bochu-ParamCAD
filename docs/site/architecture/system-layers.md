@@ -41,13 +41,15 @@ flowchart LR
 
 `core/geometric_reconstruction` 与 `core/parametric_modeling` 都是 Qt/VTK 无关的静态库，可被客户端、验证程序和模块 CLI 共同链接。识别结果只有经过 `ModelingCore::apply` 原子重建后才会成为 B-Rep，识别成功不等于建模一定成功。
 
+几何重建内部已拆出Data、Input、Segmentation和Surfaces数值库，它们只共享建模侧的几何值类型，不链接CAD引擎。特征/部件识别、CAD试建、流程和建模适配位于上层总库。目录、接口、兼容路径及依赖图见[点云转模型的代码边界](/architecture/point-cloud-code-boundaries)。
+
 ## 第三方依赖边界
 
 | 依赖 | 使用层 | 边界方式 |
 | --- | --- | --- |
 | COLMAP 4.2.0 | 图像重建 | 仅通过 `reconstruct.py` 的命令行调用，解析其输出与数据库 |
-| CGAL 6.2.1 | 几何重建 | 只在 `detection/cgal/` 私有后端出现，对外输出 `PrimitiveEvidence` |
-| OpenCASCADE 8.0.1 | 建模核心、客户端 I/O | `occt/` 目录封装构面、布尔、STEP 读写；客户端持有 `TopoDS_Shape` |
+| CGAL 6.2.1 | 数值几何与轮廓 | 检测后端在 `segmentation/cgal/`；有限域和轮廓也在私有实现中使用CGAL，公开接口使用项目自有类型 |
+| OpenCASCADE 8.0.1 | 建模核心、CAD试建复验、客户端I/O | 建模核心封装构面、布尔与STEP；特征/部件路径可临时建体复验，数值库不链接CAD引擎 |
 | VTK 9.7.0 | 客户端显示 | 只把 B-Rep 或点云转换为渲染网格，不回写几何 |
 | Qt 6 | 客户端 | 进程管理、界面、JSON 与文件操作；核心库不依赖 Qt |
 | Eigen3 | 几何重建 | 数值计算支持，随 CGAL 通过 vcpkg 提供 |

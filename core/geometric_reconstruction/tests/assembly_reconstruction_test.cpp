@@ -1,4 +1,4 @@
-#include <reconstruction/recognition/AssemblyReconstruction.h>
+#include <reconstruction/parts/AssemblyReconstruction.h>
 #include <reconstruction/modeling/ModelingAdapter.h>
 #include <BRepGProp.hxx>
 #include <BRepCheck_Analyzer.hxx>
@@ -9,8 +9,8 @@
 #include <stdexcept>
 #include <iostream>
 #include <cmath>
-#include "recognition/assembly/BoundaryGeometry.h"
-#include "recognition/assembly/AssemblyInternal.h"
+#include "parts/assembly/BoundaryGeometry.h"
+#include "parts/assembly/AssemblyInternal.h"
 
 namespace {
 using modeling::Vec3;using reconstruction::PointSample;using reconstruction::PointStore;

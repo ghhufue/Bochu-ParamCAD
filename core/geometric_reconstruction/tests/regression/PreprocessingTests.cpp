@@ -1,3 +1,4 @@
+#include "reconstruction/pipeline/ParametricReconstruction.h"
 #include "TestSupport.h"
 #include <tuple>
 

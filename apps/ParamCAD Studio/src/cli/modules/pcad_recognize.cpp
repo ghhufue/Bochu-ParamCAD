@@ -1,7 +1,7 @@
 #include "ModuleCli.h"
 
 #include <reconstruction/preprocessing/PointCloudPreprocessor.h>
-#include <reconstruction/recognition/GuidedSolidRecognizer.h>
+#include <reconstruction/pipeline/GuidedSolidRecognizer.h>
 #include <reconstruction/settings/ModuleConfig.h>
 
 #include <QCoreApplication>

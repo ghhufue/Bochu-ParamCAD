@@ -92,13 +92,13 @@
 
 | 内容 | 路径 |
 | --- | --- |
-| 公开接口与选项 | `core/geometric_reconstruction/include/reconstruction/recognition/ProjectionExtrusion.h` |
-| 拟合入口、选轴、区间与试建 | `core/geometric_reconstruction/src/recognition/projection/ProjectionExtrusion.cpp` |
-| 二维截面恢复 | `core/geometric_reconstruction/src/recognition/projection/ProjectionProfile.cpp` |
-| 基体、台阶、槽与孔提案 | `core/geometric_reconstruction/src/recognition/projection/ProjectionProposals.cpp` |
-| 固定点评分 | `core/geometric_reconstruction/src/recognition/projection/ProjectionScoring.cpp` |
-| 操作序列搜索 | `core/geometric_reconstruction/src/recognition/projection/ProjectionSearch.cpp` |
-| 投影参数读写 | `core/geometric_reconstruction/src/recognition/projection/ProjectionSettings.cpp` |
+| 公开接口与选项 | `core/geometric_reconstruction/include/reconstruction/parts/ProjectionExtrusion.h` |
+| 拟合入口、选轴、区间与试建 | `core/geometric_reconstruction/src/parts/projection/ProjectionExtrusion.cpp` |
+| 二维截面恢复 | `core/geometric_reconstruction/src/parts/projection/ProjectionProfile.cpp` |
+| 基体、台阶、槽与孔提案 | `core/geometric_reconstruction/src/parts/projection/ProjectionProposals.cpp` |
+| 固定点评分 | `core/geometric_reconstruction/src/parts/projection/ProjectionScoring.cpp` |
+| 操作序列搜索 | `core/geometric_reconstruction/src/parts/projection/ProjectionSearch.cpp` |
+| 投影参数读写 | `core/geometric_reconstruction/src/parts/projection/ProjectionSettings.cpp` |
 | 默认投影参数 | `apps/ParamCAD Studio/config/projection.conf` |
 
 ## 已知限制

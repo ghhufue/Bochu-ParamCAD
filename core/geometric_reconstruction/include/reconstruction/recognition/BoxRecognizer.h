@@ -1,8 +1,8 @@
 #pragma once
 
-#include "reconstruction/detection/PrimitiveDetector.h"
-#include "reconstruction/analysis/SurfaceAnalysis.h"
-#include "reconstruction/data/ReconstructionCandidate.h"
+#include "reconstruction/segmentation/PrimitiveDetector.h"
+#include "reconstruction/surface/SurfaceAnalysis.h"
+#include "reconstruction/recognition/FeatureCandidate.h"
 
 #include <string>
 #include <vector>

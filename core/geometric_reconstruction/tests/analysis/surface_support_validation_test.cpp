@@ -1,4 +1,4 @@
-#include "reconstruction/analysis/SurfaceSupportValidation.h"
+#include "reconstruction/surface/SurfaceSupportValidation.h"
 #include "reconstruction/settings/ModuleConfig.h"
 #include <cmath>
 #include <algorithm>

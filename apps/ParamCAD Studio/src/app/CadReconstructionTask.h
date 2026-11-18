@@ -2,10 +2,10 @@
 
 #include "io/PlyReader.h"
 
-#include <reconstruction/recognition/CompoundRecognizer.h>
+#include <reconstruction/recognition/CompoundRecognition.h>
 #include <reconstruction/preprocessing/PointCloudPreprocessor.h>
-#include <reconstruction/recognition/GuidedSolidRecognizer.h>
-#include <reconstruction/recognition/AssemblyReconstruction.h>
+#include <reconstruction/pipeline/GuidedSolidRecognizer.h>
+#include <reconstruction/parts/AssemblyReconstruction.h>
 
 #include <QObject>
 #include <TopoDS_Shape.hxx>

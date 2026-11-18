@@ -78,12 +78,12 @@
 
 | 内容 | 路径 |
 | --- | --- |
-| 公开检测接口与选项 | `core/geometric_reconstruction/include/reconstruction/detection/PrimitiveDetector.h` |
+| 公开检测接口与选项 | `core/geometric_reconstruction/include/reconstruction/segmentation/PrimitiveDetector.h` |
 | 证据类型与解析方程 | `core/geometric_reconstruction/include/reconstruction/data/SurfaceEvidence.h` |
-| 检测调度 | `core/geometric_reconstruction/src/detection/PrimitiveDetector.cpp` |
-| CGAL 后端 | `core/geometric_reconstruction/src/detection/cgal/` |
-| 多尺度检测 | `core/geometric_reconstruction/src/detection/MultiScaleDetector.cpp` |
-| 分族汇集 | `core/geometric_reconstruction/src/analysis/SurfaceAnalysis.cpp` |
+| 检测调度 | `core/geometric_reconstruction/src/segmentation/PrimitiveDetector.cpp` |
+| CGAL 后端 | `core/geometric_reconstruction/src/segmentation/cgal/` |
+| 多尺度检测 | `core/geometric_reconstruction/src/segmentation/MultiScaleDetector.cpp` |
+| 分族汇集 | `core/geometric_reconstruction/src/surface/SurfaceAnalysis.cpp` |
 | 默认阈值 | `apps/ParamCAD Studio/config/detection.conf` |
 
 ## 测试与诊断

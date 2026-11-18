@@ -1,7 +1,8 @@
+#include "reconstruction/recognition/RecognitionAnalysisOptions.h"
 #include "reconstruction/recognition/BoxRecognizer.h"
 
 #include "common/Math3.h"
-#include "reconstruction/detection/PrimitiveDetector.h"
+#include "reconstruction/segmentation/PrimitiveDetector.h"
 
 #include <algorithm>
 #include <array>

@@ -1,6 +1,6 @@
 #pragma once
 #include "core/PointCloudSelection.h"
-#include <reconstruction/analysis/SurfaceAnalysis.h>
+#include <reconstruction/surface/SurfaceAnalysis.h>
 #include <QJsonArray>
 #include <cmath>
 

@@ -1,8 +1,9 @@
+#include "reconstruction/recognition/RecognitionAnalysisOptions.h"
 #include "SurfaceCoverageValidation.h"
 #include "io/PlyReader.h"
 #include "io/PointCloudAdapter.h"
 #include "io/PointCloudAnalysis.h"
-#include <reconstruction/analysis/SurfaceAnalysis.h>
+#include <reconstruction/surface/SurfaceAnalysis.h>
 #include <reconstruction/preprocessing/PointCloudPreprocessor.h>
 #include <QElapsedTimer>
 #include <QJsonArray>
