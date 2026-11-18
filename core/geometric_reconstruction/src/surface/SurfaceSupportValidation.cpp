@@ -394,7 +394,6 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
             const auto support=d.kind==PrimitiveKind::Cone?d.effectivePoints:d.coveredPoints;
             if(d.area<=0 || support<settings.minimumSurfacePoints){d.verdict=SupportVerdict::NeedsMoreSupport;d.reasons.emplace_back("InsufficientTwoDimensionalSupport");}
         }
-        }
         metrics.push_back(std::move(m));
     }
     metrics=splitDomains(std::move(metrics),settings);
