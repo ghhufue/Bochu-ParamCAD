@@ -28,8 +28,7 @@ features:
   - title: 性能调优
     details: 优化前后实测、各阶段并发与串行状态，以及正确性验证。
     link: /performance/
+  - title: 命令行自动化
+    details: 统一 pcad 命令、在线/离线模式、AI 工作流与超参数配置。
+    link: /cli/
 ---
-
-## 命令行自动化
-
-[CLI 使用指南](/cli/) 独立介绍统一 pcad 命令、在线/离线模式和 AI 工作流；算法参数格式见[超参数配置](/development/configuration)。

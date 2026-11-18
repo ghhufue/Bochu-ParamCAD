@@ -1,330 +1,59 @@
-# Bochu Capstone：多视角图像到可编辑参数化 CAD
+# Bochu-ParamCAD
 
-Bochu Capstone（桌面客户端名为 **ParamCAD Studio**）希望把零件的多视角图像逐步转换为可编辑的参数化 CAD，而不是只生成一个不可编辑的三角网格。
+**从多视角图像与点云，到可编辑的参数化 CAD。**
 
-项目当前已经打通一条可验证的基础链路：
+ParamCAD Studio 是本项目的 Windows 桌面客户端，串联图像重建、几何识别与参数化建模，支持参数编辑、工程保存和 STEP 导出。
+
+[📖 在线文档](https://ghhufue.github.io/Bochu-ParamCAD/) · [🚀 快速开始](https://ghhufue.github.io/Bochu-ParamCAD/getting-started/) · [🛠 安装与构建](https://ghhufue.github.io/Bochu-ParamCAD/getting-started/installation)
+
+## 核心流程
+
+```mermaid
+flowchart LR
+    A["多视角图像<br/>实拍 / STEP 虚拟拍摄"] --> B["点云重建<br/>COLMAP / 编码结构光"]
+    B --> C["PLY 点云"]
+    P["已有点云"] --> C
+    C --> D["几何重建<br/>曲面分割 · 验证 · 特征识别"]
+    D --> E["参数化 CAD<br/>特征历史 + B-Rep"]
+    E --> F["交互编辑<br/>PCAD 保存 · STEP 导出"]
+
+    classDef input fill:#eff6ff,stroke:#3b82f6,color:#1e3a8a
+    classDef result fill:#ecfdf5,stroke:#10b981,color:#064e3b
+    class A,P,C input
+    class E,F result
+```
+
+## 主要能力
+
+| | 能力概览 |
+| --- | --- |
+| 📷 图像到点云 | 多视角虚拟拍摄、COLMAP 重建、编码结构光仿真 |
+| 🧩 点云到模型 | 解析曲面检测、特征识别、多体分组与闭合，支持人工引导 |
+| ✏️ 参数化编辑 | 草图与拉伸 / 切除、特征参数调整、限定中文指令修改、撤销 / 重做 |
+| 📦 工作流交付 | `.pcad` 工程、STEP 导出、统一 `pcad` CLI 与 Windows 离线包 |
+
+当前面向已验证的几何类型与案例；复杂零件、遮挡和缺失观测下的恢复能力仍在扩展。适用范围与验证结果见在线文档。
+
+## 文档导航
+
+| 想做什么 | 从这里开始 |
+| --- | --- |
+| 完成第一次重建 | [点云到 CAD](https://ghhufue.github.io/Bochu-ParamCAD/getting-started/first-reconstruction) · [图像到点云](https://ghhufue.github.io/Bochu-ParamCAD/getting-started/images-to-cloud) |
+| 理解处理流程 | [系统架构](https://ghhufue.github.io/Bochu-ParamCAD/architecture/) · [模块手册](https://ghhufue.github.io/Bochu-ParamCAD/modules/) · [算法原理](https://ghhufue.github.io/Bochu-ParamCAD/algorithms/) |
+| 使用命令行与批处理 | [CLI 使用指南](https://ghhufue.github.io/Bochu-ParamCAD/cli/) |
+| 查看效果与性能 | [案例与验证](https://ghhufue.github.io/Bochu-ParamCAD/validation/) · [性能调优](https://ghhufue.github.io/Bochu-ParamCAD/performance/) |
+| 参与开发 | [开发维护](https://ghhufue.github.io/Bochu-ParamCAD/development/) |
+
+## 代码地图
 
 ```text
-STEP 模型 / 真实零件
-        ↓
-虚拟拍摄 / 现实拍摄得到的多视角图片
-        ↓
-COLMAP 或编码结构光点云（PLY）
-        ↓
-点云预处理 + 解析曲面检测
-        ↓
-组合长方体、平面加强筋与贯穿孔识别
-        ↓
-参数化 Feature History + OpenCASCADE B-Rep
-        ↓
-ParamCAD Studio 中显示和继续编辑
+apps/ParamCAD Studio/           Qt + VTK 桌面客户端
+core/reconstruction/           图像 → 点云
+core/geometric_reconstruction/ 点云 → 几何与特征
+core/parametric_modeling/       特征 → OpenCASCADE B-Rep
+tools/                         CLI、验证与诊断工具
+packaging/                     Windows 离线打包
+docs/                          GitHub Pages 文档站
 ```
 
-当前支持用限定中文指令修改长方体尺寸、圆柱半径/高度和贯穿孔直径，先预览、校验完整模型，再应用并撤销。自由自然语言理解与局部重新拟合仍待扩展。几何恢复支持共享正交方向的组合长方体、平面加强筋及单长方体贯穿孔，也支持独立球、圆柱、圆锥/圆台和完整圆环体，尚不能恢复任意机械零件。
-
-## 1. 项目目标与设计思路
-
-项目要解决的核心问题是：如何将图像和点云中的“观测结果”，转换为 CAD 中有明确类型、尺寸、位置和建模语义的特征。
-
-为此，仓库将流程拆成相互独立的几层：
-
-- 图像重建层只负责从图片生成点云，不判断零件是什么；
-- 几何重建层保存点、法向、曲面证据和置信度，并识别参数化特征；
-- 参数化建模层只接收结构化特征和命令，负责生成可靠的 B-Rep；
-- 桌面客户端负责交互、流程编排、文件读写和可视化；
-- 文本指导层将输入转换成结构化参数修改，再交给建模核心校验和提交。
-
-这使 COLMAP、CGAL、OpenCASCADE、VTK 等第三方实现都被限制在各自的适配边界内，层与层之间传递项目自己的数据类型。
-
-## 2. 当前端到端流程
-
-### 2.1 多视角拍摄
-
-当前实现的“拍摄”主要是 **ParamCAD Studio 内的虚拟拍摄**，用于生成稳定、可复现的测试数据；项目也可以直接读取现实相机拍摄的图片，但尚未集成相机硬件控制。
-
-虚拟拍摄流程如下：
-
-1. 通过 `File → Open Model` 导入 STEP/STP 模型；
-2. `StepModelLoader` 使用 OpenCASCADE 读取并保留原始 B-Rep；
-3. 模型按体积质心（无封闭体时按包围盒中心）平移到原点，方便相机围绕物体旋转；
-4. `OcctShapeTessellator` 将 B-Rep 临时离散为 VTK 显示网格，原始 B-Rep 不会被替换；
-5. 可选地给模型投影纹理，以增加 COLMAP 可匹配的视觉特征；
-6. `CaptureController` 控制 VTK 相机，从多个方向渲染 PNG；
-7. 同时保存相机位置、朝向、视场角、投影方式和输出尺寸等元数据。
-
-客户端的一键球面采样共生成 62 个视角：在纬度 `-60°、-30°、0°、30°、60°` 上各拍 12 张，再拍正上方和正下方各 1 张。也可以只拍当前视角，或在界面中自定义拍摄参数。
-
-典型输出为：
-
-```text
-outputs/captures/<时间戳>/
-├── shot_000.png
-├── shot_000.json       # 单张图片的相机元数据
-├── ...
-└── manifest.json       # 整组拍摄的聚合清单，以 version 2 为准
-```
-
-`CameraInfoBuilder` 会在开始重建前，把透视相机元数据转换为 COLMAP 使用的 `PINHOLE` 内参和外参。若图片来自现实拍摄、元数据缺失或包含正交投影视角，客户端会放弃这些先验，让 COLMAP 自行估计相机。
-
-另有独立的编码结构光模式：客户端冻结几何/PBR 材质，用 VTK 投影光照和遮挡或可选的 Mitsuba 路径追踪生成完整 Gray Code 序列，可选相移与多曝光；随后由随包 Python 解码、三角化和按已知位姿融合。条纹属于光源，材质保持固定。该模式已完成单站/多站客户端闭环及离线包验证；默认 VTK 后端模拟直接光照，Mitsuba 在路径深度大于 2 时可计算表面间多次反射，但两者都不能代表真实钢材的光学行为。见[操作与数据格式](docs/site/modules/structured-light.md)、[固定场景验证](docs/site/development/structured-light-validation.md)。
-
-这一阶段的主要依赖是：
-
-- **Qt 6 Widgets**：拍摄面板、参数输入和流程控制；
-- **VTK 9.7.0**：视口、相机控制、离屏截图和模型显示；
-- **OpenCASCADE 8.0.1**：STEP 读取和 B-Rep 保存；
-- 项目自己的轨道相机、拍摄清单和相机参数转换代码。
-
-### 2.2 从图片生成点云
-
-点云重建实现在 `core/reconstruction/`，是一个无界面的 Python 调度层。客户端通过 `QProcess` 启动该脚本，脚本再调用本地的 COLMAP 4.2.0 命令行程序。
-
-流程分为以下步骤：
-
-1. `feature_extractor` 提取每张图片的 SIFT 特征；
-2. `exhaustive_matcher` 对普通多视角图片做穷举匹配，或用 `sequential_matcher` 处理按顺序采集的帧；
-3. 根据相机信息选择重建方式：
-   - 没有外参：由 `mapper` 估计相机并完成 SfM；
-   - 全部外参已知：固定给定位姿，用 `point_triangulator` 三角化；
-   - 只有部分外参：先三角化种子模型，再固定已有位姿注册其余图片；
-4. 稀疏模式用 `model_converter` 导出彩色 PLY；
-5. 稠密模式继续运行 `image_undistorter`、`patch_match_stereo` 和 `stereo_fusion`，生成稠密融合点云；
-6. 写入 `reconstruction.json`，记录输入、点数、相机模式、坐标系和尺度单位。
-
-典型输出为：
-
-```text
-outputs/reconstructions/<时间戳>/
-├── cloud.ply
-├── camera_info.json           # 使用虚拟拍摄元数据时生成
-└── workspace/
-    ├── database.db
-    ├── sparse/ 或 dense/
-    ├── colmap.log
-    └── reconstruction.json
-```
-
-没有相机外参时，SfM 点云只有相对尺度，清单中的单位为 `arbitrary`；使用带毫米平移量的虚拟相机外参时，点云继承毫米尺度。后续生成 CAD 前，未知尺度必须由用户明确确认，不能被静默当作毫米。
-
-这一阶段的主要依赖是：
-
-- **Python 3**：仅使用标准库编排流程、校验 CameraInfo、更新 COLMAP 数据库和记录清单；
-- **COLMAP 4.2.0**：特征提取、匹配、SfM、三角化和稠密重建；
-- **CUDA 与支持的 NVIDIA GPU（仅稠密模式）**：当前客户端启用稠密模式时会同时启用 GPU；
-- **Qt `QProcess`**：桌面端启动、取消和监控重建进程。
-
-命令行也可以独立运行，具体参数见 [`core/reconstruction/README.md`](core/reconstruction/README.md)。
-
-### 2.3 点云预处理、曲面检测与特征拟合
-
-在客户端中加载 PLY 后，`Reconstruct CAD` 会进入 `core/geometric_reconstruction/`。该模块不依赖 Qt 或 VTK，输入和输出均为项目自有数据类型。
-
-当前流程为：
-
-1. `PlyReader` 读取点坐标、颜色以及可选的 `nx/ny/nz` 法向；
-2. 从相邻的 `reconstruction.json` 读取单位；米制输入先转换为毫米；
-3. 用稳健包围尺度设置体素降采样，避免少量远处噪点放大体素，并保留原始 `PointId`；
-4. 使用 K 近邻平均距离过滤离群点，并用中位数/MAD 限制被远处噪点抬高的统计阈值；
-5. 对缺失法向做局部 PCA 与曲率估计，再从已有定向观测传播内外方向；退化邻域不生成法向，方向未确定时拒绝自动实体重建；
-6. CGAL Efficient RANSAC 在同一次检测中竞争性地寻找平面、圆柱、球、圆锥和圆环面；
-7. 将第三方检测结果转换为项目自己的 `PrimitiveEvidence`，保存参数、支持点、残差、覆盖率和置信度；
-8. 对平面做 PCA 精修和重复层抑制，对圆柱、球的半径使用全部支持点精修；
-9. 从六个平面中寻找三组互相垂直的平行面，恢复带位置和朝向的长方体；
-10. 检查圆柱是否与长方体轴对齐、位于边界内、具有足够角度覆盖并贯穿两个相对外表面；满足条件时识别为贯穿孔；
-11. 将“长方体 + 贯穿孔”作为一个原子 `ModelPatch` 提交给参数化建模核心。
-
-这里需要区分两种能力：
-
-- **曲面检测**已经支持平面、圆柱、球、圆锥和圆环面；
-- **完整 CAD 特征识别**支持长方体组合、平面加强筋、单长方体贯穿孔，以及独立球、圆柱、圆锥/圆台、完整圆环体。
-
-曲面提议还需经过实体完整性检查：圆柱和圆锥需要观测到端面，球和圆环体需要足够的角度覆盖。缺面、遮挡、复杂曲面组合和多零件自动分割仍是后续工作。
-
-已增加可复现的点云可靠性评测，覆盖噪声、离群点、法向缺失、非均匀采样与缺面拒绝。合成点云和虚拟拍摄重建点云分别记录来源；带真值的真实机械扫描仍待补充。此前的评测方法、结果与数据接入格式已归档。 [历史点云可靠性评测](docs/Outdated/Cloud_Reliability_Validation.md)
-
-这一阶段的主要依赖是：
-
-- **CGAL 6.2.1 Shape Detection**：Efficient RANSAC 解析曲面提议；
-- **Eigen3**：CGAL 及数值计算支持；
-- **OpenCASCADE 8.0.1**：通过下游建模核心验证并生成实体；
-- 项目自己的 `PointStore`、预处理、证据类型、长方体识别和贯穿孔识别代码。
-
-> CGAL Shape Detection 采用 GPL-3.0-or-later 或商业许可。若要分发闭源版本，需要先确定合适的许可方案。
-
-算法边界、测试方法和后续计划见 [`core/geometric_reconstruction/README.md`](core/geometric_reconstruction/README.md)。
-
-### 2.4 参数化建模与显示
-
-`core/parametric_modeling/` 保存的是参数化特征历史，而不是一次性生成后就丢失语义的网格。
-
-当前建模核心支持：
-
-- 点、线、矩形、圆等草图实体；
-- 拉伸的新建、合并、切除和求交；
-- 普通切除与贯穿切除；
-- 基准面、偏移基准面和显式平面；
-- 直接语义化的长方体与贯穿孔特征；
-- 特征抑制、依赖查询、安全/级联删除；
-- 带 revision 检查的原子 `ModelPatch`；
-- 从 Feature History 重建 OpenCASCADE B-Rep；
-- 核心层 STEP 导出。
-
-自动拟合成功后，`ModelPatch` 会一次性写入长方体、加强筋、孔和独立曲面实体特征；任一命令或重建失败时回滚。客户端随后将新的 B-Rep 三角化并交给 VTK 显示。桌面端已接通 STEP 导出与 `.pcad` 工程保存恢复，工程包含特征历史、当前实体、点云及显示设置。
-
-客户端特征面板支持 Box 尺寸、贯穿孔直径和圆柱半径/高度编辑。Box 可固定中心，或选取局部六面中的一个，仅改变其法向尺寸；圆柱可固定底面、顶面或中心。参照面选取使用特征的语义面，不依赖最终融合实体的面编号。手动命令通过原子补丁提交，失败时参数和实体一起回滚；CAD 撤销/重做保留在当前会话，工程保存编辑结果、参照方式和手动保护标记。自动重拟合暂停覆盖手动修改，显式重新拟合需要确认替换。面上草图可关联 Box 六面或圆柱底面/顶面的所属特征，修改上游尺寸后下游草图与拉伸/切除会重新定位；依赖参与安全删除和级联删除，工程 v2 保存引用并兼容读取 v1。导入 STEP 或归属不唯一的面仍为固定平面，界面明确提示。通用布尔结果拓扑命名和关系求解仍待实现。
-
-这一阶段的主要依赖是：
-
-- **OpenCASCADE 8.0.1**：草图轮廓、拉伸、布尔运算、B-Rep 和 STEP；
-- **VTK 9.7.0**：只负责显示由 B-Rep 派生出的网格；
-- **Qt 6 Widgets**：建模面板、属性编辑和命令编排。
-
-建模核心的详细能力见 [`core/parametric_modeling/README.md`](core/parametric_modeling/README.md)。
-
-### 2.5 文本参数修改
-
-在右侧「特征详情」中的「文字修改参数」输入指令，点击「预览修改」查看目标、修改前后尺寸和固定参照。完整模型重建验证通过后，再点击「应用预览」。例如：
-
-- `高度增加 2 mm，固定中心`：调整选中长方体的局部 Z 尺寸；
-- `#3 的孔直径改为 8 mm`：按明确特征编号修改贯穿孔；
-- `直径减少 10%，高度改为 3 cm，固定底面`：调整选中圆柱。
-
-当前执行流程是：
-
-```text
-用户文本 + 当前参数化特征 + 当前选择对象
-                    ↓
-          限定语法的中文参数解析
-                    ↓
-       带目标 ID 和模型版本的参数提案
-                    ↓
-          在副本上校验完整依赖重建
-                    ↓
-       应用提案 → ModelingCore 原子重建
-```
-
-支持绝对尺寸、增减量和增减百分比，单位为 mm/cm/m 或毫米/厘米/米；未注明单位按毫米处理。默认使用该特征已有的固定参照，长宽高和 X/Y/Z 都指特征局部轴。修改输入、选择或模型后需重新预览。应用共享参数编辑的撤销、重做、重拟合保护、工程保存和 STEP 导出。
-
-本阶段使用本地确定性解析，范围限于上述参数；自由文本、多个目标、拓扑修改、点云重拟合、LLM/Agent 和 SolidWorks MCP 仍待实现。此前的语法与边界说明已归档。 [历史文字参数修改说明](docs/Outdated/Text_Parameter_Editing.md)
-
-## 3. 仓库层级架构
-
-```text
-Bochu_Capstone/
-├── apps/
-│   └── ParamCAD Studio/          Windows 桌面客户端
-├── core/
-│   ├── reconstruction/           图片 → PLY 点云的 Python/COLMAP 流程
-│   ├── geometric_reconstruction/ PLY → 曲面证据 → 参数化特征
-│   └── parametric_modeling/       参数化 Feature History → OCCT B-Rep/STEP
-├── data/                          示例数据与性能验证样例
-├── docs/                          当前模块契约与重构计划，旧资料位于 Outdated/
-├── outputs/                       默认运行输出目录
-├── tools/                         重建、验证、测试数据生成和诊断工具
-├── packaging/                     Windows 完整离线 Release 打包与安装脚本
-└── deps/                          本地二进制 SDK/运行时，不提交到 Git
-```
-
-各部分职责如下：
-
-| 部分 | 主要职责 | 不负责的内容 |
-| --- | --- | --- |
-| `apps/ParamCAD Studio` | Qt 界面、控制器、文件 I/O、VTK 视口、各核心模块编排 | 不在 UI 中实现几何算法 |
-| `core/reconstruction` | 普通照片调用 COLMAP；结构光图片独立解码、三角化与多站融合 | 不解释点云中的 CAD 语义，不从 CAD 真值生成重建点 |
-| `core/geometric_reconstruction` | 点云预处理、解析曲面证据、长方体/贯穿孔识别、生成 `ModelPatch` | 不依赖 Qt/VTK，不直接维护界面状态 |
-| `core/parametric_modeling` | 保存特征历史、执行建模命令、重建 B-Rep、STEP 导出 | 不读取图片或运行点云检测 |
-| `packaging` | 收集客户端 DLL、Python 和 COLMAP，生成 Windows 包 | 不参与算法运行 |
-| `deps` | 放置固定版本的本地 SDK 和运行时 | 不是项目源码，不应递归扫描或提交 |
-
-桌面客户端内部再按职责分为：
-
-- `src/app`：拍摄、重建、建模等流程控制器；
-- `src/ui`：各功能面板和视口交互；
-- `src/io`：STEP、PLY、CameraInfo 等边界适配；
-- `src/rendering`：B-Rep/点云/草图到 VTK actor 的显示适配；
-- `src/core`：客户端自身的场景、相机和草图坐标逻辑。
-
-## 4. 主要技术栈与依赖关系
-
-| 依赖 | 当前版本/要求 | 使用位置 | 作用 |
-| --- | --- | --- | --- |
-| C++ | C++17 | 客户端、几何重建、参数化建模 | 主体实现 |
-| MSVC | Visual Studio 2022 x64 | Windows 构建 | 保证 Qt/VTK/OCCT ABI 一致 |
-| CMake | 3.24+ | C++ 工程 | 配置、构建、测试和 DLL 收集 |
-| Qt | 6.5+，MSVC x64 | `apps/ParamCAD Studio` | Widgets UI、进程管理、JSON/文件处理 |
-| VTK | 9.7.0 | 客户端 | 三维显示、相机交互、截图 |
-| OpenCASCADE | 8.0.1 | 客户端、建模核心 | STEP、B-Rep、几何和布尔运算 |
-| CGAL | 6.2.1 | 几何重建 | Efficient RANSAC 曲面检测 |
-| Eigen3 | vcpkg 包 | 几何重建 | 线性代数支持 |
-| Python | 3.x；发布包固定 3.13.10 | 图像重建 | 无界面流程调度，仅依赖标准库 |
-| COLMAP | 4.2.0 | 图像重建 | SfM/MVS 与 PLY 输出 |
-| CUDA | 可选 | COLMAP 稠密重建 | PatchMatch Stereo 加速 |
-
-本地 VTK、OpenCASCADE 和 COLMAP 放在 `deps/` 下；CGAL 与 Eigen3 通过 vcpkg 提供。所有 C++ 二进制依赖必须使用兼容的 **MSVC 2022 + x64 + Release + dynamic CRT** 组合，不能混用 MinGW 构建。
-
-## 5. 当前项目进度
-
-| 能力 | 状态 | 说明 |
-| --- | --- | --- |
-| ParamCAD Studio 桌面框架与 VTK 视口 | 已完成基础版 | 支持场景、属性、相机、渲染、建模和日志面板 |
-| STEP/STP 导入 | 已完成 | 保留 OCCT B-Rep，并生成显示网格 |
-| 虚拟多视角拍摄 | 已完成 | 单张、自定义环绕和 62 视角球面采样，带完整相机元数据 |
-| 编码结构光 | 已完成双后端闭环 | 单站/多站、Gray Code、相移、多曝光、毫米点云及离线包；VTK 为默认后端，Mitsuba 路径追踪可选并已随包分发。间接反射对照已完成，真实钢材光学参数与实物设备验证仍未完成 |
-| 现实照片输入 | 已支持 | 可直接选择图片目录；未集成相机硬件采集 |
-| COLMAP 稀疏点云 | 已完成 | 支持未知、部分已知和全部已知相机参数 |
-| COLMAP 稠密点云 | 已完成基础版 | 需要支持的 GPU/CUDA 环境 |
-| 点云读取与尺度处理 | 已完成基础版 | 支持 PLY 法向、单位清单和未知尺度确认 |
-| 点云预处理 | 已完成 | 稳健降采样尺度、离群过滤、PCA 法向/曲率、观测锚定的方向传播 |
-| 五类解析曲面检测 | 已完成基础版 | 平面、圆柱、球、圆锥、圆环面 |
-| 长方体拟合 | 已完成基础版 | 支持带朝向的完整六面长方体 |
-| 组合物块与 L 型加强筋拟合 | 已完成基础版 | 自动选择最少长方体覆盖，支持三角截面拉伸加强筋；Studio 与验证工具使用相同入口 |
-| 贯穿孔识别 | 已完成基础版 | 从圆柱证据识别长方体上的轴向贯穿孔 |
-| 独立曲面实体重建 | 已完成基础版 | 球、带端面圆柱、圆锥/圆台、完整圆环体；支持任意轴向、精修、参数化特征和 STEP 验证 |
-| 通用机械零件特征恢复 | 进行中 | 缺面、遮挡、多零件、盲孔、凸台、口袋等尚未完成 |
-| 参数化建模核心 | 已完成 V0 | 草图、拉伸、切除、长方体、贯穿孔、球/圆柱/圆锥/圆环体、原子补丁与重建 |
-| 客户端参数编辑 | 已完成基础版 | Box 尺寸与固定中心/参照面、贯穿孔直径、圆柱半径/高度；原子提交、失败回滚、CAD 撤销/重做与手动修改保护 |
-| 客户端 STEP 导出 | 已完成 | 从当前实体导出 STEP，包含已提交的参数修改 |
-| .pcad 工程保存恢复 | 已完成基础版 | 保存特征参数、调整参照、手动修改标记和工程数据；重开后可继续编辑，撤销历史仅保留在当前会话 |
-| 文本参数修改 | 已完成基础版 | 限定中文语法、完整重建预览、原子提交、撤销/重做 |
-| 自由自然语言 / LLM | 未开始 | 模型服务、开放语义理解与文本重拟合尚未接入 |
-| SolidWorks MCP | 未实现 | 当前实际 CAD 后端为项目内的 OpenCASCADE 建模核心 |
-| Windows 打包 | 完整离线版 | 自动生成包含全部运行时的 full ZIP；清晰目录、离线安装、依赖与完整性校验，见 packaging/README.md |
-
-当前最重要的后续工作是：加入带真值的真实机械采集数据，处理不完整可见面、对象分割和全局几何约束，扩展盲孔/凸台/阶梯轴/口袋等特征，并在已验证的文字参数提案入口上扩展自由自然语言理解与重新拟合。
-
-2026-10-04 已增加两个有明确尺寸的标准样例并完成 GPU 稠密端到端验证：带 Ø12 mm
-贯穿孔的 60 × 40 × 20 mm 长方体通过 CAD 精度验收并导出 STEP；组合拟合实现更新后，
-带三角加强筋的 L 型件也使用已有点云恢复为两个长方体加一个拉伸加强筋并通过验收。
-新增直接构造的点云测试集覆盖单体、拼接、重叠、阶梯、分离和旋转物件。样例、实测指标与无需读取完整日志的
-诊断方法见 [`data/performance-validation/README.md`](data/performance-validation/README.md)。
-
-稳定性修复已消除精确点云上退化圆柱候选引发的原生崩溃，并隔离随机采样状态。
-圆柱使用完整支持点精修轴线、中心和半径；同一孔壁的重复证据会合并。
-`tools/diagnostics/check_cad_validation_stability.py` 输出重复结果的几何指纹、参数波动和精度验收，
-默认只读取结构化报告，也支持对已有照片点云重复拟合。
-
-## 6. 第一次进入仓库时从哪里开始
-
-开发环境和客户端启动说明见 [客户端 README](apps/ParamCAD%20Studio/README.md)。旧版环境配置指南已归档。 [历史环境配置指南](docs/Outdated/development_setup.md)
-
-当前点云到 CAD 的模块边界和重构计划见 [模块契约与重构计划](docs/Point_Cloud_to_CAD_Module_Contracts_and_Refactoring_Plan.md)。
-
-仓库提供统一命令行入口 `pcad`。运行 `& .\tools\install_pcad.ps1` 注册当前用户
-PATH 后，可以使用 `pcad studio` 打开客户端、`pcad clean output --dry-run` 预览
-输出清理、`pcad clean output` 删除生成的输出。实现统一放在 `tools/pcad_cli/`，
-安装与扩展方法见 [`tools/README.md`](tools/README.md)。
-
-1. 想运行桌面客户端：先阅读 [`apps/ParamCAD Studio/README.md`](apps/ParamCAD%20Studio/README.md)。
-2. 想了解图片如何变成点云：阅读 [`core/reconstruction/README.md`](core/reconstruction/README.md)。
-3. 想开发点云拟合与特征识别：阅读 [`core/geometric_reconstruction/README.md`](core/geometric_reconstruction/README.md)。
-4. 想开发草图、特征和 B-Rep：阅读 [`core/parametric_modeling/README.md`](core/parametric_modeling/README.md)。
-5. 本地二进制依赖的目录约定见 [依赖目录说明](deps/README.md)。旧版 COLMAP 安装说明已归档。 [历史安装说明](docs/Outdated/colmap_installation.md)
-6. 想制作或安装 Windows 发布包：阅读 [`packaging/PACKAGE_README.md`](packaging/PACKAGE_README.md)。
-
-在仓库根目录可以先执行非递归依赖检查：
-
-```powershell
-& .\deps\verify.ps1
-```
-
-开发时请把运行结果留在 `outputs/`，不要提交 `deps/` 下的大型 SDK、COLMAP 工作区或本机构建产物。
+技术栈：**C++17 · Python · Qt · VTK · OpenCASCADE · CGAL · COLMAP**
