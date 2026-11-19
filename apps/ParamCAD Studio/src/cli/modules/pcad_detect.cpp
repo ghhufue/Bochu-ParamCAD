@@ -1,4 +1,5 @@
 #include "ModuleCli.h"
+#include "io/ReconstructionCache.h"
 
 #include <reconstruction/segmentation/PrimitiveDetector.h>
 #include <reconstruction/preprocessing/PointCloudPreprocessor.h>
@@ -102,14 +103,15 @@ int run_detect(const QStringList& commandArguments)
         reconstruction::PointStore processed({}, snapshot.observations().unit());
         reconstruction::PointCloudPreprocessingReport preprocessingReport;
         std::string failure;
-        if (!reconstruction::preprocessPointCloud(snapshot, preprocessing, processed, preprocessingReport, failure))
+        ReconstructionCache cache;
+        if (!cache.preprocess(snapshot, preprocessing, processed, preprocessingReport, failure))
             throw std::runtime_error(failure);
 
         const auto settings = reconstruction::loadDetectionSettings(config);
         auto options = settings.options;
         PointCloudAdapter::applyDetectionScale(options, cloudDiagonal(processed), processed.size(), settings);
         reconstruction::PrimitiveDetectionResult detection;
-        if (!reconstruction::detectPrimitiveEvidence(processed, options, detection, failure))
+        if (!cache.detect(processed, options, detection, failure))
             throw std::runtime_error(failure);
 
         QJsonArray evidence;
@@ -120,6 +122,7 @@ int run_detect(const QStringList& commandArguments)
         report["unassigned_points"] = static_cast<qint64>(detection.unassignedPointIds.size());
         report["elapsed_ms"] = timer.elapsed();
         report["status"] = QStringLiteral("ok");
+        report["cache"] = cache.report();
         writeModuleReport(arguments.report, report);
         return 0;
     } catch (const std::exception& failure) {

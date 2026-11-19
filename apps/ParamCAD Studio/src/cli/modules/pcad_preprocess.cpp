@@ -1,6 +1,7 @@
 #include "ModuleCli.h"
 
 #include "io/PlyWriter.h"
+#include "io/ReconstructionCache.h"
 
 #include <reconstruction/preprocessing/PointCloudPreprocessor.h>
 #include <reconstruction/settings/ModuleConfig.h>
@@ -55,7 +56,8 @@ int run_preprocess(const QStringList& commandArguments)
         reconstruction::PointStore processed({}, snapshot.observations().unit());
         reconstruction::PointCloudPreprocessingReport preprocessing;
         std::string failure;
-        if (!reconstruction::preprocessPointCloud(snapshot, options, processed, preprocessing, failure))
+        ReconstructionCache cache;
+        if (!cache.preprocess(snapshot, options, processed, preprocessing, failure))
             throw std::runtime_error(failure);
 
         PlyCloud outputCloud;
@@ -88,6 +90,7 @@ int run_preprocess(const QStringList& commandArguments)
         report["output_points"] = static_cast<qint64>(processed.size());
         report["elapsed_ms"] = timer.elapsed();
         report["status"] = QStringLiteral("ok");
+        report["cache"] = cache.report();
         writeModuleReport(arguments.report, report);
         return 0;
     } catch (const std::exception& failure) {

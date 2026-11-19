@@ -1,10 +1,14 @@
 #include "app/CadReconstructionTask.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFile>
+#include <QTemporaryDir>
 #include <QThread>
 #include <QTimer>
+#include <reconstruction/modeling/ModelingAdapter.h>
 
 #include <algorithm>
 #include <cmath>
@@ -153,6 +157,7 @@ CadReconstructionResult run(PlyCloud cloud, int cancellation = 0,
 int main(int argc, char** argv)
 {
     QCoreApplication application(argc, argv);
+    qputenv("PCAD_DISABLE_CACHE", "1");
     try {
         const auto success = run(boxCloud());
         using Path = reconstruction::ProjectionPath;
@@ -191,6 +196,41 @@ int main(int argc, char** argv)
         const auto refreshed=run(boxCloud(),0,{},reconstruction::LengthUnit::Millimeter,stale);
         require(refreshed.outcome==CadReconstructionResult::Outcome::Success && !refreshed.analysisReused,
                 "different analysis settings trigger a refresh");
+
+        QTemporaryDir cacheDirectory;
+        require(cacheDirectory.isValid(), "temporary reconstruction cache");
+        qputenv("PCAD_CACHE_DIR", cacheDirectory.path().toUtf8());
+        qunsetenv("PCAD_DISABLE_CACHE");
+        const auto status = [](const auto& result, const char* stage) {
+            return result.cache.value(QLatin1String(stage)).toObject().value("status").toString();
+        };
+        const auto cold = run(boxCloud());
+        const auto warm = run(boxCloud());
+        require(status(cold, "preprocessing") == "miss" && status(cold, "source_analysis") == "miss" &&
+                status(warm, "preprocessing") == "hit" && status(warm, "source_analysis") == "hit" &&
+                status(warm, "recognition") == "hit",
+                "identical observations reopen all completed reconstruction stages from disk");
+        modeling::ModelingCore replayed;
+        require(warm.outcome == CadReconstructionResult::Outcome::Success &&
+                reconstruction::commitCompoundCandidate(warm.candidate, replayed).success &&
+                !replayed.bodyShape().IsNull(), "cached candidates build an editable solid");
+        auto changed = boxCloud();
+        changed.normals.front()[0] *= -1;
+        require(status(run(std::move(changed)), "preprocessing") == "miss",
+                "same positions with changed normal observations invalidate preprocessing");
+        QDir sources(cacheDirectory.filePath("reconstruction/v1/source_analysis"));
+        const auto files = sources.entryList({"*.bin"}, QDir::Files);
+        for (const auto& name : files) {
+            QFile corrupt(sources.filePath(name));
+            require(corrupt.open(QIODevice::WriteOnly | QIODevice::Truncate), "open cache entry for corruption test");
+            require(corrupt.write("invalid") == 7, "corrupt cached source snapshot");
+        }
+        const auto recovered = run(boxCloud());
+        require(!files.empty() && status(recovered, "source_analysis") == "miss" &&
+                status(recovered, "working_analysis") == "hit" &&
+                recovered.outcome == CadReconstructionResult::Outcome::Success,
+                "an invalid stage is rebuilt from its valid upstream snapshot");
+        qputenv("PCAD_DISABLE_CACHE", "1");
         const auto parallel=std::find_if(success.analysis.relations.begin(),success.analysis.relations.end(),[](const auto& r){
             return r.kind==reconstruction::SurfaceRelationKind::Parallel;
         });

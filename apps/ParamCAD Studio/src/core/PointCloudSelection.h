@@ -108,8 +108,12 @@ public:
     int regionPointCount(int regionId) const;
     bool save(const QString& path, const QString& sourcePath, QString& error) const;
     bool load(const QString& path, QString& error);
+    QJsonObject automaticAnnotations() const;
+    bool restoreAutomaticAnnotations(const QJsonObject& annotations, QString& error);
 
 private:
+    QJsonObject annotations(const QString& sourcePath) const;
+    bool loadAnnotations(const QJsonObject& root, QString& error, bool automaticOnly);
     struct EditState {
         std::vector<int> memberships;
         std::vector<unsigned char> deleted;

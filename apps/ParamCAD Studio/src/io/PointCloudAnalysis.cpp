@@ -3,6 +3,7 @@
 #include <reconstruction/surface/SurfaceSupportValidation.h>
 #include <reconstruction/surface/SurfaceOwnership.h>
 #include "io/PointCloudAdapter.h"
+#include "io/ReconstructionCache.h"
 #include <reconstruction/surface/PlaneSupportRecovery.h>
 
 #include <QJsonArray>
@@ -64,6 +65,8 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
         result.error = QCoreApplication::translate("PointCloudAnalysis", "表面识别距离容差必须大于零。"); return result;
     }
     const auto source = PointCloudAdapter::toPointStore(cloud, unit);
+    const auto cancelled=[] { return QThread::currentThread()->isInterruptionRequested(); };
+    ReconstructionCache cache(cancelled);
     auto preprocessing = PointCloudAdapter::preprocessingOptionsFor(cloud);
     preprocessing.convertKnownUnitsToMillimeters = false;
     // A scene-wide voxel can exceed a small hole's diameter. Analysis resolution
@@ -75,7 +78,7 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
     reconstruction::PointStore points({}, unit);
     reconstruction::PointCloudPreprocessingReport report;
     std::string error;
-    if (!reconstruction::preprocessPointCloud(source, preprocessing, points, report, error)) {
+    if (!cache.preprocess(reconstruction::ObservationSnapshot(source, false), preprocessing, points, report, error)) {
         result.error = QString::fromStdString(error); return result;
     }
     result.processedPoints = points.size();
@@ -153,8 +156,7 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
     analysisOptions.recoveryConnectivityToleranceMultiplier=analysisSettings.recoveryConnectivityToleranceMultiplier;
     analysisOptions.recoveryConnectivityAdaptiveMultiplier=analysisSettings.recoveryConnectivityAdaptiveMultiplier;
     reconstruction::SurfaceAnalysisResult analysis;
-    if (!reconstruction::analyzeSurfaces(points, analysisOptions, analysis, error, {}, [] {
-            return QThread::currentThread()->isInterruptionRequested(); })) {
+    if (!cache.analyze(points, analysisOptions, analysis, error)) {
         result.error = QString::fromStdString(error); return result;
     }
     result.analysis = analysis;
@@ -162,7 +164,6 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
     // downsampled seed cannot recover a long connected face. Keep the processed
     // analysis fingerprint intact for subsequent CAD cache validation.
     auto displayEvidence=analysis.supportProposals.empty()?analysis.surfaces:analysis.supportProposals;
-    const auto cancelled=[] { return QThread::currentThread()->isInterruptionRequested(); };
     if(!reconstruction::recoverPlaneSupport(source,options.plane,displayEvidence,error,{},cancelled)) {
         result.error=QString::fromStdString(error);return result;
     }
@@ -219,6 +220,7 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
         std::visit([&](const auto& e){for(auto id:e.supportPointIds)members.push_back(originalBySource.at(id));},evidence);
         result.surfaces.push_back({std::move(region),std::move(members)});
     }
+    result.cache = cache.report();
     return result;
 }
 

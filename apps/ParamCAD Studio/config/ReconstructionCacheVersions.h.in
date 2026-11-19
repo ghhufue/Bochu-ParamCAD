@@ -1,0 +1,13 @@
+#pragma once
+
+namespace reconstruction_cache::versions {
+inline constexpr char preprocessing[] = "@CACHE_PREPROCESSING@";
+inline constexpr char evidence[] = "@CACHE_EVIDENCE@";
+inline constexpr char analysis[] = "@CACHE_ANALYSIS@";
+inline constexpr char recognition[] = "@CACHE_RECOGNITION@;@OpenCASCADE_VERSION@";
+inline constexpr char assemblyGrouping[] = "@CACHE_ASSEMBLY_GROUPING@";
+inline constexpr char assemblyPreparation[] = "@CACHE_ASSEMBLY_PREPARATION@";
+inline constexpr char assemblyClosure[] = "@CACHE_ASSEMBLY_CLOSURE@;@OpenCASCADE_VERSION@";
+inline constexpr char projection[] = "@CACHE_PROJECTION@;@OpenCASCADE_VERSION@";
+inline constexpr char presentation[] = "@CACHE_PRESENTATION@;@OpenCASCADE_VERSION@";
+}

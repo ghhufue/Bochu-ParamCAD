@@ -116,6 +116,31 @@ struct AssemblyReconstructionResult {
     CompoundCandidate candidate;
     std::vector<PointId> unassignedWorkingPointIds;
 };
+// Boundaries and source ownership before closure can revise loops or add solids.
+struct PreparedAssembly {
+    std::uint64_t sourceFingerprint = 0;
+    std::vector<PointSample> workingPoints;
+    std::vector<std::vector<std::size_t>> groups;
+    AssemblyReconstructionResult observed;
+};
+struct GroupedAssembly {
+    PreparedAssembly preparation;
+    std::vector<double> spacing;
+    std::vector<int> labels;
+    std::vector<std::size_t> patchParts;
+};
+bool groupAssembly(const PointStore& source, const AssemblyOptions& options,
+    GroupedAssembly& output, std::string& error, const std::function<bool()>& cancelled = {});
+bool prepareAssemblyBoundaries(const PointStore& source, const AssemblyOptions& options,
+    GroupedAssembly grouped, PreparedAssembly& output, std::string& error,
+    const std::function<bool()>& cancelled = {});
+bool prepareAssembly(const PointStore& source, const AssemblyOptions& options,
+    PreparedAssembly& output, std::string& error, const std::function<bool()>& cancelled = {});
+bool closePreparedAssembly(const PointStore& source, const AssemblyOptions& options,
+    const PreparedAssembly& prepared, AssemblyReconstructionResult& output, std::string& error,
+    const std::function<bool()>& cancelled = {});
+bool projectOpenAssembly(const PointStore& source, const AssemblyOptions& options,
+    AssemblyReconstructionResult& result, std::string& error, const std::function<bool()>& cancelled = {});
 // Observation-only convex-patch decomposition. Candidates are not asserted to
 // be original assembly instances; concave parts/contacts can remain ambiguous.
 // No source shape, file path, reference labels or topology input is accepted.

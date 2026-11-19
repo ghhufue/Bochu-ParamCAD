@@ -136,6 +136,7 @@ void reconstructOfflineCad(const QStringList& args,QJsonObject& report) {
     require(task.start(cloud,unit,{},0,{},{},projectionFallback,specializedRecovery,arguments.options,false),
         "Cannot start point-cloud worker");
     if(!result)loop.exec();require(result.has_value(),"Point-cloud worker returned no result");
+    report["cache"] = result->cache;
     if(result->preprocessingComplete)report["preprocessing"]=QJsonObject{{"input_points",double(result->preprocessing.inputPointCount)},
         {"output_points",double(result->preprocessing.outputPointCount)},{"removed_voxel_duplicates",double(result->preprocessing.removedByVoxel)},
         {"removed_outliers",double(result->preprocessing.removedAsOutliers)},{"estimated_normals",double(result->preprocessing.normalsEstimated)}};

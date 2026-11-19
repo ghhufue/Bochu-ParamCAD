@@ -103,6 +103,22 @@ int main(int argc, char** argv)
         require(restored.memberships() == selection.memberships()
                 && restored.regions().size() == selection.regions().size(), "annotation round trip");
         require(restored.regions()[0].name == "顶面", "Unicode region names round trip");
+        PointCloudSelection automatic;
+        automatic.setCloud(cloud);
+        DetectedPointCloudSurface first, second;
+        first.surface.name = "First face"; first.surface.geometry = "plane"; first.points = {0, 1};
+        second.surface.name = "Second face"; second.surface.geometry = "plane"; second.points = {2, 3};
+        automatic.addSurfaces({first, second});
+        automatic.applyInferredRelations({{1, 2, reconstruction::SurfaceRelationKind::Adjacent, 0, 0.8, true}});
+        const auto automaticSnapshot = automatic.automaticAnnotations();
+        PointCloudSelection reopened;
+        reopened.setCloud(cloud);
+        require(reopened.restoreAutomaticAnnotations(automaticSnapshot, error) &&
+                reopened.memberships() == automatic.memberships() && reopened.relations().size() == 1 &&
+                reopened.relations().front().automatic && reopened.relations().front().confidence == 0.8,
+                "restoring automatic annotations preserves exact memberships and relation endpoints");
+        require(!selection.restoreAutomaticAnnotations(automaticSnapshot, error) &&
+                selection.regionPointCount(sphere) == 3, "a cache hit cannot replace manual regions");
         PlyCloud wrongCloud = cloud;
         std::swap(wrongCloud.positions[0], wrongCloud.positions[1]);
         PointCloudSelection wrong;

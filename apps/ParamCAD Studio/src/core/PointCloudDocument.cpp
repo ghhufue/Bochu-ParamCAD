@@ -57,6 +57,13 @@ bool PointCloudDocument::loadAnnotations(const QString& path, QString& error)
     return true;
 }
 
+bool PointCloudDocument::restoreAutomaticAnnotations(const QJsonObject& annotations, QString& error)
+{
+    if (!m_selection.restoreAutomaticAnnotations(annotations, error)) return false;
+    notifyEdit();
+    return true;
+}
+
 bool PointCloudDocument::exportCloud(const QString& path, QString& error) const
 {
     return m_selection.exportCloud(path, error);

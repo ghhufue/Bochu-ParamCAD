@@ -9,6 +9,7 @@ struct PointCloudAnalysisResult
     reconstruction::SurfaceAnalysisResult analysis;
     reconstruction::SurfaceSupportValidationReport sourceSupportValidation, finalSupportValidation;
     QString error;
+    QJsonObject cache;
     size_t processedPoints = 0;
     size_t assignedPoints = 0;
     size_t preferredPlaneCount = 0;

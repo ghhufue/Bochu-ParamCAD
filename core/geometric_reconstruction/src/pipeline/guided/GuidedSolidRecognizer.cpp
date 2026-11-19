@@ -182,13 +182,13 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
                             std::string& error, const std::function<bool()>& cancelled,
                             const SurfaceAnalysisResult* sharedAnalysis,
                             const std::vector<SurfaceRelationHint>& relationHints, const PointStore* source,
-                            const RecognitionSettings* settings)
+                            const RecognitionSettings* settings, const SurfaceAnalysisOptions* conventionalOptions)
 {
     output = {};
     const GuidedRecognitionOptions& guided = settings
         ? settings->guided : GuidedRecognitionOptions{};
     if (hints.empty()) {
-        const auto options = recognitionAnalysisOptions(points, planes, cylinders,
+        const auto options = conventionalOptions ? *conventionalOptions : recognitionAnalysisOptions(points, planes, cylinders,
             settings ? settings->analysis : RecognitionAnalysisSettings{});
         if (sharedAnalysis && analysisInputMatches(points, *sharedAnalysis) &&
             analysisSettingsMatch(options,sharedAnalysis->options) &&

@@ -104,6 +104,17 @@ if(CAD_CLIENT_BUILD_TESTS)
 endif()
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets Network LinguistTools)
+find_package(OpenCASCADE REQUIRED)
+include(config/ReconstructionCacheVersions.cmake)
+add_library(ParamCADReconstructionCache STATIC src/io/ReconstructionCache.cpp)
+target_include_directories(ParamCADReconstructionCache PUBLIC src PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated" "${PARAMCAD_BUILD_INFO_DIR}")
+target_link_libraries(ParamCADReconstructionCache PUBLIC Qt6::Core
+    GeometricReconstruction::GeometricReconstruction)
+add_dependencies(ParamCADReconstructionCache paramcad_build_info)
+if(MSVC)
+    target_compile_options(ParamCADReconstructionCache PRIVATE /W4 /permissive- /utf-8)
+endif()
 if(CAD_CLIENT_BUILD_VALIDATION_TOOLS OR CAD_CLIENT_BUILD_TESTS)
     add_executable(surface_support_bundle_validation ../../tools/validation/native/SurfaceSupportBundleValidation.cpp)
     target_sources(surface_support_bundle_validation PRIVATE src/io/PointCloudAnalysis.cpp src/io/PointCloudAdapter.cpp
@@ -111,14 +122,13 @@ if(CAD_CLIENT_BUILD_VALIDATION_TOOLS OR CAD_CLIENT_BUILD_TESTS)
         src/core/PointCloudEdits.cpp src/core/PointCloudRelations.cpp src/io/PlyWriter.cpp)
     target_include_directories(surface_support_bundle_validation PRIVATE src)
     target_link_libraries(surface_support_bundle_validation PRIVATE GeometricReconstruction::GeometricReconstruction Qt6::Core
-        ParamCADSurfaceMeshing VTK::CommonCore VTK::CommonDataModel)
+        ParamCADSurfaceMeshing ParamCADReconstructionCache VTK::CommonCore VTK::CommonDataModel)
     if(MSVC)
         target_compile_options(surface_support_bundle_validation PRIVATE /W4 /permissive- /utf-8)
     endif()
 endif()
 # OpenCASCADE is resolved here as well as inside CadModelCore because the client
 # names the STEP data-exchange toolkits its importer uses directly.
-find_package(OpenCASCADE REQUIRED)
 find_package(VTK REQUIRED COMPONENTS
     CommonCore
     CommonDataModel
@@ -370,6 +380,7 @@ target_link_directories(CadPointCloudClient PRIVATE ${OpenCASCADE_LIBRARY_DIR})
 target_link_libraries(CadPointCloudClient PRIVATE
     ParamCADSurfaceMeshing
     ParamCADCapture
+    ParamCADReconstructionCache
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
@@ -493,7 +504,7 @@ if(CAD_CLIENT_BUILD_MODULE_CLIS)
     add_dependencies(pcad paramcad_build_info)
     target_link_directories(pcad PRIVATE ${OpenCASCADE_LIBRARY_DIR})
     target_link_libraries(pcad PRIVATE Qt6::Core Qt6::Gui Qt6::Network VTK::CommonCore VTK::CommonDataModel
-        CadModelCore::CadModelCore GeometricReconstruction::GeometricReconstruction TKDE TKXSBase TKDESTEP)
+        CadModelCore::CadModelCore ParamCADReconstructionCache GeometricReconstruction::GeometricReconstruction TKDE TKXSBase TKDESTEP)
     if(MSVC)
         target_compile_options(pcad PRIVATE /W4 /permissive- /utf-8)
     endif()
@@ -554,7 +565,7 @@ if(CAD_CLIENT_BUILD_VALIDATION_TOOLS)
         ../../core/geometric_reconstruction/src ../../core/parametric_modeling/src)
     target_link_directories(cad_reconstruction_validation PRIVATE ${OpenCASCADE_LIBRARY_DIR})
     target_link_libraries(cad_reconstruction_validation PRIVATE
-        Qt6::Core Qt6::Gui VTK::CommonCore VTK::CommonDataModel GeometricReconstruction::GeometricReconstruction Eigen3::Eigen TKDE TKXSBase TKDESTEP)
+        Qt6::Core Qt6::Gui VTK::CommonCore VTK::CommonDataModel ParamCADReconstructionCache GeometricReconstruction::GeometricReconstruction Eigen3::Eigen TKDE TKXSBase TKDESTEP)
     stage_module_configs(cad_reconstruction_validation)
     if(MSVC)
         target_compile_options(cad_reconstruction_validation PRIVATE /W4 /permissive- /utf-8)
@@ -654,7 +665,7 @@ if(CAD_CLIENT_BUILD_TESTS)
         src/io/PointCloudAdapter.cpp src/io/PlyReader.cpp)
     target_include_directories(cad_reconstruction_task_test PRIVATE src)
     target_link_libraries(cad_reconstruction_task_test PRIVATE
-        Qt6::Core GeometricReconstruction::GeometricReconstruction)
+        Qt6::Core ParamCADReconstructionCache GeometricReconstruction::GeometricReconstruction)
     if(MSVC)
         target_compile_options(cad_reconstruction_task_test PRIVATE /W4 /permissive- /utf-8)
     endif()
@@ -670,7 +681,7 @@ if(CAD_CLIENT_BUILD_TESTS)
         src/io/PointCloudAnalysis.cpp src/io/PointCloudAdapter.cpp src/io/PlyReader.cpp)
     target_include_directories(point_cloud_analysis_test PRIVATE src)
     target_link_libraries(point_cloud_analysis_test PRIVATE
-        Qt6::Core VTK::CommonCore VTK::CommonDataModel GeometricReconstruction::GeometricReconstruction)
+        Qt6::Core VTK::CommonCore VTK::CommonDataModel ParamCADReconstructionCache GeometricReconstruction::GeometricReconstruction)
     add_test(NAME point_cloud_analysis_test COMMAND point_cloud_analysis_test)
     if(MSVC)
         target_compile_options(point_cloud_relations_test PRIVATE /W4 /permissive- /utf-8)
@@ -719,7 +730,7 @@ if(CAD_CLIENT_BUILD_TESTS)
         target_link_directories(${interaction_test} PRIVATE ${OpenCASCADE_LIBRARY_DIR})
         target_link_libraries(${interaction_test} PRIVATE
             ParamCADSurfaceMeshing
-            ParamCADCapture Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network ${VTK_LIBRARIES}
+            ParamCADCapture ParamCADReconstructionCache Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network ${VTK_LIBRARIES}
             CadModelCore::CadModelCore GeometricReconstruction::GeometricReconstruction
             TKDE TKXSBase TKDESTEP TKMesh)
         vtk_module_autoinit(TARGETS ${interaction_test} MODULES ${VTK_LIBRARIES})

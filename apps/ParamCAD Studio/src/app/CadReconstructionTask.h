@@ -8,6 +8,7 @@
 #include <reconstruction/parts/AssemblyReconstruction.h>
 
 #include <QObject>
+#include <QJsonObject>
 #include <TopoDS_Shape.hxx>
 
 #include <atomic>
@@ -41,6 +42,7 @@ struct CadReconstructionResult
     std::optional<reconstruction::SurfaceAnalysisResult> sourceSurfacePreview;
     QString sourceSurfacePreviewError;
     bool analysisReused = false;
+    QJsonObject cache;
     std::vector<reconstruction::TemplateFit> templateFits;
     int failedRegionId = 0;
     QString error;

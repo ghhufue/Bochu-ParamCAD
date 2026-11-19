@@ -54,5 +54,6 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
                             const SurfaceAnalysisResult* sharedAnalysis = nullptr,
                             const std::vector<SurfaceRelationHint>& relationHints = {},
                             const PointStore* source = nullptr,
-                            const RecognitionSettings* settings = nullptr);
+                            const RecognitionSettings* settings = nullptr,
+                            const SurfaceAnalysisOptions* conventionalOptions = nullptr);
 } // namespace reconstruction

@@ -1,4 +1,5 @@
 #include "ModuleCli.h"
+#include "io/ReconstructionCache.h"
 
 #include <reconstruction/preprocessing/PointCloudPreprocessor.h>
 #include <reconstruction/parts/AssemblyReconstruction.h>
@@ -50,7 +51,8 @@ int run_assemble(const QStringList& commandArguments)
         reconstruction::PointStore processed({}, snapshot.observations().unit());
         reconstruction::PointCloudPreprocessingReport preprocessingReport;
         std::string failure;
-        if (!reconstruction::preprocessPointCloud(snapshot, preprocessing, processed, preprocessingReport, failure))
+        ReconstructionCache cache;
+        if (!cache.preprocess(snapshot, preprocessing, processed, preprocessingReport, failure))
             throw std::runtime_error(failure);
         if (processed.unit() != reconstruction::LengthUnit::Millimeter)
             throw std::runtime_error("Assembly needs a millimetre cloud; pass --unit mm or provide mm metadata");
@@ -58,7 +60,7 @@ int run_assemble(const QStringList& commandArguments)
         reconstruction::AssemblyOptions options = reconstruction::loadAssemblySettings(config);
         options.projectionOptions = reconstruction::loadProjectionOptions();
         reconstruction::AssemblyReconstructionResult assembly;
-        if (!reconstruction::reconstructAssembly(processed, options, assembly, failure))
+        if (!cache.assemble(processed, options, assembly, failure))
             throw std::runtime_error(failure);
 
         QJsonArray parts;
@@ -90,6 +92,7 @@ int run_assemble(const QStringList& commandArguments)
         report["working_points"] = static_cast<qint64>(assembly.workingPoints);
         report["elapsed_ms"] = timer.elapsed();
         report["status"] = assembly.parts.empty() ? QStringLiteral("unsupported") : QStringLiteral("ok");
+        report["cache"] = cache.report();
         writeModuleReport(arguments.report, report);
         return assembly.parts.empty() ? 1 : 0;
     } catch (const std::exception& failure) {

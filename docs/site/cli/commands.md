@@ -65,6 +65,10 @@ pcad reconstruct cad --offline --in cloud.ply --unit mm --output outputs/cad-new
 
 离线成功输出 input 快照、report.json、model.pcad、model.features.json、model.step；装配路径可能另有分离诊断。检查 cad_constructed、project_round_trip_verified、step_round_trip_verified 和实际文件。cad_exported_partial 表示部分结果。
 
+Studio 和原生 pcad 共享本地应用缓存。报告的 `cache` 对象列出本次查询阶段及其命中、未命中或绕过情况。缓存键绑定实际观测和生效设置，包含阶段实现与数据格式版本。装配按提取分组、边界准备、闭合和投影保存，单独修改投影参数可以复用前面的结果。开放部件及其诊断也可以复用。
+
+测试时可在启动进程前设置 `PCAD_CACHE_DIR`，把缓存放到独立目录。设置 `PCAD_DISABLE_CACHE=1` 可绕过缓存进行对照。缓存不会替代 PCAD 工程保存，在线重开点云只恢复匹配的自动集合与关系。
+
 ## 图片重建
 
 ```powershell

@@ -1,4 +1,5 @@
 #include "ModuleCli.h"
+#include "io/ReconstructionCache.h"
 
 #include <reconstruction/surface/SurfaceAnalysis.h>
 #include <reconstruction/preprocessing/PointCloudPreprocessor.h>
@@ -67,7 +68,8 @@ int run_analyze(const QStringList& commandArguments)
         reconstruction::PointStore processed({}, snapshot.observations().unit());
         reconstruction::PointCloudPreprocessingReport preprocessingReport;
         std::string failure;
-        if (!reconstruction::preprocessPointCloud(snapshot, preprocessing, processed, preprocessingReport, failure))
+        ReconstructionCache cache;
+        if (!cache.preprocess(snapshot, preprocessing, processed, preprocessingReport, failure))
             throw std::runtime_error(failure);
 
         const auto detectionSettings = reconstruction::loadDetectionSettings();
@@ -89,7 +91,7 @@ int run_analyze(const QStringList& commandArguments)
         options.recoverResidualSurfaces = settings.recoverResidualSurfaces;
 
         reconstruction::SurfaceAnalysisResult analysis;
-        if (!reconstruction::analyzeSurfaces(processed, options, analysis, failure))
+        if (!cache.analyze(processed, options, analysis, failure))
             throw std::runtime_error(failure);
 
         report["support_validation"]=QJsonDocument::fromJson(QByteArray::fromStdString(reconstruction::serializeSurfaceSupportReport(analysis.supportValidation))).object();
@@ -128,6 +130,7 @@ int run_analyze(const QStringList& commandArguments)
         report["unassigned_points"] = static_cast<qint64>(analysis.unassignedPointIds.size());
         report["elapsed_ms"] = timer.elapsed();
         report["status"] = QStringLiteral("ok");
+        report["cache"] = cache.report();
         writeModuleReport(arguments.report, report);
         return 0;
     } catch (const std::exception& failure) {

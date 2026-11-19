@@ -25,6 +25,7 @@ public:
                           bool unassignedOnly = false, int regionId = -1) const;
     bool saveAnnotations(const QString& path, QString& error) const;
     bool loadAnnotations(const QString& path, QString& error);
+    bool restoreAutomaticAnnotations(const QJsonObject& annotations, QString& error);
     bool exportCloud(const QString& path, QString& error) const;
 
     void select(const std::vector<vtkIdType>& ids, bool add = false);

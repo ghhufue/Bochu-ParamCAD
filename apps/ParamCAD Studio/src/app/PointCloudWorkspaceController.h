@@ -76,6 +76,8 @@ private:
     void onCadReconstructionFinished(const CadReconstructionResult& result);
     void startPointCloudAnalysis(int regionId = 0, bool recordUndo = true);
     void startRelationInference(bool recordUndo = true);
+    void restoreCachedPresentation();
+    void saveCachedPresentation();
     void startAnalysisExport();
     void startAnalysisExportTo(const QString& path);
     void finishCliOperation(bool success,const QString& error={},QJsonObject details={});
@@ -94,6 +96,7 @@ private:
     QThread* m_analysisThread = nullptr;
     QThread* m_downsampleThread = nullptr;
     QThread* m_exportThread = nullptr;
+    QThread* m_presentationThread = nullptr;
     CadReconstructionTask* m_cadTask;
     QPointer<QWidget> m_projectionPage;
     QPointer<QWidget> m_projectionReport;
@@ -104,6 +107,8 @@ private:
     bool m_startingCad = false;
     bool m_cadOverwriteManual = false;
     bool m_analyseAfterCad = false;
+    bool m_inferAfterCad = false;
+    bool m_presentationPending = false;
     bool m_guidedQueued = false;
     quint64 m_cadCloudRevision = 0;
     quint64 m_cadBodyRevision = 0;
@@ -113,5 +118,9 @@ private:
     std::optional<reconstruction::SurfaceAnalysisResult> m_surfaceAnalysis;
     QJsonObject m_surfaceSupportReport;
     QByteArray m_surfaceSupportReportFingerprint;
+    QByteArray m_presentationContext;
+    bool m_presentationAssembly = false;
+    QByteArray m_cadSurfaceContext;
+    QByteArray m_cadAssemblyContext;
     QString m_cliOperation;
 };

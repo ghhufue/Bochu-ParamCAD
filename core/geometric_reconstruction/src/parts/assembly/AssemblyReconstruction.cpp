@@ -382,32 +382,112 @@ void publishAnalyticProfile(const PointStore& source, const WorkingData& work, A
 }
 } // namespace detail::assembly
 
-bool reconstructAssembly(const PointStore& source, const AssemblyOptions& options,
-    AssemblyReconstructionResult& output, std::string& error, const std::function<bool()>& cancelled) {
+bool groupAssembly(const PointStore& source, const AssemblyOptions& options,
+    GroupedAssembly& output, std::string& error, const std::function<bool()>& cancelled) {
     using diagnostics::profileStage;
-    const diagnostics::StageProfile profile("assembly.reconstruct", source.size());
-    output = {};
     error.clear();
     try {
         auto extraction = profileStage("assembly.extract_patches", [&] { return extractPatches(source, options, cancelled); });
         auto& work = extraction.work;
         auto& patches = extraction.patches;
         auto grouping = profileStage("assembly.group_patches", [&] { return groupPatches(work, patches, options); });
-        profileStage("assembly.recover_boundaries", [&] { recoverBoundaries(work, options, grouping.connections, patches, cancelled); });
+        GroupedAssembly staged;
+        auto& prepared = staged.preparation;
+        auto& observed = prepared.observed;
+        observed.inputPoints = source.size();
+        observed.workingPoints = work.points.size();
+        observed.distanceTolerance = work.tolerance;
+        observed.unassignedWorkingPointIds = std::move(extraction.unassignedPointIds);
+        observed.patches = std::move(patches);
+        observed.connections = std::move(grouping.connections);
+        observed.parts = std::move(grouping.parts);
+        if (observed.patches.empty()) {
+            error = "No finite surface patches with sufficient neighborhood support";
+            return false;
+        }
+        prepared.sourceFingerprint = pointStoreFingerprint(source);
+        prepared.workingPoints = std::move(work.points);
+        prepared.groups = std::move(work.groups);
+        staged.spacing = std::move(work.spacing);
+        staged.labels = std::move(work.labels);
+        staged.patchParts = std::move(grouping.patchParts);
+        output = std::move(staged);
+        return true;
+    } catch (const std::exception& e) {
+        error = e.what();
+        return false;
+    }
+}
+
+bool prepareAssemblyBoundaries(const PointStore& source, const AssemblyOptions& options,
+    GroupedAssembly grouped, PreparedAssembly& output, std::string& error,
+    const std::function<bool()>& cancelled) {
+    using diagnostics::profileStage;
+    error.clear();
+    auto& prepared = grouped.preparation;
+    auto& observed = prepared.observed;
+    if (prepared.sourceFingerprint != pointStoreFingerprint(source) ||
+        prepared.groups.size() != observed.patches.size() ||
+        grouped.labels.size() != prepared.workingPoints.size() ||
+        grouped.spacing.size() != prepared.workingPoints.size() ||
+        grouped.patchParts.size() != observed.patches.size()) {
+        error = "Assembly groups refer to a different point snapshot";
+        return false;
+    }
+    try {
+        WorkingData work;
+        work.points = std::move(prepared.workingPoints);
+        work.groups = std::move(prepared.groups);
+        work.spacing = std::move(grouped.spacing);
+        work.labels = std::move(grouped.labels);
+        work.tolerance = observed.distanceTolerance;
+        PatchGrouping grouping{std::move(observed.connections), std::move(observed.parts), std::move(grouped.patchParts)};
+        profileStage("assembly.recover_boundaries", [&] {
+            recoverBoundaries(work, options, grouping.connections, observed.patches, cancelled);
+        });
         checkCancel(cancelled);
-        output.unassignedPointIds = profileStage("assembly.assign_source_points", [&] {
-            return assignSourceObservations(source, work, options, patches, grouping, cancelled);
+        observed.unassignedPointIds = profileStage("assembly.assign_source_points", [&] {
+            return assignSourceObservations(source, work, options, observed.patches, grouping, cancelled);
         });
+        observed.connections = std::move(grouping.connections);
+        observed.parts = std::move(grouping.parts);
+        prepared.workingPoints = std::move(work.points);
+        prepared.groups = std::move(work.groups);
+        output = std::move(prepared);
+        return true;
+    } catch (const std::exception& e) {
+        error = e.what();
+        return false;
+    }
+}
+
+bool prepareAssembly(const PointStore& source, const AssemblyOptions& options,
+    PreparedAssembly& output, std::string& error, const std::function<bool()>& cancelled) {
+    GroupedAssembly grouped;
+    return groupAssembly(source, options, grouped, error, cancelled) &&
+        prepareAssemblyBoundaries(source, options, std::move(grouped), output, error, cancelled);
+}
+
+bool closePreparedAssembly(const PointStore& source, const AssemblyOptions& options,
+    const PreparedAssembly& prepared, AssemblyReconstructionResult& result, std::string& error,
+    const std::function<bool()>& cancelled) {
+    using diagnostics::profileStage;
+    error.clear();
+    if (prepared.sourceFingerprint != pointStoreFingerprint(source) ||
+        prepared.groups.size() != prepared.observed.patches.size()) {
+        error = "Assembly preparation refers to a different point snapshot";
+        return false;
+    }
+    try {
+        checkCancel(cancelled);
+        WorkingData work;
+        work.points = prepared.workingPoints;
+        work.groups = prepared.groups;
+        work.tolerance = prepared.observed.distanceTolerance;
+        auto output = prepared.observed;
         output.candidate = profileStage("assembly.close_parts", [&] {
-            return closeParts(work, options, patches, grouping.parts, source.size(), cancelled);
+            return closeParts(work, options, output.patches, output.parts, source.size(), cancelled);
         });
-        output.inputPoints = source.size();
-        output.workingPoints = work.points.size();
-        output.distanceTolerance = work.tolerance;
-        output.unassignedWorkingPointIds = std::move(extraction.unassignedPointIds);
-        output.patches = std::move(patches);
-        output.connections = std::move(grouping.connections);
-        output.parts = std::move(grouping.parts);
         if (options.enableSpecializedRecovery) {
             if (options.buildSolids && output.candidate.profileBodies.empty() && output.candidate.curvedSolids.empty()) {
                 profileStage("assembly.close_analytic_profile", [&] { closeAnalyticProfile(source, work, output, cancelled); });
@@ -418,16 +498,39 @@ bool reconstructAssembly(const PointStore& source, const AssemblyOptions& option
             }
             profileStage("assembly.recover_local_profiles", [&] { recoverLocalProfiles(source, work, options, output, cancelled); });
         }
-        profileStage("assembly.projection_fallback", [&] { fitOpenParts(source, options, output, cancelled); });
-        if (output.patches.empty()) {
-            error = "No finite surface patches with sufficient neighborhood support";
-            return false;
-        }
+        result = std::move(output);
         return true;
     } catch (const std::exception& e) {
-        output = {};
         error = e.what();
         return false;
     }
+}
+
+bool projectOpenAssembly(const PointStore& source, const AssemblyOptions& options,
+    AssemblyReconstructionResult& result, std::string& error, const std::function<bool()>& cancelled) {
+    error.clear();
+    try {
+        checkCancel(cancelled);
+        diagnostics::profileStage("assembly.projection_fallback",
+            [&] { fitOpenParts(source, options, result, cancelled); });
+        return true;
+    } catch (const std::exception& e) {
+        error = e.what();
+        return false;
+    }
+}
+
+bool reconstructAssembly(const PointStore& source, const AssemblyOptions& options,
+    AssemblyReconstructionResult& output, std::string& error, const std::function<bool()>& cancelled) {
+    const diagnostics::StageProfile profile("assembly.reconstruct", source.size());
+    output = {};
+    PreparedAssembly prepared;
+    AssemblyReconstructionResult closed;
+    if (!prepareAssembly(source, options, prepared, error, cancelled) ||
+        !closePreparedAssembly(source, options, prepared, closed, error, cancelled) ||
+        !projectOpenAssembly(source, options, closed, error, cancelled))
+        return false;
+    output = std::move(closed);
+    return true;
 }
 }

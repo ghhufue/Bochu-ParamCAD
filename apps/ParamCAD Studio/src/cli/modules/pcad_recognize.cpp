@@ -1,4 +1,5 @@
 #include "ModuleCli.h"
+#include "io/ReconstructionCache.h"
 
 #include <reconstruction/preprocessing/PointCloudPreprocessor.h>
 #include <reconstruction/pipeline/GuidedSolidRecognizer.h>
@@ -48,7 +49,8 @@ int run_recognize(const QStringList& commandArguments)
         reconstruction::PointStore processed({}, snapshot.observations().unit());
         reconstruction::PointCloudPreprocessingReport preprocessingReport;
         std::string failure;
-        if (!reconstruction::preprocessPointCloud(snapshot, preprocessing, processed, preprocessingReport, failure))
+        ReconstructionCache cache;
+        if (!cache.preprocess(snapshot, preprocessing, processed, preprocessingReport, failure))
             throw std::runtime_error(failure);
         if (processed.unit() != reconstruction::LengthUnit::Millimeter)
             throw std::runtime_error("Recognition needs a millimetre cloud; pass --unit mm or provide mm metadata");
@@ -60,9 +62,9 @@ int run_recognize(const QStringList& commandArguments)
         const auto settings = reconstruction::loadRecognitionSettings(config);
         reconstruction::GuidedSolidResult guided;
         const auto& source = snapshot.observations();
-        if (!reconstruction::reconstructGuidedSolid(
-                processed, detection.plane, detection.cylinder, {}, guided, failure, {},
-                nullptr, {}, &source, &settings)) {
+        if (!cache.recognize(processed, source, detection.plane, detection.cylinder, {}, {},
+                settings, nullptr, guided, failure)) {
+            report["cache"] = cache.report();
             report["error"] = QString::fromStdString(failure);
             report["status"] = QStringLiteral("unsupported");
             report["elapsed_ms"] = timer.elapsed();
@@ -84,6 +86,7 @@ int run_recognize(const QStringList& commandArguments)
         report["working_points"] = static_cast<qint64>(processed.size());
         report["elapsed_ms"] = timer.elapsed();
         report["status"] = QStringLiteral("ok");
+        report["cache"] = cache.report();
         writeModuleReport(arguments.report, report);
         return 0;
     } catch (const std::exception& failure) {
