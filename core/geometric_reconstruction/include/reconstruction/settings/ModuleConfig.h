@@ -53,6 +53,7 @@ struct AnalysisSettings {
     SurfaceSupportValidationOptions supportValidation;
     double connectivityDistance = 0;
     bool independentFamilies = true;
+    std::size_t familyDetectionWorkerCount = 0;
     bool recoverResidualSurfaces = false;
     double relationDistanceMm = 0;
     double relationDistanceToleranceMultiplier = 4.0;

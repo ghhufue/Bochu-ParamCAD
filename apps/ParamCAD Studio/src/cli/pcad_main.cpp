@@ -1,4 +1,5 @@
 #include "CommandProtocol.h"
+#include "ParamCADBuildInfo.h"
 #include "BackendLogScope.h"
 #include "CommandArguments.h"
 #include "AnalysisBundleReader.h"
@@ -148,7 +149,17 @@ int main(int argc,char** argv){
         }
         if(!QStringList{"auto","online","offline"}.contains(mode))Options::fail("Mode must be auto, online or offline");
         if(args.isEmpty()||args==QStringList{"--help"}||args==QStringList{"-h"}){help();return 0;}
-        if(args==QStringList{"--version"}){output({{"schema","paramcad.cli.version"},{"version",1},{"application_version","0.3.1"}});return 0;}
+        if (args == QStringList{"--version"}) {
+            using namespace pcad::build;
+            output({{"schema", "paramcad.cli.version"}, {"version", 1},
+                    {"application_version", QString::fromLatin1(version)},
+                    {"build_configuration", QString::fromLatin1(configuration)},
+                    {"build_utc", QString::fromLatin1(builtAtUtc)},
+                    {"git_commit", QString::fromLatin1(gitCommit)},
+                    {"source_state", QString::fromLatin1(sourceState)},
+                    {"worktree_fingerprint", QString::fromLatin1(worktreeFingerprint)}}, report);
+            return 0;
+        }
         const auto first=args.takeFirst();QString command=first;
         if(QStringList{"reconstruct","cloud","project","export","capture"}.contains(first)&&!args.isEmpty()&&!args.first().startsWith('-'))command+=" "+args.takeFirst();
         // 'project' alone remains the projection module command.

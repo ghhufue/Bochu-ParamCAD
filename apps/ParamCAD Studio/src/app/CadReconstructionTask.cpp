@@ -2,8 +2,11 @@
 #include <QCoreApplication>
 #include "io/PointCloudAdapter.h"
 #include <modeling/ModelingCore.h>
+#include <reconstruction/data/StageProfile.h>
 #include <reconstruction/parts/ProjectionSettings.h>
 #include <reconstruction/settings/ModuleConfig.h>
+#include <reconstruction/surface/SurfaceOwnership.h>
+#include <reconstruction/surface/SurfaceSupportValidation.h>
 
 #include <QElapsedTimer>
 #include <QPointer>
@@ -26,12 +29,35 @@ struct CadWork {
     bool projectionFallback;
     bool specializedRecovery;
     std::optional<reconstruction::ProjectionExtrusionOptions> projectionOptions;
+    bool prepareSurfacePreview;
 };
+
+void prepareSourceSurfacePreview(const reconstruction::PointStore& source, double supportRadius,
+    bool useSourceNormals, CadReconstructionResult& result, const std::function<bool()>& cancelled) {
+    if (result.analysis.sourceValidatedSurfaces.empty() || cancelled()) return;
+    const reconstruction::diagnostics::StageProfile profile("cad.source_surface_preview", source.size());
+    reconstruction::SurfaceAnalysisResult indexed, ownedIndex;
+    reconstruction::SurfaceOwnershipResult owned;
+    std::string error;
+    const double tolerance = result.analysis.options.detection.plane.distanceThreshold;
+    const reconstruction::SurfaceOwnershipOptions options{tolerance, std::max(supportRadius, 4 * tolerance),
+                                                          useSourceNormals};
+    if (reconstruction::indexValidatedSourceSurfaces(source, result.analysis, indexed, error) &&
+        reconstruction::resolveSurfaceOwnership(source, indexed, options, owned, error, cancelled) &&
+        reconstruction::indexSurfacePatches(source, owned.surfaces, indexed.options, ownedIndex, error)) {
+        ownedIndex.supportValidation = std::move(owned.finalSupportValidation);
+        result.sourceSurfacePreview = std::move(ownedIndex);
+    } else if (!cancelled()) {
+        result.sourceSurfacePreviewError = QString::fromStdString(error);
+    }
+}
 
 void runCadWork(const CadWork& input, CadReconstructionResult& result,
     const std::function<bool()>& cancelled, const std::function<void(Stage)>& stageChanged) {
     const auto& [cloud, unit, hints, sourceTolerance, analysis, relations, projectionFallback, specializedRecovery,
-                 projectionOptions] = input;
+                 projectionOptions, shouldPrepareSurfacePreview] = input;
+    using reconstruction::diagnostics::profileStage;
+    const reconstruction::diagnostics::StageProfile workerProfile("cad.worker", cloud.positions.size());
     if (cancelled()) return;
     reconstruction::RecognitionSettings recognitionSettings;
     reconstruction::AssemblySettings assemblySettings;
@@ -53,8 +79,9 @@ void runCadWork(const CadWork& input, CadReconstructionResult& result,
     for (const auto& hint : hints)
         preprocessing.protectedPointIds.insert(preprocessing.protectedPointIds.end(),
                                                hint.points.begin(), hint.points.end());
-    if (!reconstruction::preprocessPointCloud(source, preprocessing, points,
-            result.preprocessing, failure)) {
+    if (!profileStage("cad.preprocess", [&] {
+        return reconstruction::preprocessPointCloud(source, preprocessing, points, result.preprocessing, failure);
+    })) {
         result.outcome = CadReconstructionResult::Outcome::PreprocessingFailed;
         result.error = QString::fromStdString(failure);
         return;
@@ -71,9 +98,16 @@ void runCadWork(const CadWork& input, CadReconstructionResult& result,
             sourceTolerance*result.preprocessing.appliedScaleToMillimeters;
     }
     const auto& recoverySource = source.observations();
+    const auto preparePreview = [&] {
+        if (!shouldPrepareSurfacePreview) return;
+        prepareSourceSurfacePreview(recoverySource, 3 * preprocessing.voxelSize * source.sourceToWorkingScale(),
+            cloud.normals.size() == cloud.positions.size(), result, cancelled);
+    };
     reconstruction::GuidedSolidResult guided;
-    const bool recognized=reconstruction::reconstructGuidedSolid(points,planes,cylinders,hints,guided,failure,
-            cancelled, analysis ? &*analysis : nullptr,relations,&recoverySource,&recognitionSettings);
+    const bool recognized = profileStage("cad.recognize", [&] {
+        return reconstruction::reconstructGuidedSolid(points, planes, cylinders, hints, guided, failure,
+            cancelled, analysis ? &*analysis : nullptr, relations, &recoverySource, &recognitionSettings);
+    });
     if(cancelled())return;
     // Decompose failed/multiple-body observations before attempting
     // finite-shell closure. Explicit user constraints stay authoritative.
@@ -123,6 +157,7 @@ void runCadWork(const CadWork& input, CadReconstructionResult& result,
             result.outcome=CadReconstructionResult::Outcome::Unsupported;
             result.error=QCoreApplication::translate("CadReconstructionTask", "分离出 %1 个候选，但没有验证闭合的实体").arg(result.assembly->parts.size());
             if (!recognized && !failure.empty()) result.error += "; conventional: " + QString::fromStdString(failure);
+            preparePreview();
             return;
         } else if(!recognized)failure += "; decomposition: "+decompositionError;
     }
@@ -132,6 +167,7 @@ void runCadWork(const CadWork& input, CadReconstructionResult& result,
         result.outcome = CadReconstructionResult::Outcome::Unsupported;
         result.failedRegionId = guided.failedRegionId;
         result.error = QString::fromStdString(failure);
+        preparePreview();
         return;
     }
     result.candidate=std::move(guided.candidate);
@@ -177,10 +213,11 @@ bool CadReconstructionTask::start(PlyCloud cloud, reconstruction::LengthUnit uni
     std::vector<reconstruction::TemplateHint> hints, double sourceTolerance,
     std::optional<reconstruction::SurfaceAnalysisResult> analysis,
     std::vector<reconstruction::SurfaceRelationHint> relations, bool projectionFallback, bool specializedRecovery,
-    std::optional<reconstruction::ProjectionExtrusionOptions> projectionOptions)
+    std::optional<reconstruction::ProjectionExtrusionOptions> projectionOptions, bool prepareSurfacePreview)
 {
     return startWork([input = CadWork{std::move(cloud), unit, std::move(hints), sourceTolerance,
-            std::move(analysis), std::move(relations), projectionFallback, specializedRecovery, std::move(projectionOptions)}]
+            std::move(analysis), std::move(relations), projectionFallback, specializedRecovery,
+            std::move(projectionOptions), prepareSurfacePreview}]
             (auto& result, const auto& cancelled, const auto& reportStage) {
         runCadWork(input, result, cancelled, reportStage);
     }, Stage::Preprocessing);

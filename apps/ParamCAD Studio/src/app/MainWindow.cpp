@@ -1,4 +1,5 @@
 #include "app/MainWindow.h"
+#include "ParamCADBuildInfo.h"
 #include "app/CaptureController.h"
 #include "capture/QualityEvaluation.h"
 #include "capture/CaptureSessionController.h"
@@ -807,8 +808,21 @@ void MainWindow::openShortcutSettings()
 
 void MainWindow::showAbout()
 {
-    QMessageBox::about(this, tr("关于"),
-                       tr("CAD 与点云工作台\n\nC++17 / Qt 6 Widgets / VTK 界面框架\n版本 %1").arg(QApplication::applicationVersion()));
+    using namespace pcad::build;
+    const auto state = QLatin1String(sourceState);
+    const QString source = state == "dirty" ? tr("有未提交改动")
+        : state == "clean" ? tr("与提交一致") : tr("未知");
+    const QString details = tr("CAD 与点云工作台\n\n"
+                               "版本 %1\n构建配置 %2\n构建时间（UTC） %3\n"
+                               "Git 提交 %4\n工作区 %5\n改动指纹 %6\n程序路径 %7")
+        .arg(QApplication::applicationVersion(), QString::fromLatin1(configuration),
+             QString::fromLatin1(builtAtUtc), *gitCommit ? QString::fromLatin1(gitCommit) : tr("未知"),
+             source, *worktreeFingerprint ? QString::fromLatin1(worktreeFingerprint).left(12) : QStringLiteral("—"),
+             QDir::toNativeSeparators(QApplication::applicationFilePath()));
+    QMessageBox dialog(QMessageBox::Information, tr("关于"), details, QMessageBox::Ok, this);
+    dialog.setTextFormat(Qt::PlainText);
+    dialog.setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+    dialog.exec();
 }
 
 void MainWindow::updateCameraStatus(bool parallelProjection)

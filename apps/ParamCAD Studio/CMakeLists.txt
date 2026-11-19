@@ -1,6 +1,26 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(CadPointCloudClient VERSION 0.3.1 LANGUAGES CXX)
+set(PARAMCAD_VERSION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PARAMCAD_VERSION_FILE}")
+file(READ "${PARAMCAD_VERSION_FILE}" PARAMCAD_VERSION)
+string(STRIP "${PARAMCAD_VERSION}" PARAMCAD_VERSION)
+if(NOT PARAMCAD_VERSION MATCHES "^[0-9]+[.][0-9]+[.][0-9]+$")
+    message(FATAL_ERROR "ParamCAD Studio VERSION must contain major.minor.patch")
+endif()
+project(CadPointCloudClient VERSION "${PARAMCAD_VERSION}" LANGUAGES CXX)
+
+find_package(Git QUIET)
+set(PARAMCAD_BUILD_INFO_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>")
+add_custom_target(paramcad_build_info
+    COMMAND "${CMAKE_COMMAND}"
+        "-DREPOSITORY_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/../.."
+        "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
+        "-DPRODUCT_VERSION=${PROJECT_VERSION}"
+        "-DBUILD_CONFIGURATION=$<CONFIG>"
+        "-DOUTPUT_DIRECTORY=${PARAMCAD_BUILD_INFO_DIR}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/config/GenerateBuildInfo.cmake"
+    BYPRODUCTS "${PARAMCAD_BUILD_INFO_DIR}/ParamCADBuildInfo.h"
+    VERBATIM)
 
 option(CAD_CLIENT_BUILD_TESTS "Build ParamCAD Studio I/O tests" OFF)
 option(CAD_CLIENT_BUILD_CAPTURE_TESTS "Build structured-light rendering contract tests" OFF)
@@ -341,7 +361,8 @@ if(WIN32)
         OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/paramcad-studio.ico")
 endif()
 
-target_include_directories(CadPointCloudClient PRIVATE src)
+target_include_directories(CadPointCloudClient PRIVATE src "${PARAMCAD_BUILD_INFO_DIR}")
+add_dependencies(CadPointCloudClient paramcad_build_info)
 # The STEP importer names OCCT toolkits directly; CadModelCore already
 # contributes TKernel/TKBRep/TKTopAlgo and the OCCT include directories, so only
 # the data-exchange and meshing toolkits are added on top of it.
@@ -468,7 +489,8 @@ if(CAD_CLIENT_BUILD_MODULE_CLIS)
         src/io/PointCloudAnalysis.cpp
         src/io/CameraInfoBuilder.cpp src/io/ProjectStore.cpp src/io/FeatureCodec.cpp
         src/io/PlyReader.cpp src/io/PlyWriter.cpp src/io/PointCloudAdapter.cpp)
-    target_include_directories(pcad PRIVATE src)
+    target_include_directories(pcad PRIVATE src "${PARAMCAD_BUILD_INFO_DIR}")
+    add_dependencies(pcad paramcad_build_info)
     target_link_directories(pcad PRIVATE ${OpenCASCADE_LIBRARY_DIR})
     target_link_libraries(pcad PRIVATE Qt6::Core Qt6::Gui Qt6::Network VTK::CommonCore VTK::CommonDataModel
         CadModelCore::CadModelCore GeometricReconstruction::GeometricReconstruction TKDE TKXSBase TKDESTEP)

@@ -5,7 +5,7 @@ param(
     [string]$QtRoot = $env:QTDIR,
     [string]$VcpkgRoot = $env:VCPKG_ROOT,
     [string]$VCRuntimeRoot,
-    [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?$')][string]$Version = '0.3.1',
+    [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.]+)?$')][string]$Version,
     [string]$OutputDirectory,
     [string]$BuildDirectory,
     [string]$LocalColmapPath,
@@ -62,6 +62,10 @@ $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (-not $StructuredLightWheelDirectory) { $StructuredLightWheelDirectory = Join-Path $projectRoot 'artifacts\cache\structured-light' }
 $structuredLightWheels = Assert-StructuredLightWheels $StructuredLightWheelDirectory
 $appRoot = Join-Path $projectRoot 'apps\ParamCAD Studio'
+if (-not $PSBoundParameters.ContainsKey('Version')) {
+    $Version = [IO.File]::ReadAllText((Join-Path $appRoot 'VERSION')).Trim()
+    if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'ParamCAD Studio VERSION must contain major.minor.patch' }
+}
 if (-not $BuildDirectory) { $BuildDirectory = Join-Path $appRoot 'build\msvc-debug' }
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $projectRoot "artifacts\releases\$Version" }
 if (-not $LocalColmapPath) { $LocalColmapPath = Join-Path $projectRoot 'deps\colmap' }
@@ -112,8 +116,14 @@ if (-not $SkipBuild) {
 # validation configuration does). Copying from the default path would ship a
 # stale executable, so always resolve the configured runtime output directory.
 $release = Join-Path $BuildDirectory 'Release'
-$runtimeOutput = Get-CacheValue 'CMAKE_RUNTIME_OUTPUT_DIRECTORY'
-if ($runtimeOutput) { $release = Join-Path $runtimeOutput 'Release' }
+$releaseOutput = Get-CacheValue 'CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE'
+if ($releaseOutput) {
+    $release = $releaseOutput
+} else {
+    $runtimeOutput = Get-CacheValue 'CMAKE_RUNTIME_OUTPUT_DIRECTORY'
+    if ($runtimeOutput) { $release = Join-Path $runtimeOutput 'Release' }
+}
+if (-not [IO.Path]::IsPathRooted($release)) { $release = Join-Path $BuildDirectory $release }
 if (-not (Test-Path -LiteralPath (Join-Path $release 'ParamCAD Studio.exe') -PathType Leaf)) {
     throw "Release executable not found in $release"
 }

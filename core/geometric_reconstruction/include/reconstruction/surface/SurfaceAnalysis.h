@@ -64,6 +64,7 @@ struct SurfaceAnalysisOptions {
     SurfaceMeshingSettings supportMeshing;
     double connectivityDistance = 0; // Zero: estimate from each surface's density.
     bool independentFamilies = true;
+    std::size_t familyDetectionWorkerCount = 0;
     bool recoverResidualSurfaces = false;
     bool expandPlaneSupport = true;
     std::size_t minimumRecoveryRegionPoints = 20;
@@ -106,6 +107,7 @@ struct SurfaceAnalysisResult {
     std::vector<SurfaceId> supportProposalIds; // Accepted equation -> original proposal ID.
     SurfaceSupportValidationReport supportValidation;
     SurfaceSupportValidationReport sourceSupportValidation;
+    std::vector<PrimitiveEvidence> sourceValidatedSurfaces;
     std::vector<SurfacePatch> patches;
     std::vector<SurfaceRelation> relations;
     std::vector<PointId> unassignedPointIds;

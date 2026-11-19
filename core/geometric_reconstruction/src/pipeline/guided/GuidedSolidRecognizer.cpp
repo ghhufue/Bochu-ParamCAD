@@ -3,6 +3,7 @@
 #include "reconstruction/surface/SurfaceSupportValidation.h"
 #include "detail/GuidedInternal.h"
 #include "reconstruction/settings/ModuleConfig.h"
+#include "reconstruction/data/StageProfile.h"
 #include <algorithm>
 #include <map>
 #include <set>
@@ -79,6 +80,7 @@ bool fitTemplateRegions(const PointStore& points, const PlaneDetectionOptions& p
         } else {
             SurfaceAnalysisOptions localOptions;
             const auto supportSettings=loadAnalysisSettings();localOptions.supportValidation=supportSettings.supportValidation;localOptions.supportMeshing=supportSettings.meshing;
+            localOptions.familyDetectionWorkerCount = supportSettings.familyDetectionWorkerCount;
             localOptions.detection = detectionFor(hint.kind, planes.distanceThreshold, options);
             localOptions.relations.distanceTolerance =
                 planes.distanceThreshold * options.relationToleranceMultiplier;
@@ -196,11 +198,17 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
             output.analysis = *sharedAnalysis;
             output.analysisReused = true;
         }
-        else if (!analyzeSurfaces(points, options,
-                                  output.analysis, error, {}, cancelled)) return false;
-        if(source && !revalidateSurfaceSupportOnSource(points,*source,output.analysis,error,cancelled))return false;
+        else if (!diagnostics::profileStage("recognition.surface_analysis", [&] {
+            return analyzeSurfaces(points, options, output.analysis, error, {}, cancelled);
+        })) return false;
+        if (source && !diagnostics::profileStage("recognition.source_revalidation", [&] {
+            return revalidateSurfaceSupportOnSource(points, *source, output.analysis, error, cancelled);
+        })) return false;
         RepairTransactionReport transaction;
-        const bool recognized=recognizeAndRepairParametricSolid(points, output.analysis, output.candidate, error, source, &transaction, relationHints, settings);
+        const bool recognized = diagnostics::profileStage("recognition.feature_recognition_and_repair", [&] {
+            return recognizeAndRepairParametricSolid(points, output.analysis, output.candidate, error,
+                source, &transaction, relationHints, settings);
+        });
         if(!recognized)output.analysis.localFailures=std::move(transaction.failures);
         return recognized;
     }

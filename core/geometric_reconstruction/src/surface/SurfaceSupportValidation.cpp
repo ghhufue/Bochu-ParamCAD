@@ -1,10 +1,14 @@
 #include "reconstruction/surface/SurfaceSupportValidation.h"
 #include "detail/AnalysisInternal.h"
 #include "reconstruction/surface/PlaneSupportRecovery.h"
+#include "reconstruction/data/StageProfile.h"
+#include "common/Parallel.h"
 #include "common/spatial/KdTree.h"
 #include <Eigen/Dense>
 #include <iomanip>
 #include <locale>
+#include <mutex>
+#include <numeric>
 #include <sstream>
 #include <set>
 
@@ -142,7 +146,7 @@ void buildDomain(Metrics& m,const SurfaceMeshingSettings& settings,double maxSpa
         for(auto id:d.supportPointIds){auto q=uv.at(id);double a=q[0]-seam;if(a<0)a+=2*pi;m.samples.push_back({{a*radius,q[1]},id});}
         const double stretch=axialChartStretch(m.samples);
         for(auto& sample:m.samples)sample.position[0]*=stretch;
-        m.domain=buildPlanarSurfaceFootprint(m.samples,settings,maxSpacing);
+        m.domain=buildPlanarSurfaceFootprint(m.samples,settings,maxSpacing,SurfaceSampleSpace::UnwrappedSurface);
         for(const auto& t:m.domain.triangles){
             const auto a=m.domain.positions[t[0]],b=m.domain.positions[t[1]],c=m.domain.positions[t[2]];
             // The cone's circumferential metric grows linearly with slant.
@@ -168,7 +172,7 @@ void buildDomain(Metrics& m,const SurfaceMeshingSettings& settings,double maxSpa
             const auto z=charts[chart],x=tangent(z),y=cross(z,x);
             std::vector<PlanarSurfaceSample> samples;
             for(auto id:d.supportPointIds){const auto q=rays.at(id);const double dz=dot(q,z);if(dz>.3)samples.push_back({{sphere.radius*dot(q,x)/dz,sphere.radius*dot(q,y)/dz},id});}
-            auto mesh=buildPlanarSurfaceFootprint(samples,settings,maxSpacing);
+            auto mesh=buildPlanarSurfaceFootprint(samples,settings,maxSpacing,SurfaceSampleSpace::UnwrappedSurface);
             SurfaceFootprint retained=mesh;retained.triangles.clear();retained.coveredPointIds.clear();
             for(auto t:mesh.triangles) {
                 const auto a=rays.at(mesh.sourcePointIds[t[0]]),b=rays.at(mesh.sourcePointIds[t[1]]),c=rays.at(mesh.sourcePointIds[t[2]]);
@@ -248,12 +252,11 @@ double occupancy(const Metrics& m,double spacing,double density,const std::funct
     return median(ratios);
 }
 double huber(double r){r=std::abs(r);return r<=1.345?.5*r*r:1.345*(r-.5*1.345);}
-std::vector<Metrics> splitDomains(std::vector<Metrics> input,const SurfaceMeshingSettings& settings) {
-    std::vector<Metrics> output;
-    for(auto& m:input) {
+void splitDomains(Metrics m, const SurfaceMeshingSettings& settings, std::vector<Metrics>& output) {
         std::unordered_map<PointId,PointId> parent;
         for(auto id:m.decision.supportPointIds)parent[id]=id;
         auto root=[&](PointId id){while(parent.at(id)!=id){parent[id]=parent.at(parent.at(id));id=parent.at(id);}return id;};
+        for (const auto& [member, anchor] : m.domain.sampleAnchors) parent[root(member)] = root(anchor);
         for(const auto& t:m.domain.triangles) {
             const auto a=m.domain.sourcePointIds[t[0]];
             for(int k=1;k<3;++k)parent[root(m.domain.sourcePointIds[t[k]])]=root(a);
@@ -270,14 +273,14 @@ std::vector<Metrics> splitDomains(std::vector<Metrics> input,const SurfaceMeshin
             if(m.decision.kind==PrimitiveKind::Cylinder || m.decision.kind==PrimitiveKind::Cone)
                 for(const auto& p:m.samples)chart.emplace(p.sourcePointId,p.position);
             for(auto id:m.domain.coveredPointIds)if(!domainRoots.count(root(id))) {
-                auto point=m.positions.at(id);
+                auto point=m.positions.at(m.decision.kind == PrimitiveKind::Plane ? root(id) : id);
                 if(!chart.empty()){const auto p=chart.at(id);point={p[0],p[1],0};}
                 const auto anchor=query.anchorAtProjection(point);if(anchor)parent[root(id)]=root(*anchor);
             }
         }
         std::map<PointId,std::vector<PointId>> groups;
         for(auto id:m.domain.coveredPointIds)groups[root(id)].push_back(id);
-        if(groups.size()<=1){output.push_back(std::move(m));continue;}
+        if(groups.size()<=1){output.push_back(std::move(m));return;}
         std::unordered_set<PointId> assigned;
         for(const auto& group:groups) {
             Metrics child;child.evidence=m.evidence;child.confidence=m.confidence;
@@ -296,9 +299,6 @@ std::vector<Metrics> splitDomains(std::vector<Metrics> input,const SurfaceMeshin
             for(auto id:tail.decision.supportPointIds)tail.positions.emplace(id,m.positions.at(id));if(tail.positions.size()>=3)planeFit(tail);
             output.push_back(std::move(tail));
         }
-    }
-    for(std::size_t i=0;i<output.size();++i)output[i].decision.patchId=i+1;
-    return output;
 }
 void curvedChecks(Metrics& m,const SurfaceSupportValidationOptions& o,double tolerance,const SurfaceSamplingReference& reference) {
     auto& d=m.decision;const bool sphere=d.kind==PrimitiveKind::Sphere;
@@ -336,6 +336,7 @@ const char* supportVerdictName(SupportVerdict v) noexcept {
 bool validSurfaceSupportOptions(const SurfaceSupportValidationOptions& o) noexcept {
     const double values[]{o.planeDensityRatioMax,o.sphereMinSolidAngle,o.sphereMinMinorSpanRadians,o.cylinderMinAngularSpanRadians,o.minimumSagittaNoiseRatio,o.referenceMinConfidence,o.referenceAreaQuantile,o.referenceMaxLogSpread,o.minimumExpectedPoints,o.gridSpacingMultiplier,o.minimumOccupiedCellRatio,o.noiseFloorToleranceFraction,o.modelComplexityWeight,o.minimumModelGain,o.planePreferenceMinReferenceAreaFraction};
     for(auto x:values)if(!std::isfinite(x) || x<0)return false;
+    if (o.workerCount > 32) return false;
     return int(o.mode)>=0 && int(o.mode)<=2 && o.planeDensityRatioMax>=1 && o.sphereMinSolidAngle>0 && o.sphereMinSolidAngle<=4*pi && o.sphereMinMinorSpanRadians>0 && o.sphereMinMinorSpanRadians<=pi && o.cylinderMinAngularSpanRadians>0 && o.cylinderMinAngularSpanRadians<=2*pi && o.referenceMinConfidence<=1 && o.referenceAreaQuantile<=1 && o.referenceMinPoints>=3 && o.referenceMinPlanes>0 && o.referenceMaxLogSpread>0 && o.minimumExpectedPoints>=1 && o.gridSpacingMultiplier>0 && o.minimumOccupiedCellRatio>0 && o.minimumOccupiedCellRatio<=1 && o.noiseFloorToleranceFraction>0 && o.planePreferenceMinReferenceAreaFraction>0;
 }
 std::vector<double> surfaceSupportSettingsSignature(const SurfaceAnalysisOptions& options) {
@@ -353,13 +354,41 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
     if(cancelled && cancelled()){error="Cancelled";return false;}
     SurfaceSupportValidationReport report;report.pointFingerprint=pointStoreFingerprint(points);report.unit=points.unit();report.mode=options.supportValidation.mode;report.options=options.supportValidation;report.settingsSignature=surfaceSupportSettingsSignature(options);
     if(report.mode==SupportValidationMode::Off){accepted=proposals;output=std::move(report);return true;}
-    SurfaceAnalysisResult indexed;if(!indexSurfacePatches(points,proposals,options,indexed,error))return false;
+    using diagnostics::profileStage;
+    const diagnostics::StageProfile profile("support.validate", points.size());
+    SurfaceAnalysisResult indexed;
+    if (!profileStage("support.index_proposals", [&] {
+        return indexSurfacePatches(points, proposals, options, indexed, error);
+    })) return false;
     const auto map=detail::analysis::pointMap(points);const auto& o=options.supportValidation;
     const std::unordered_set<PointId> protectedSet(protectedIds.begin(),protectedIds.end());
-    std::vector<Metrics> metrics;metrics.reserve(indexed.patches.size());
+    const auto workers = points.size() < 4096 && o.workerCount == 0 ? 1 : o.workerCount;
+    std::mutex cancellationMutex;
+    bool stopped = false;
+    const std::function<bool()> checkCancelled = cancelled ? std::function<bool()>([&] {
+        const std::lock_guard<std::mutex> lock(cancellationMutex);
+        if (!stopped) stopped = cancelled();
+        return stopped;
+    }) : std::function<bool()>{};
+    const auto evaluatePatches = [&](const char* stage, const auto& patches, auto pointCount, auto evaluate) {
+        const diagnostics::StageProfile phase(stage);
+        std::vector<std::size_t> order(patches.size());
+        std::iota(order.begin(), order.end(), 0);
+        if (workers != 1) {
+            std::stable_sort(order.begin(), order.end(), [&](auto first, auto second) {
+                return pointCount(patches[first]) > pointCount(patches[second]);
+            });
+        }
+        detail::parallelTasks(order.size(), workers, [&](std::size_t task) {
+            if (!checkCancelled || !checkCancelled()) evaluate(order[task]);
+        });
+        return !checkCancelled || !checkCancelled();
+    };
+    std::vector<std::vector<Metrics>> domains(indexed.patches.size());
     auto settings=options.supportMeshing;settings.meshPointBudget=std::numeric_limits<std::size_t>::max()/2;
-    for(const auto& patch:indexed.patches) {
-        if(cancelled && cancelled()){error="Cancelled";return false;}
+    if (!evaluatePatches("support.build_domains", indexed.patches,
+        [](const auto& patch) { return patch.supportPointIds.size(); }, [&](std::size_t index) {
+        const auto& patch = indexed.patches[index];
         Metrics m;m.evidence=indexed.surfaces.at(std::size_t(patch.surfaceId-1));auto& d=m.decision;
         d.proposalId=patch.surfaceId;d.patchId=patch.id;d.kind=primitiveKind(m.evidence);d.supportPointIds=patch.supportPointIds;
         if(validGeometry(m.evidence))d.parametersJson=parametersJson(m.evidence);
@@ -367,7 +396,8 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
         d.pointCount=d.supportPointIds.size();d.protectedManual=!protectedSet.empty() && std::all_of(d.supportPointIds.begin(),d.supportPointIds.end(),[&](auto id){return protectedSet.count(id)!=0;});
         m.confidence=detail::analysis::confidence(m.evidence);
         for(auto id:d.supportPointIds)m.positions.emplace(id,map.at(id)->position);
-        if(!validGeometry(m.evidence)){m.geometryValid=false;fail(d,"InvalidPrimitiveGeometry");metrics.push_back(std::move(m));continue;}
+        if(!validGeometry(m.evidence)){m.geometryValid=false;fail(d,"InvalidPrimitiveGeometry");}
+        else {
         if(d.kind==PrimitiveKind::Plane) {
             auto& ids=d.supportPointIds;
             ids.erase(std::remove_if(ids.begin(),ids.end(),[&](auto id){return surfaceResidual(m.evidence,m.positions.at(id))>options.detection.plane.distanceThreshold;}),ids.end());
@@ -394,9 +424,18 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
             const auto support=d.kind==PrimitiveKind::Cone?d.effectivePoints:d.coveredPoints;
             if(d.area<=0 || support<settings.minimumSurfacePoints){d.verdict=SupportVerdict::NeedsMoreSupport;d.reasons.emplace_back("InsufficientTwoDimensionalSupport");}
         }
-        metrics.push_back(std::move(m));
+        }
+        splitDomains(std::move(m), settings, domains[index]);
+    })) {
+        error = "Cancelled";
+        return false;
     }
-    metrics=splitDomains(std::move(metrics),settings);
+    std::vector<Metrics> metrics;
+    for (auto& group : domains) for (auto& entry : group) {
+        entry.decision.patchId = metrics.size() + 1;
+        metrics.push_back(std::move(entry));
+    }
+    profileStage("support.density_reference", [&] {
     if(frozen)report.reference=*frozen;
     else {
         std::vector<std::size_t> refs;
@@ -418,9 +457,11 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
             report.reference.available=report.reference.logSpread<=o.referenceMaxLogSpread;report.reference.reason=report.reference.available?"":"UnstableDensityReference";
         }
     }
-    std::vector<PrimitiveEvidence> retained;
-    for(auto& m:metrics) {
-        if(cancelled && cancelled()){error="Cancelled";return false;}
+    });
+    std::vector<std::optional<PrimitiveEvidence>> results(metrics.size());
+    if (!evaluatePatches("support.check_domains", metrics,
+        [](const auto& entry) { return entry.decision.supportPointIds.size(); }, [&](std::size_t index) {
+        auto& m = metrics[index];
         auto& d=m.decision;
         if(d.kind==PrimitiveKind::Plane && d.area>0 && report.reference.available) {
             d.densityRatio=d.density/report.reference.density;
@@ -429,8 +470,8 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
                 if(d.densityRatio<1/o.planeDensityRatioMax)fail(d,"PlaneDensityTooLow");
                 if(d.densityRatio>o.planeDensityRatioMax)fail(d,"PlaneDensityTooHigh");
                 // Reference spacing fixes the grid; its occupancy model uses rho_ref.
-                d.occupiedCellRatio=occupancy(m,report.reference.spacing*o.gridSpacingMultiplier,report.reference.density,cancelled);
-                if(d.occupiedCellRatio<0){error="Cancelled";return false;}
+                d.occupiedCellRatio=occupancy(m,report.reference.spacing*o.gridSpacingMultiplier,report.reference.density,checkCancelled);
+                if(d.occupiedCellRatio<0)return;
                 d.occupancyEvaluated=true;if(d.occupiedCellRatio<o.minimumOccupiedCellRatio)fail(d,"InsufficientInteriorSupport");
             }
         }
@@ -449,13 +490,21 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
             if(d.verdict==SupportVerdict::Accepted) {
                 auto e=m.evidence;
                 const bool finite=d.kind!=PrimitiveKind::Torus;
-                std::visit([&](auto& s){s.supportPointIds=finite?m.domain.coveredPointIds:d.supportPointIds;double sum=0;s.maxAbsoluteResidual=0;for(auto id:s.supportPointIds){const double r=surfaceResidual(e,map.at(id)->position);sum+=r;s.maxAbsoluteResidual=std::max(s.maxAbsoluteResidual,r);}if(!s.supportPointIds.empty())s.meanAbsoluteResidual=sum/s.supportPointIds.size();s.coverage=double(s.supportPointIds.size())/std::max<std::size_t>(1,points.size());},e);
-                retained.push_back(std::move(e));
+                std::visit([&](auto& s){s.supportPointIds=finite?m.domain.coveredPointIds:d.supportPointIds;},e);
+                results[index] = std::move(e);
             }
         }
         if(d.kind==PrimitiveKind::Plane && d.verdict==SupportVerdict::Accepted)
             d.footprint=std::make_shared<SurfaceFootprint>(std::move(m.domain));
-        report.decisions.push_back(std::move(d));
+    })) {
+        error = "Cancelled";
+        return false;
+    }
+    const diagnostics::StageProfile publish("support.merge_decisions");
+    std::vector<PrimitiveEvidence> retained;
+    for (std::size_t index = 0; index < metrics.size(); ++index) {
+        if (results[index]) retained.push_back(std::move(*results[index]));
+        report.decisions.push_back(std::move(metrics[index].decision));
     }
     if(cancelled && cancelled()){error="Cancelled";return false;}
     for(const auto& d:report.decisions)if(d.protectedManual && d.verdict!=SupportVerdict::Accepted && report.mode==SupportValidationMode::Enforce) {
@@ -547,11 +596,17 @@ bool revalidateSurfaceSupportOnSource(const PointStore& working,const PointStore
     auto proposals=analysis.supportProposals.empty()?analysis.surfaces:analysis.supportProposals;
     std::vector<PrimitiveEvidence> sourceAccepted;SurfaceSupportValidationReport report;
     if(validatedSource && validatedSource->pointFingerprint==sourceFingerprint &&
+        validatedSource->supportProposalIds.size()==validatedSource->surfaces.size() &&
        analysisSettingsMatch(analysis.options,validatedSource->options)) {
         sourceAccepted=validatedSource->surfaces;report=validatedSource->supportValidation;
+        for (size_t i = 0; i < sourceAccepted.size(); ++i)
+            std::visit([&](auto& s) { s.id = validatedSource->supportProposalIds[i]; }, sourceAccepted[i]);
     } else {
-        if(!recoverPlaneSupport(source,analysis.options.detection.plane,proposals,error,{},cancelled))return false;
-        if(!validateSurfaceSupport(source,proposals,analysis.options,sourceAccepted,report,error,nullptr,cancelled))return false;
+        if (!diagnostics::profileStage("source.expand_planes", [&] {
+            return recoverPlaneSupport(source, analysis.options.detection.plane, proposals, error, {}, cancelled);
+        }) || !diagnostics::profileStage("source.validate", [&] {
+            return validateSurfaceSupport(source, proposals, analysis.options, sourceAccepted, report, error, nullptr, cancelled);
+        })) return false;
     }
     if(analysis.options.supportValidation.mode==SupportValidationMode::Report){analysis.sourceSupportValidation=std::move(report);return true;}
     const auto ids=detail::analysis::pointMap(working);
@@ -562,12 +617,33 @@ bool revalidateSurfaceSupportOnSource(const PointStore& working,const PointStore
         if(keep)workAccepted.push_back(std::move(e));
     }
     SurfaceAnalysisResult staged;
-    if(!indexSurfaceEvidence(working,workAccepted,analysis.options,staged,error,{},cancelled))return false;
+    if (!diagnostics::profileStage("source.reindex_working", [&] {
+        return indexSurfaceEvidence(working, workAccepted, analysis.options, staged, error, {}, cancelled);
+    })) return false;
     staged.sourceSupportValidation=std::move(report);
+    staged.sourceValidatedSurfaces=std::move(sourceAccepted);
     staged.detectionPasses=analysis.detectionPasses;
     // A repair snapshot must be materialised before this API is used.
     staged.baseFingerprint=analysis.baseFingerprint;staged.recoverySourceFingerprint=analysis.recoverySourceFingerprint;
     staged.supplementalPoints=analysis.supplementalPoints;staged.localFailures=analysis.localFailures;
     analysis=std::move(staged);return true;
+}
+
+bool indexValidatedSourceSurfaces(const PointStore& source, const SurfaceAnalysisResult& workingAnalysis,
+    SurfaceAnalysisResult& sourceIndex, std::string& error) {
+    const auto& options = workingAnalysis.options;
+    const auto& report = workingAnalysis.sourceSupportValidation;
+    if (report.mode != SupportValidationMode::Enforce || report.pointFingerprint != pointStoreFingerprint(source) ||
+        report.settingsSignature != surfaceSupportSettingsSignature(options)) {
+        error = "Surface preview requires current source support validation";
+        return false;
+    }
+    SurfaceAnalysisResult indexed;
+    if (!indexSurfacePatches(source, workingAnalysis.sourceValidatedSurfaces, options, indexed, error)) return false;
+    indexed.supportValidation = report;
+    for (const auto& surface : workingAnalysis.sourceValidatedSurfaces)
+        indexed.supportProposalIds.push_back(std::visit([](const auto& s) { return s.id; }, surface));
+    sourceIndex = std::move(indexed);
+    return true;
 }
 } // namespace reconstruction

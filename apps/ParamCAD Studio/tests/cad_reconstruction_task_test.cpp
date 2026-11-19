@@ -202,8 +202,14 @@ int main(int argc, char** argv)
         require(run(boxCloud(),0,{},reconstruction::LengthUnit::Millimeter,success.analysis,{relation}).outcome==
                 CadReconstructionResult::Outcome::Success,"manual relationships reach the CAD task");
         relation.kind=reconstruction::SurfaceRelationKind::Coplanar;
-        require(run(boxCloud(),0,{},reconstruction::LengthUnit::Millimeter,success.analysis,{relation}).outcome==
-                CadReconstructionResult::Outcome::Unsupported,"conflicting manual relation rejects reconstruction");
+        const auto conflictingRelation = run(boxCloud(), 0, {}, reconstruction::LengthUnit::Millimeter,
+            success.analysis, {relation});
+        require(conflictingRelation.outcome == CadReconstructionResult::Outcome::Unsupported,
+            "conflicting manual relation rejects reconstruction");
+        require(conflictingRelation.sourceSurfacePreview && !conflictingRelation.sourceSurfacePreview->patches.empty() &&
+                conflictingRelation.sourceSurfacePreview->supportValidation.pointFingerprint ==
+                    conflictingRelation.analysis.sourceSupportValidation.pointFingerprint,
+            "failed closure publishes the separately validated original observations");
         require(std::abs(box.sizeX - 6) < 0.01 && std::abs(box.sizeY - 6) < 0.01
                 && std::abs(box.sizeZ - 6) < 0.01, "background fit preserves dimensions");
         reconstruction::TemplateHint planeHint{7,reconstruction::TemplateKind::Plane,{}};

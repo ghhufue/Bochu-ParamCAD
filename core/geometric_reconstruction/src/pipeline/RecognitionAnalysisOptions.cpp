@@ -8,6 +8,7 @@ SurfaceAnalysisOptions recognitionAnalysisOptions(const PointStore&, const Plane
                                                  const RecognitionAnalysisSettings& settings) {
     SurfaceAnalysisOptions o;
     const auto validationSettings=loadAnalysisSettings();o.supportValidation=validationSettings.supportValidation;o.supportMeshing=validationSettings.meshing;
+    o.familyDetectionWorkerCount = validationSettings.familyDetectionWorkerCount;
     auto& d = o.detection;
     d.randomSeed = planes.randomSeed; d.plane = planes; d.cylinder = cylinders;
     d.plane.maximumPlanes = settings.maximumPlanes; d.cylinder.maximumCylinders = settings.maximumCylinders;

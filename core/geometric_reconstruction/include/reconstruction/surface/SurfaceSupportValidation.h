@@ -14,4 +14,7 @@ std::vector<double> surfaceSupportSettingsSignature(const SurfaceAnalysisOptions
 bool revalidateSurfaceSupportOnSource(const PointStore& working,const PointStore& source,
     SurfaceAnalysisResult& analysis,std::string& error,const std::function<bool()>& cancelled={},
     const SurfaceAnalysisResult* validatedSource=nullptr);
+// Index the accepted full-resolution evidence for point ownership and display.
+bool indexValidatedSourceSurfaces(const PointStore& source, const SurfaceAnalysisResult& workingAnalysis,
+    SurfaceAnalysisResult& sourceIndex, std::string& error);
 } // namespace reconstruction

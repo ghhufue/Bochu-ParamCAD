@@ -1,4 +1,5 @@
 #include "detail/AnalysisInternal.h"
+#include "reconstruction/data/StageProfile.h"
 #include "common/spatial/KdTree.h"
 #include "reconstruction/surface/SurfaceSupportValidation.h"
 #include <set>
@@ -139,7 +140,11 @@ bool indexSurfaceEvidence(const PointStore& points, const std::vector<PrimitiveE
     if(!validateSurfaceSupport(points,evidence,options,accepted,report,error,frozenReference,cancelled,protectedIds))return false;
     std::vector<SurfaceId> origins;for(const auto& e:accepted)origins.push_back(std::visit([](const auto& s){return s.id;},e));
     SurfaceAnalysisResult staged;
-    if(!indexSurfacePatches(points,accepted,options,staged,error) || !inferIndexedRelations(points,staged,staged.relations,error))return false;
+    if (!diagnostics::profileStage("surface.index_accepted", [&] {
+        return indexSurfacePatches(points, accepted, options, staged, error);
+    }) || !diagnostics::profileStage("surface.infer_relations", [&] {
+        return inferIndexedRelations(points, staged, staged.relations, error);
+    })) return false;
     staged.supportProposals=evidence;staged.supportProposalIds=std::move(origins);staged.supportValidation=std::move(report);output=std::move(staged);return true;
 }
 } // namespace reconstruction

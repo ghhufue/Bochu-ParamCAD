@@ -1460,15 +1460,36 @@
         <translation>Datum planes hidden</translation>
     </message>
     <message>
-        <location filename="../src/app/MainWindow.cpp" line="734"/>
         <source>CAD 与点云工作台
 
-C++17 / Qt 6 Widgets / VTK 界面框架
-版本 %1</source>
+版本 %1
+构建配置 %2
+构建时间（UTC） %3
+Git 提交 %4
+工作区 %5
+改动指纹 %6
+程序路径 %7</source>
         <translation>CAD &amp; Point Cloud Studio
 
-C++17 / Qt 6 Widgets / VTK UI skeleton
-Version %1</translation>
+Version %1
+Build configuration %2
+Build time (UTC) %3
+Git commit %4
+Working tree %5
+Changes fingerprint %6
+Executable path %7</translation>
+    </message>
+    <message>
+        <source>有未提交改动</source>
+        <translation>Uncommitted changes</translation>
+    </message>
+    <message>
+        <source>与提交一致</source>
+        <translation>Matches commit</translation>
+    </message>
+    <message>
+        <source>未知</source>
+        <translation>Unknown</translation>
     </message>
     <message>
         <location filename="../src/app/MainWindow.cpp" line="741"/>

@@ -131,6 +131,52 @@ PointStore mixedCloud(bool incomplete=false) {
     }
     return PointStore(std::move(points));
 }
+void independentFamilyWorkers() {
+    const auto points = mixedCloud();
+    SurfaceAnalysisOptions options;
+    options.detection.plane.distanceThreshold = .05;
+    options.detection.cylinder.distanceThreshold = .05;
+    options.detection.detectSpheres = options.detection.detectCones = options.detection.detectTori = false;
+    options.familyDetectionWorkerCount = 1;
+    SurfaceEvidenceCollection serial, parallel;
+    std::string error;
+    require(collectSurfaceEvidence(points, options, serial, error), error);
+    auto concurrent = options;
+    concurrent.familyDetectionWorkerCount = 5;
+    require(analysisSettingsMatch(options, concurrent), "worker scheduling does not invalidate geometry");
+    require(collectSurfaceEvidence(points, concurrent, parallel, error), error);
+    require(serial.detectionPasses == 2 && parallel.detectionPasses == serial.detectionPasses &&
+        parallel.evidence.size() == serial.evidence.size() && parallel.unassignedPointIds == serial.unassignedPointIds,
+        "worker scheduling preserves pass count and point ownership");
+    bool sawPlane = false, sawCylinder = false;
+    const auto coords = [](modeling::Vec3 value) { return std::array{value.x, value.y, value.z}; };
+    for (std::size_t index = 0; index < serial.evidence.size(); ++index) {
+        std::visit([&](const auto& first) {
+            using Evidence = std::decay_t<decltype(first)>;
+            const auto* second = std::get_if<Evidence>(&parallel.evidence[index]);
+            require(second && first.id == second->id && first.supportPointIds == second->supportPointIds &&
+                first.meanAbsoluteResidual == second->meanAbsoluteResidual &&
+                first.maxAbsoluteResidual == second->maxAbsoluteResidual &&
+                first.confidence == second->confidence && first.coverage == second->coverage,
+                "worker scheduling preserves evidence order and support");
+            if constexpr (std::is_same_v<Evidence, PlaneEvidence>) {
+                sawPlane = true;
+                require(coords(first.plane.normal) == coords(second->plane.normal) &&
+                    first.plane.offset == second->plane.offset, "plane equation is deterministic");
+            } else if constexpr (std::is_same_v<Evidence, CylinderEvidence>) {
+                sawCylinder = true;
+                require(coords(first.cylinder.axisPoint) == coords(second->cylinder.axisPoint) &&
+                    coords(first.cylinder.axisDirection) == coords(second->cylinder.axisDirection) &&
+                    first.cylinder.radius == second->cylinder.radius && first.axialMinimum == second->axialMinimum &&
+                    first.axialMaximum == second->axialMaximum && first.angularCoverage == second->angularCoverage,
+                    "cylinder equation and extent are deterministic");
+            }
+        }, serial.evidence[index]);
+    }
+    require(sawPlane && sawCylinder, "mixed fixture exercises both enabled families");
+    require(!collectSurfaceEvidence(points, concurrent, parallel, error, {}, [] { return true; }) &&
+        error == "Cancelled" && parallel.evidence.empty(), "cancelled detection publishes no partial evidence");
+}
 void attachedBossAndHole() {
     const auto points=mixedCloud();PlaneDetectionOptions planes;planes.distanceThreshold=0.05;planes.minimumSupportPoints=30;
     CylinderDetectionOptions cylinders;cylinders.distanceThreshold=0.05;cylinders.minimumSupportPoints=30;
@@ -448,6 +494,6 @@ void orientedAndUncertainComponents() {
 }
 }
 int main() {
-    try {snapshotsAndPatches();sharedBox();attachedBossAndHole();adaptiveRegions();localRecoveryAndConstraints();extendedRelations();tiltedCavityWalls();smallConeBands();coincidentPrimitiveObservations();orientedAndUncertainComponents();std::cout<<"Shared surface analysis tests passed\n";return 0;}
+    try {snapshotsAndPatches();sharedBox();independentFamilyWorkers();attachedBossAndHole();adaptiveRegions();localRecoveryAndConstraints();extendedRelations();tiltedCavityWalls();smallConeBands();coincidentPrimitiveObservations();orientedAndUncertainComponents();std::cout<<"Shared surface analysis tests passed\n";return 0;}
     catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

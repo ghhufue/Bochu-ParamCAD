@@ -128,6 +128,7 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
     analysisOptions.recoverResidualSurfaces=geometry.isEmpty() || analysisSettings.recoverResidualSurfaces;
     analysisOptions.connectivityDistance=analysisSettings.connectivityDistance;
     analysisOptions.independentFamilies=analysisSettings.independentFamilies;
+    analysisOptions.familyDetectionWorkerCount=analysisSettings.familyDetectionWorkerCount;
     analysisOptions.relations.distanceTolerance=distanceTolerance*analysisSettings.relationDistanceToleranceMultiplier;
     analysisOptions.relations.adjacentConfidence=analysisSettings.adjacentConfidence;
     analysisOptions.relations.maximumConfidence=analysisSettings.maximumConfidence;

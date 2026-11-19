@@ -1,4 +1,5 @@
 #include "reconstruction/surface/SurfaceFootprint.h"
+#include "reconstruction/data/StageProfile.h"
 #include "common/Math3.h"
 #include "common/spatial/KdTree.h"
 #include <CGAL/AABB_tree.h>
@@ -142,6 +143,90 @@ std::vector<Sample> distinctSamples(const std::vector<PlanarSurfaceSample>& inpu
         result[match].sources.push_back(inputSample.sourcePointId);
     }
     return result;
+}
+
+// Count repeat observations as one site only where nearby sites agree on
+// a separated fine scale. An isolated close pair cannot change the mesh scale.
+std::vector<Sample> independentSamples(std::vector<Sample> samples, const Options& settings) {
+    constexpr double separation = 1.75;
+    const auto noSite = samples.size();
+    const auto count = std::min(samples.size(), settings.densityNeighborCount + 1);
+    if (count < 8) return samples;
+
+    struct Neighbourhood {
+        std::vector<size_t> ids;
+        size_t siteSize;
+        size_t anchor;
+    };
+    const Locator locator(samples);
+    std::vector<Neighbourhood> nearby;
+    nearby.reserve(samples.size());
+    std::vector<double> distances;
+    distances.reserve(count);
+    for (const auto& sample : samples) {
+        auto ids = locator.nearest(sample.position, count);
+        distances.clear();
+        for (const auto id : ids) distances.push_back(distance2(sample.position, samples[id].position));
+        size_t split = 0;
+        for (size_t i = 2; i <= ids.size() / 2 && i + 3 < ids.size(); ++i) {
+            if (distances[i] >= separation * separation * distances[i - 1] &&
+                distances[i + 3] <= 4 * distances[i]) split = i;
+        }
+        std::sort(ids.begin(), ids.begin() + split);
+        nearby.push_back({std::move(ids), split, noSite});
+    }
+    for (auto& candidate : nearby) {
+        if (!candidate.siteSize) continue;
+        const auto end = candidate.ids.begin() + candidate.siteSize;
+        if (std::all_of(candidate.ids.begin(), end, [&](size_t id) {
+            const auto& other = nearby[id];
+            return other.siteSize == candidate.siteSize &&
+                std::equal(candidate.ids.begin(), end, other.ids.begin());
+        })) candidate.anchor = candidate.ids.front();
+    }
+    std::vector<bool> repeated(samples.size());
+    std::vector<size_t> siteVotes;
+    siteVotes.reserve(count);
+    for (size_t i = 0; i < nearby.size(); ++i) {
+        if (nearby[i].anchor != i) continue;
+        siteVotes.clear();
+        for (size_t id : nearby[i].ids)
+            if (nearby[id].anchor != noSite) siteVotes.push_back(nearby[id].anchor);
+        if (siteVotes.size() * 2 < nearby[i].ids.size()) continue;
+        std::sort(siteVotes.begin(), siteVotes.end());
+        repeated[i] = std::distance(siteVotes.begin(), std::unique(siteVotes.begin(), siteVotes.end())) >= 3;
+    }
+    if (std::none_of(repeated.begin(), repeated.end(), [](bool value) { return value; })) return samples;
+
+    std::vector<Sample> sites;
+    sites.reserve(samples.size());
+    for (size_t i = 0; i < samples.size(); ++i) {
+        const auto anchor = nearby[i].anchor;
+        if (anchor == noSite || !repeated[anchor]) {
+            sites.push_back(std::move(samples[i]));
+            continue;
+        }
+        if (anchor != i) continue;
+        const auto& site = nearby[i];
+        const auto end = site.ids.begin() + site.siteSize;
+        XY centroid{};
+        for (auto it = site.ids.begin(); it != end; ++it) {
+            centroid[0] += samples[*it].position[0] / site.siteSize;
+            centroid[1] += samples[*it].position[1] / site.siteSize;
+        }
+        const auto medoid = *std::min_element(site.ids.begin(), end, [&](size_t a, size_t b) {
+            return distance2(centroid, samples[a].position) < distance2(centroid, samples[b].position);
+        });
+        // The mesh anchor remains an observed position. Keep every source ID.
+        Sample representative = std::move(samples[medoid]);
+        for (auto it = site.ids.begin(); it != end; ++it) {
+            if (*it == medoid) continue;
+            const auto& sources = samples[*it].sources;
+            representative.sources.insert(representative.sources.end(), sources.begin(), sources.end());
+        }
+        sites.push_back(std::move(representative));
+    }
+    return sites;
 }
 
 std::vector<std::vector<size_t>> supportedComponents(std::vector<Sample>& samples,const Options& settings,double maximumSupportSpacing) {
@@ -613,14 +698,28 @@ SurfaceFootprint triangulateDomain(const std::vector<Sample>& samples,const Opti
 }
 }
 
-SurfaceFootprint buildPlanarSurfaceFootprint(const std::vector<PlanarSurfaceSample>& input,const Options& settings,double maximumSupportSpacing)
+SurfaceFootprint buildPlanarSurfaceFootprint(const std::vector<PlanarSurfaceSample>& input,
+    const Options& settings, double maximumSupportSpacing, SurfaceSampleSpace sampleSpace)
 {
     SurfaceFootprint output;if (input.size()<settings.minimumSurfacePoints) return output;
-    auto samples=distinctSamples(input);if (samples.size()<settings.minimumSurfacePoints) return output;
-    const auto components=supportedComponents(samples,settings,maximumSupportSpacing);
+    constexpr std::size_t profileThreshold = 8192;
+    const diagnostics::StageProfile profile(input.size() >= profileThreshold ? "footprint.build" : nullptr, input.size());
+    const auto timeFootprint = [&](const char* name, auto&& work) {
+        return diagnostics::profileStage(input.size() >= profileThreshold ? name : nullptr, work);
+    };
+    auto samples = timeFootprint("footprint.distinct_samples", [&] { return distinctSamples(input); });
+    if (samples.size()<settings.minimumSurfacePoints) return output;
+    if (sampleSpace == SurfaceSampleSpace::ObservedPlane) {
+        samples = timeFootprint("footprint.independent_samples",
+            [&] { return independentSamples(std::move(samples), settings); });
+    }
+    const auto components = timeFootprint("footprint.neighborhoods", [&] {
+        return supportedComponents(samples, settings, maximumSupportSpacing);
+    });
     for (const auto& component:components) {
         std::vector<Sample> local;local.reserve(component.size());
         for (size_t id:component) local.push_back(samples[id]);
+        const diagnostics::StageProfile triangulation(local.size() >= profileThreshold ? "footprint.triangulate" : nullptr, local.size());
         auto mesh=triangulateDomain(local,settings);const auto offset=std::uint64_t(output.positions.size());
         output.domainSupportChecks.insert(output.domainSupportChecks.end(),mesh.domainSupportChecks.begin(),mesh.domainSupportChecks.end());
         for(auto& hole:mesh.holes)output.holes.push_back(std::move(hole));
@@ -630,6 +729,7 @@ SurfaceFootprint buildPlanarSurfaceFootprint(const std::vector<PlanarSurfaceSamp
         for (auto triangle:mesh.triangles) { for (auto& id:triangle) id+=offset;output.triangles.push_back(triangle); }
     }
     if(!output.triangles.empty()) {
+        const diagnostics::StageProfile membership(samples.size() >= profileThreshold ? "footprint.membership" : nullptr, samples.size());
         // Local support selects the domain; membership is geometric. A noisy
         // observation inside that domain must not disappear merely because its
         // own neighbourhood was excluded from triangulation.
@@ -637,6 +737,8 @@ SurfaceFootprint buildPlanarSurfaceFootprint(const std::vector<PlanarSurfaceSamp
         output.coveredPointIds.clear();
         for(const auto& sample:samples)if(query.containsProjection({sample.position[0],sample.position[1],0})) {
             output.coveredPointIds.insert(output.coveredPointIds.end(),sample.sources.begin(),sample.sources.end());
+            for (size_t i = 1; i < sample.sources.size(); ++i)
+                output.sampleAnchors.emplace_back(sample.sources[i], sample.sources.front());
             ++output.effectiveCoveredPoints;
         }
         std::sort(output.coveredPointIds.begin(),output.coveredPointIds.end());

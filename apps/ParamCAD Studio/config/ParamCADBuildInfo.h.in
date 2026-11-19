@@ -1,0 +1,10 @@
+#pragma once
+
+namespace pcad::build {
+inline constexpr char version[] = "@PRODUCT_VERSION@";
+inline constexpr char configuration[] = "@BUILD_CONFIGURATION@";
+inline constexpr char gitCommit[] = "@GIT_COMMIT@";
+inline constexpr char sourceState[] = "@SOURCE_STATE@";
+inline constexpr char worktreeFingerprint[] = "@WORKTREE_FINGERPRINT@";
+inline constexpr char builtAtUtc[] = "@BUILD_TIMESTAMP@";
+}

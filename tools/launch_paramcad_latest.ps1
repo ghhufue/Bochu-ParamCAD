@@ -8,8 +8,11 @@ $ErrorActionPreference = 'Stop'
 function Get-ParamCadCandidates {
     param([string]$Root)
     $buildRoots = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-    Get-ChildItem -LiteralPath (Join-Path $Root 'artifacts') -Directory -Filter 'build*' -ErrorAction SilentlyContinue |
-        Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
+    Get-ChildItem -LiteralPath (Join-Path $Root 'artifacts') -Directory -ErrorAction SilentlyContinue |
+        Where-Object {
+            -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -and
+                ($_.Name -like 'build*' -or (Test-Path -LiteralPath (Join-Path $_.FullName 'CMakeCache.txt') -PathType Leaf))
+        } |
         ForEach-Object { [void]$buildRoots.Add($_.FullName) }
     $appBuild = Join-Path $Root 'apps\ParamCAD Studio\build'
     if (Test-Path -LiteralPath $appBuild -PathType Container) {

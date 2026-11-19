@@ -38,6 +38,8 @@ struct CadReconstructionResult
     reconstruction::PointCloudPreprocessingReport preprocessing;
     reconstruction::CompoundCandidate candidate;
     reconstruction::SurfaceAnalysisResult analysis;
+    std::optional<reconstruction::SurfaceAnalysisResult> sourceSurfacePreview;
+    QString sourceSurfacePreviewError;
     bool analysisReused = false;
     std::vector<reconstruction::TemplateFit> templateFits;
     int failedRegionId = 0;
@@ -63,7 +65,8 @@ public:
                std::optional<reconstruction::SurfaceAnalysisResult> analysis = {},
                std::vector<reconstruction::SurfaceRelationHint> relations = {},
                bool projectionFallback = true, bool specializedRecovery = true,
-               std::optional<reconstruction::ProjectionExtrusionOptions> projectionOptions = {});
+               std::optional<reconstruction::ProjectionExtrusionOptions> projectionOptions = {},
+               bool prepareSurfacePreview = true);
     bool startProjection(PlyCloud cloud, reconstruction::LengthUnit unit,
                          reconstruction::ProjectionPath path = reconstruction::ProjectionPath::Automatic,
                          bool inspectOnly = false,

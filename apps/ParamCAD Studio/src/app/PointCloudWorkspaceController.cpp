@@ -1198,9 +1198,20 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
     }
     if (result.outcome == CadReconstructionResult::Outcome::Unsupported) {
         const double sourceScale=cloudUnit(*m_document)==reconstruction::LengthUnit::Meter?1000.0:1.0;
-        const auto surfaces=describeAnalysisPatches(result.analysis,m_document->sourceCloud().positions.size(),sourceScale);
+        const auto& preview = result.sourceSurfacePreview ? *result.sourceSurfacePreview : result.analysis;
+        if (!result.sourceSurfacePreviewError.isEmpty()) emit logWarning(result.sourceSurfacePreviewError);
+        const auto surfaces=describeAnalysisPatches(preview,m_document->sourceCloud().positions.size(),sourceScale);
         if(!surfaces.empty()) {
             m_document->replacePartCandidates(surfaces,false);
+            if (result.sourceSurfacePreview) {
+                const auto report = [](const auto& r) {
+                    return QJsonDocument::fromJson(QByteArray::fromStdString(reconstruction::serializeSurfaceSupportReport(r))).object();
+                };
+                m_surfaceSupportReport = {{"version", 1}, {"scope", "cad_active_source"},
+                    {"before_ownership", report(result.analysis.sourceSupportValidation)},
+                    {"after_ownership", report(preview.supportValidation)}};
+                m_surfaceSupportReportFingerprint = surfaceSupportFingerprint(*m_document);
+            }
             // Assembly part IDs no longer own the displayed surface regions.
             m_ui.viewer->setAssemblyBoundaries({}, {}, {});
             emit logInfo(workspaceTr("CAD 未闭合，已保留并显示 %1 个检测面片。").arg(surfaces.size()));

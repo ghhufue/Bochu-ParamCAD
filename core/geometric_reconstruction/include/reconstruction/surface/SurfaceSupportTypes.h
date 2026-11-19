@@ -21,6 +21,7 @@ struct SurfaceSupportValidationOptions {
     double minimumExpectedPoints=12, gridSpacingMultiplier=2, minimumOccupiedCellRatio=0.5;
     double noiseFloorToleranceFraction=0.1, modelComplexityWeight=1, minimumModelGain=0.05;
     double planePreferenceMinReferenceAreaFraction=0.1;
+    std::size_t workerCount=0;
 };
 struct SurfaceSamplingReference {
     bool available=false;

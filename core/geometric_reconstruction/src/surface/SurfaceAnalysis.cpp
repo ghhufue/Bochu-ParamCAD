@@ -1,6 +1,11 @@
 #include "detail/AnalysisInternal.h"
 #include "reconstruction/segmentation/MultiScaleDetector.h"
 #include "reconstruction/surface/PlaneSupportRecovery.h"
+#include "reconstruction/data/StageProfile.h"
+#include "common/Parallel.h"
+#include <CGAL/config.h>
+#include <iterator>
+#include <mutex>
 
 namespace reconstruction {
 using namespace detail::analysis;
@@ -16,28 +21,76 @@ bool collectSurfaceEvidence(const PointStore& points, const SurfaceAnalysisOptio
     const std::array<bool,5> enabled{d.detectPlanes,d.detectCylinders,d.detectSpheres,d.detectCones,d.detectTori};
     if (std::none_of(enabled.begin(),enabled.end(),[](bool x){return x;})) { error = "No surface family enabled"; return false; }
     std::string failure;
+    static constexpr const char* familyStages[] = {"detect.plane", "detect.cylinder", "detect.sphere", "detect.cone", "detect.torus"};
     if(options.recoverResidualSurfaces) {
         PrimitiveDetectionResult result;MultiScaleDetectionReport report;
-        if(!detectMultiScalePrimitiveEvidence(points,d,result,report,failure,cancelled)) {
+        if (!diagnostics::profileStage("detect.multiscale", [&] {
+            return detectMultiScalePrimitiveEvidence(points, d, result, report, failure, cancelled);
+        })) {
             if(failure=="Cancelled"){error=failure;return false;}
         }
         evidence=std::move(result.evidence);passes=report.detectionPasses;
-    } else for (int family = 0; family < (options.independentFamilies ? 5 : 1); ++family) {
+    } else if (!options.independentFamilies) {
         if (cancelled && cancelled()) { error = "Cancelled"; return false; }
-        if (options.independentFamilies && !enabled[family]) continue;
-        auto detection = d;
-        if (options.independentFamilies) {
-            detection.detectPlanes = family == 0; detection.detectCylinders = family == 1;
-            detection.detectSpheres = family == 2; detection.detectCones = family == 3; detection.detectTori = family == 4;
+        PrimitiveDetectionResult result;
+        passes = 1;
+        if (diagnostics::profileStage("detect.combined", [&] {
+            return detectPrimitiveEvidence(points, d, result, failure);
+        })) evidence = std::move(result.evidence);
+    } else {
+        std::vector<std::size_t> families;
+        for (std::size_t family = 0; family < enabled.size(); ++family)
+            if (enabled[family]) families.push_back(family);
+        std::size_t workers = 1;
+#ifdef CGAL_HAS_THREADS
+        if (options.familyDetectionWorkerCount || points.size() >= 4096)
+            workers = options.familyDetectionWorkerCount;
+#endif
+        struct FamilyResult {
+            PrimitiveDetectionResult detection;
+            std::string failure;
+            bool found = false;
+        };
+        std::vector<FamilyResult> results(families.size());
+        std::mutex cancellationMutex;
+        bool stopped = false;
+        diagnostics::profileStage("detect.independent_families", [&] {
+            detail::parallelTasks(families.size(), workers, [&](std::size_t index) {
+                if (cancelled) {
+                    const std::lock_guard<std::mutex> lock(cancellationMutex);
+                    if (!stopped) stopped = cancelled();
+                    if (stopped) return;
+                }
+                const auto family = families[index];
+                auto detection = d;
+                detection.detectPlanes = family == 0;
+                detection.detectCylinders = family == 1;
+                detection.detectSpheres = family == 2;
+                detection.detectCones = family == 3;
+                detection.detectTori = family == 4;
+                auto& result = results[index];
+                result.found = diagnostics::profileStage(familyStages[family], [&] {
+                    return detectPrimitiveEvidence(points, detection, result.detection, result.failure);
+                });
+            });
+        });
+        if (stopped || (cancelled && cancelled())) { error = "Cancelled"; return false; }
+        passes = families.size();
+        for (auto& result : results) {
+            failure = std::move(result.failure);
+            if (result.found) {
+                auto& proposals = result.detection.evidence;
+                evidence.insert(evidence.end(), std::make_move_iterator(proposals.begin()),
+                    std::make_move_iterator(proposals.end()));
+            }
         }
-        PrimitiveDetectionResult result; ++passes;
-        if (detectPrimitiveEvidence(points,detection,result,failure))
-            evidence.insert(evidence.end(),result.evidence.begin(),result.evidence.end());
     }
     if(options.expandPlaneSupport) {
         std::vector<PointId> protectedIds;
         for(const auto& seed:seeds) protectedIds.insert(protectedIds.end(),ids(seed).begin(),ids(seed).end());
-        if(!recoverPlaneSupport(points,d.plane,evidence,error,protectedIds,cancelled)) return false;
+        if (!diagnostics::profileStage("surface.expand_planes", [&] {
+            return recoverPlaneSupport(points, d.plane, evidence, error, protectedIds, cancelled);
+        })) return false;
     }
     // Manual evidence replaces only same-family observations with substantial
     // source overlap, never unrelated nearby surfaces sharing an equation.
@@ -68,10 +121,14 @@ bool analyzeSurfaces(const PointStore& points, const SurfaceAnalysisOptions& opt
     const std::vector<PrimitiveEvidence>& seeds, const std::function<bool()>& cancelled) {
     output = {};
     SurfaceEvidenceCollection collected;
-    if (!collectSurfaceEvidence(points, options, collected, error, seeds, cancelled)) return false;
+    if (!diagnostics::profileStage("surface.collect_evidence", [&] {
+        return collectSurfaceEvidence(points, options, collected, error, seeds, cancelled);
+    })) return false;
     std::vector<PointId> protectedIds;
     for(const auto& seed:seeds)protectedIds.insert(protectedIds.end(),ids(seed).begin(),ids(seed).end());
-    if (!indexSurfaceEvidence(points, collected.evidence, options, output, error,protectedIds,cancelled)) return false;
+    if (!diagnostics::profileStage("surface.validate_and_index", [&] {
+        return indexSurfaceEvidence(points, collected.evidence, options, output, error, protectedIds, cancelled);
+    })) return false;
     output.detectionPasses = collected.detectionPasses;
     return true;
 }

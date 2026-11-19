@@ -1,5 +1,9 @@
 # Repository instructions
 
+- For each completed change that affects ParamCAD Studio or its shipped runtime, increment the patch component in `apps/ParamCAD Studio/VERSION` once, unless the user specifies a different release version. Group the edits for one task under a single increment.
+- Build the updated client when possible and verify the new version with `pcad --version` from that build. Report its product version and build identity. CMake records the Git commit and working-tree state automatically.
+- Keep the product version in `apps/ParamCAD Studio/VERSION`. Documentation-only and test-only edits do not require a product version increment.
+
 - Treat `docs/Outdated/` as an archive of superseded design documents and historical records.
 - Exclude `docs/Outdated/` from searches and do not read or use archived documents as context unless the user explicitly asks to read them. In that case, read only the requested documents.
 

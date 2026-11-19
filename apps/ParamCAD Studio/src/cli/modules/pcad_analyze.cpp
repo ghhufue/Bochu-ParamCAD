@@ -85,6 +85,7 @@ int run_analyze(const QStringList& commandArguments)
             settings.relationAngularToleranceDegrees * 3.14159265358979323846 / 180.0;
         options.connectivityDistance = settings.connectivityDistance;
         options.independentFamilies = settings.independentFamilies;
+        options.familyDetectionWorkerCount = settings.familyDetectionWorkerCount;
         options.recoverResidualSurfaces = settings.recoverResidualSurfaces;
 
         reconstruction::SurfaceAnalysisResult analysis;

@@ -3,6 +3,7 @@
 set(RECONSTRUCTION_DATA_SOURCES
     src/data/PointStore.cpp
     src/data/PrimitiveGeometry.cpp
+    src/data/StageProfile.cpp
 )
 
 set(RECONSTRUCTION_INPUT_SOURCES

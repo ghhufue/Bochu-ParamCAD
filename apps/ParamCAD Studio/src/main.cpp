@@ -1,6 +1,7 @@
 #include "app/MainWindow.h"
 #include "app/UiLanguage.h"
 #include "cli/StudioCommandServer.h"
+#include "ParamCADBuildInfo.h"
 
 #include <reconstruction/settings/ModuleSettings.h>
 
@@ -25,7 +26,7 @@ int main(int argc, char* argv[])
     QApplication application(argc, argv);
     QApplication::setApplicationName(QStringLiteral("ParamCAD Studio"));
     QApplication::setOrganizationName(QStringLiteral("ECE4500J"));
-    QApplication::setApplicationVersion(QStringLiteral("0.3.1"));
+    QApplication::setApplicationVersion(QString::fromLatin1(pcad::build::version));
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/paramcad-studio.png")));
 
     QCommandLineParser parser;

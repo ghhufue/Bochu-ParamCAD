@@ -4,6 +4,7 @@
 #include <array>
 #include <functional>
 #include <memory>
+#include <utility>
 
 namespace reconstruction {
 struct PlanarDomainSupportCheck {
@@ -25,6 +26,8 @@ struct SurfaceFootprint {
     std::vector<std::array<double,3>> positions;
     std::vector<std::array<std::uint64_t,3>> triangles;
     std::vector<PointId> sourcePointIds, coveredPointIds;
+    // Covered repeat observations paired with their representative source ID.
+    std::vector<std::pair<PointId, PointId>> sampleAnchors;
     std::size_t effectiveCoveredPoints=0;
     std::vector<PlanarDomainSupportCheck> domainSupportChecks;
     std::vector<PlanarFootprintHole> holes;
@@ -43,6 +46,8 @@ private:
     std::unique_ptr<Impl> m_impl;
 };
 // Pure numerical finite domain. IDs belong to the caller's observation snapshot.
+enum class SurfaceSampleSpace { ObservedPlane, UnwrappedSurface };
 SurfaceFootprint buildPlanarSurfaceFootprint(const std::vector<PlanarSurfaceSample>& samples,
-    const SurfaceMeshingSettings& settings, double maximumSupportSpacing=0);
+    const SurfaceMeshingSettings& settings, double maximumSupportSpacing=0,
+    SurfaceSampleSpace sampleSpace=SurfaceSampleSpace::ObservedPlane);
 } // namespace reconstruction

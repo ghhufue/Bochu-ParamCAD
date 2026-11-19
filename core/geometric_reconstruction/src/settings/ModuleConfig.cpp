@@ -138,6 +138,7 @@ const std::vector<settings::Setting<AnalysisSettings>>& analysisSchema()
     using T = settings::Setting<S>;
     static const std::vector<T> values{
         INT(supportValidation.mode, "support_validation_mode", "面密度与曲面展开验证", "验证模式：0关闭、1仅报告、2过滤", 0, 2),
+        INT(supportValidation.workerCount, "support_validation_worker_count", "执行", "曲面验证线程数，0 为自动，1 为串行", 0, 32),
         REAL(supportValidation.planeDensityRatioMax, "plane_density_ratio_max", "面密度与曲面展开验证", "平面密度最大偏差倍数", 1, 1000),
         REAL(supportValidation.sphereMinSolidAngle, "sphere_min_solid_angle_sr", "面密度与曲面展开验证", "球面最小支撑立体角 sr", .000001, 12.566370614359172),
         DEG(supportValidation.sphereMinMinorSpanRadians, "sphere_min_minor_angular_span_deg", "面密度与曲面展开验证", "球面较小方向最小展开角"),
@@ -185,6 +186,7 @@ const std::vector<settings::Setting<AnalysisSettings>>& analysisSchema()
         REAL(meshing.slotPerimeterSupportRatio, "slot_perimeter_support_ratio", "孔槽边界", "狭槽两侧支撑占周长的最小比例", .1, 1),
         REAL(connectivityDistance, "connectivity_distance_mm", "连接", "连通距离 mm，0 为自动", 0, 10000),
         BOOL(independentFamilies, "independent_families", "连接", "曲面族独立检测"),
+        INT(familyDetectionWorkerCount, "family_detection_worker_count", "执行", "独立曲面族检测线程数，0 为自动，1 为串行", 0, 5),
         BOOL(recoverResidualSurfaces, "recover_residual_surfaces", "连接", "恢复残余曲面"),
         REAL(relationDistanceMm, "relation_distance_mm", "关系推断", "关系距离容差 mm，0 为自动", 0, 10000),
         REAL(relationDistanceToleranceMultiplier, "relation_distance_tolerance_multiplier", "关系推断", "关系容差与拟合容差之比", 0.01, 100),

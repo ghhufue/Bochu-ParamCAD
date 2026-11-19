@@ -195,6 +195,9 @@ SurfaceAnalysisOptions analysisOptions(const QJsonObject& settings) {
     options.connectivityDistance = settings["connectivity_mm"].toDouble(1.25);
     options.relations.distanceTolerance = settings["relation_distance_mm"].toDouble(tolerance * 4);
     options.recoverResidualSurfaces = settings["multiscale"].toBool();
+    const auto workers = settings["family_detection_worker_count"].toInt();
+    require(workers >= 0 && workers <= 5, "Invalid family detection worker count");
+    options.familyDetectionWorkerCount = static_cast<std::size_t>(workers);
     return options;
 }
 

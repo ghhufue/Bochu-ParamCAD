@@ -2,6 +2,7 @@
 #include "reconstruction/parts/ProjectionSettings.h"
 #include "common/spatial/KdTree.h"
 #include "reconstruction/preprocessing/PointCloudOperations.h"
+#include "reconstruction/data/StageProfile.h"
 #include <Eigen/Eigenvalues>
 #include <algorithm>
 #include <cstring>
@@ -58,6 +59,7 @@ void fitOpenParts(const PointStore& source, const AssemblyOptions& options,
     for (const auto& p : source.points()) observations.emplace(p.id,&p);
     for (auto* part : pending) {
         checkCancel(cancelled);
+        const diagnostics::StageProfile profile("assembly.project_part", part->pointIds.size());
         std::vector<PointSample> points;
         for (const auto id : part->pointIds) points.push_back(*observations.at(id));
         std::vector<PrimitiveEvidence> evidence;
@@ -382,17 +384,23 @@ void publishAnalyticProfile(const PointStore& source, const WorkingData& work, A
 
 bool reconstructAssembly(const PointStore& source, const AssemblyOptions& options,
     AssemblyReconstructionResult& output, std::string& error, const std::function<bool()>& cancelled) {
+    using diagnostics::profileStage;
+    const diagnostics::StageProfile profile("assembly.reconstruct", source.size());
     output = {};
     error.clear();
     try {
-        auto extraction = extractPatches(source, options, cancelled);
+        auto extraction = profileStage("assembly.extract_patches", [&] { return extractPatches(source, options, cancelled); });
         auto& work = extraction.work;
         auto& patches = extraction.patches;
-        auto grouping = groupPatches(work, patches, options);
-        recoverBoundaries(work, options, grouping.connections, patches, cancelled);
+        auto grouping = profileStage("assembly.group_patches", [&] { return groupPatches(work, patches, options); });
+        profileStage("assembly.recover_boundaries", [&] { recoverBoundaries(work, options, grouping.connections, patches, cancelled); });
         checkCancel(cancelled);
-        output.unassignedPointIds = assignSourceObservations(source, work, options, patches, grouping, cancelled);
-        output.candidate = closeParts(work, options, patches, grouping.parts, source.size(), cancelled);
+        output.unassignedPointIds = profileStage("assembly.assign_source_points", [&] {
+            return assignSourceObservations(source, work, options, patches, grouping, cancelled);
+        });
+        output.candidate = profileStage("assembly.close_parts", [&] {
+            return closeParts(work, options, patches, grouping.parts, source.size(), cancelled);
+        });
         output.inputPoints = source.size();
         output.workingPoints = work.points.size();
         output.distanceTolerance = work.tolerance;
@@ -402,14 +410,15 @@ bool reconstructAssembly(const PointStore& source, const AssemblyOptions& option
         output.parts = std::move(grouping.parts);
         if (options.enableSpecializedRecovery) {
             if (options.buildSolids && output.candidate.profileBodies.empty() && output.candidate.curvedSolids.empty()) {
-                closeAnalyticProfile(source, work, output, cancelled);
-                if (output.candidate.profileBodies.empty()) closeAnnularTube(source, work, output, cancelled);
+                profileStage("assembly.close_analytic_profile", [&] { closeAnalyticProfile(source, work, output, cancelled); });
+                if (output.candidate.profileBodies.empty())
+                    profileStage("assembly.close_annular_tube", [&] { closeAnnularTube(source, work, output, cancelled); });
                 if (output.candidate.profileBodies.empty() || output.parts.front().status == "closed_annular_tube")
-                    closeCircularSlab(source, work, output, cancelled);
+                    profileStage("assembly.close_circular_slab", [&] { closeCircularSlab(source, work, output, cancelled); });
             }
-            recoverLocalProfiles(source, work, options, output, cancelled);
+            profileStage("assembly.recover_local_profiles", [&] { recoverLocalProfiles(source, work, options, output, cancelled); });
         }
-        fitOpenParts(source, options, output, cancelled);
+        profileStage("assembly.projection_fallback", [&] { fitOpenParts(source, options, output, cancelled); });
         if (output.patches.empty()) {
             error = "No finite surface patches with sufficient neighborhood support";
             return false;

@@ -4,6 +4,7 @@
 #include "io/PointCloudAdapter.h"
 #include "io/ProjectStore.h"
 #include "io/FeatureCodec.h"
+#include <reconstruction/data/StageProfile.h>
 #include <reconstruction/modeling/ModelingAdapter.h>
 #include <reconstruction/parts/ProjectionExtrusion.h>
 #include <reconstruction/parts/ProjectionSettings.h>
@@ -108,6 +109,8 @@ void reportProjectionSettings(QJsonObject& report, const ProjectionArguments& ar
 }
 }
 void reconstructOfflineCad(const QStringList& args,QJsonObject& report) {
+    using reconstruction::diagnostics::profileStage;
+    const reconstruction::diagnostics::StageProfile profile("cad.offline");
     require(args.size()>=5,
             "Usage: reconstruct-cloud cloud.ply report.json output.step [--no-projection-fallback] [--no-specialized-recovery] [--config file] [--set key=value] [--path mode]");
     const auto arguments = projectionArguments(args,true);
@@ -122,13 +125,16 @@ void reconstructOfflineCad(const QStringList& args,QJsonObject& report) {
     report["reference_labels_used"]=false;report["source_completeness_verified"]=false;report["cad_constructed"]=false;
     report["cloud"]=QFileInfo(args[2]).absoluteFilePath();report["unit"]=unit==reconstruction::LengthUnit::Millimeter?"mm":"m";
     auto stage=[&](const QString& name){report["stage"]=name;report["status"]="running";save(args[3],report);};
-    stage("loading_cloud");PlyCloud cloud;QString error;require(PlyReader::read(args[2],cloud,error),error.toStdString());
+    stage("loading_cloud");PlyCloud cloud;QString error;
+    const bool loaded = profileStage("cad.load_cloud", [&] { return PlyReader::read(args[2], cloud, error); });
+    require(loaded, error.toStdString());
     report["input_points"]=double(cloud.positions.size());
     CadReconstructionTask task;QEventLoop loop;std::optional<CadReconstructionResult> result;
     QObject::connect(&task,&CadReconstructionTask::stageChanged,&loop,[&](auto value){
         stage(value==CadReconstructionTask::Stage::Preprocessing?"preprocessing":value==CadReconstructionTask::Stage::SeparatingParts?"separating_and_closing_parts":"recognizing_from_points");});
     QObject::connect(&task,&CadReconstructionTask::finished,&loop,[&](const auto& value){result=value;loop.quit();});
-    require(task.start(cloud,unit,{},0,{},{},projectionFallback,specializedRecovery,arguments.options),"Cannot start point-cloud worker");
+    require(task.start(cloud,unit,{},0,{},{},projectionFallback,specializedRecovery,arguments.options,false),
+        "Cannot start point-cloud worker");
     if(!result)loop.exec();require(result.has_value(),"Point-cloud worker returned no result");
     if(result->preprocessingComplete)report["preprocessing"]=QJsonObject{{"input_points",double(result->preprocessing.inputPointCount)},
         {"output_points",double(result->preprocessing.outputPointCount)},{"removed_voxel_duplicates",double(result->preprocessing.removedByVoxel)},
@@ -142,20 +148,29 @@ void reconstructOfflineCad(const QStringList& args,QJsonObject& report) {
     }
     report["detected_surface_patches"]=double(result->analysis.patches.size());
     report["unresolved_component_points"]=double(result->candidate.unresolvedPointIds.size());
-    if(result->assembly){stage("writing_separation_diagnostics");report["assembly"]=writeAssemblyDiagnostics(args[3],cloud,*result->assembly,report["unit"].toString());}
+    if (result->assembly) {
+        stage("writing_separation_diagnostics");
+        report["assembly"] = profileStage("cad.write_diagnostics", [&] {
+            return writeAssemblyDiagnostics(args[3], cloud, *result->assembly, report["unit"].toString());
+        });
+    }
     if(result->outcome!=CadReconstructionResult::Outcome::Success) {
         report["status"]=result->outcome==CadReconstructionResult::Outcome::Unsupported?"unsupported":"failed";
         report["error"]=result->error;return;
     }
     stage("building_parametric_cad");modeling::ModelingCore core;
-    const auto committed=reconstruction::commitCompoundCandidate(result->candidate,core);
-    require(committed.success,committed.error);require(!core.bodyShape().IsNull() && BRepCheck_Analyzer(core.bodyShape()).IsValid(),"Invalid point-cloud CAD");
+    profileStage("cad.build_and_validate", [&] {
+        const auto committed = reconstruction::commitCompoundCandidate(result->candidate, core);
+        require(committed.success, committed.error);
+        require(!core.bodyShape().IsNull() && BRepCheck_Analyzer(core.bodyShape()).IsValid(), "Invalid point-cloud CAD");
+    });
     report["surface_coverage"]=result->candidate.surfaceCoverage;report["features"]=double(core.features().size());
     if(result->assembly){
         report["coverage_basis"]="fraction_of_input_observations_assigned_to_closed_candidates";
         report["assigned_observation_fraction"]=result->candidate.surfaceCoverage;
     } else report["coverage_basis"]="recognizer_surface_support";
-    stage("exporting_cad");exportCad(core,args[4],report);
+    stage("exporting_cad");
+    profileStage("cad.export", [&] { exportCad(core, args[4], report); });
     if(result->partialAssembly) {
         report["status"]="cad_exported_partial";report["partial_reconstruction"]=true;
     }

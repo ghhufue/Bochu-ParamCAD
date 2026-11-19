@@ -3,6 +3,7 @@
 #include <cmath>
 #include <algorithm>
 #include <iostream>
+#include <random>
 #include <stdexcept>
 
 using namespace reconstruction;
@@ -143,6 +144,91 @@ void footprintsKeepHolesAndStrips() {
     samples.clear();for(int x=0;x<30;++x)for(int y=0;y<2;++y)samples.push_back({{double(x),double(y)},PointId(samples.size()+1)});
     require(!buildPlanarSurfaceFootprint(samples,settings).triangles.empty(),"real narrow strip is not rejected for lacking a deep interior");
 }
+void repeatedPlaneSamplingPreservesOpenings() {
+    std::vector<PlanarSurfaceSample> samples;
+    constexpr std::array<std::array<double, 2>, 4> visits{{
+        {{-.09, -.07}}, {{.07, -.08}}, {{.08, .09}}, {{-.08, .07}}
+    }};
+    for (int x = 0; x < 42; ++x) {
+        for (int y = 0; y < 32; ++y) {
+            const bool roundHole = std::hypot(x - 10., y - 16.) < 4.5;
+            const bool openSlot = x >= 34 && y >= 12 && y <= 17;
+            if (roundHole || openSlot) continue;
+            const double u = x + .02 * std::sin(3 * x + y);
+            const double v = y + .02 * std::cos(x + 7 * y);
+            if (x < 24) {
+                for (const auto& visit : visits)
+                    samples.push_back({{u + visit[0], v + visit[1]}, PointId(samples.size() + 1)});
+            } else {
+                // Transition to a single visit with a smoothly increasing pitch.
+                samples.push_back({{u + .02 * (x - 24) * (x - 24), v}, PointId(samples.size() + 1)});
+            }
+        }
+    }
+    const SurfaceMeshingSettings settings;
+    const auto mesh = buildPlanarSurfaceFootprint(samples, settings);
+    const auto raw = buildPlanarSurfaceFootprint(samples, settings, 0, SurfaceSampleSpace::UnwrappedSurface);
+    require(mesh.coveredPointIds.size() >= samples.size() * .97 &&
+            mesh.coveredPointIds.size() > raw.coveredPointIds.size(),
+        "repeat visits retain source IDs across the transition to independent observations");
+    require(mesh.effectiveCoveredPoints < mesh.coveredPointIds.size() / 2,
+        "repeated visits count as independent sampling sites");
+    const SurfaceFootprintQuery query(mesh);
+    require(query.containsProjection({4.5, 6.5, 0}) &&
+            query.containsProjection({24.5, 9.5, 0}), "both sampling regimes have continuous support");
+    require(!query.containsProjection({10, 16, 0}) && !query.containsProjection({41, 14.5, 0}) &&
+            !query.containsProjection({-1, 6, 0}), "round hole, open slot and outer edge remain open");
+}
+
+void irregularPlaneSamplingDoesNotInventSupport() {
+    std::mt19937 random(226);
+    std::uniform_real_distribution<double> coordinate(0, 40);
+    std::vector<PlanarSurfaceSample> samples;
+    for (int i = 0; i < 3600; ++i) {
+        const double u = coordinate(random), v = coordinate(random);
+        if (std::hypot(u - 20, v - 20) < 6) continue;
+        samples.push_back({{u, v}, PointId(samples.size() + 1)});
+    }
+    const SurfaceMeshingSettings settings;
+    const auto mesh = buildPlanarSurfaceFootprint(samples, settings);
+    const auto raw = buildPlanarSurfaceFootprint(samples, settings, 0, SurfaceSampleSpace::UnwrappedSurface);
+    require(mesh.effectiveCoveredPoints >= .98 * raw.effectiveCoveredPoints &&
+            mesh.sampleAnchors.size() < .02 * samples.size(),
+        "isolated near pairs in irregular sampling do not change the sampling scale");
+    const SurfaceFootprintQuery query(mesh);
+    require(query.containsProjection({8, 8, 0}) && !query.containsProjection({20, 20, 0}) &&
+            !query.containsProjection({42, 20, 0}), "irregular observations retain the hole and exterior");
+}
+
+void revalidationRetainsFullResolutionSurfaceIndex() {
+    Fixture full;
+    full.plane(0, 22);
+    const PointStore source(full.points);
+    std::vector<PointSample> subset;
+    PlaneEvidence seed = std::get<PlaneEvidence>(full.evidence.front());
+    seed.supportPointIds.clear();
+    for (const auto& p : full.points) {
+        if (int(p.position.x) % 2 != 0) continue;
+        subset.push_back(p);
+        seed.supportPointIds.push_back(p.id);
+    }
+    const PointStore working(std::move(subset));
+    SurfaceAnalysisOptions options;
+    options.detection.plane.distanceThreshold = .1;
+    SurfaceAnalysisResult analysis, validatedSource, preview;
+    std::string error;
+    require(indexSurfaceEvidence(working, {seed}, options, analysis, error), error.c_str());
+    require(indexSurfaceEvidence(source, full.evidence, options, validatedSource, error), error.c_str());
+    require(revalidateSurfaceSupportOnSource(working, source, analysis, error, {}, &validatedSource), error.c_str());
+    require(indexValidatedSourceSurfaces(source, analysis, preview, error), error.c_str());
+    require(analysisMatches(working, analysis) && analysisMatches(source, preview), "each index matches its own observations");
+    require(preview.patches.size() == 1 && preview.patches.front().supportPointIds.size() == source.size() &&
+            analysis.patches.front().supportPointIds.size() < source.size(),
+        "publication retains observations omitted from the fitting input");
+    require(!indexValidatedSourceSurfaces(working, analysis, preview, error) && analysisMatches(source, preview),
+        "a stale source cannot replace the preview");
+}
+
 void disconnectedDomainMembership() {
     Fixture f;PlaneEvidence e;e.plane={{0,0,1},0};e.confidence=.99;
     for(int block=0;block<2;++block)for(int x=0;x<10;++x)for(int y=0;y<10;++y) {
@@ -154,5 +240,53 @@ void disconnectedDomainMembership() {
     require(accepted.size()==1 && std::get<PlaneEvidence>(accepted.front()).supportPointIds.size()==f.points.size(),"geometrically covered observations retain the correct disconnected domain");
     require(std::count_if(report.decisions.begin(),report.decisions.end(),[](const auto& d){return d.verdict==SupportVerdict::Accepted;})==2,"independent finite domains are checked independently");
 }
+void parallelMatchesSerial() {
+    Fixture fixture;
+    fixture.plane(0, 24);
+    fixture.plane(50, 20);
+    fixture.plane(100, 28);
+    fixture.plane(150, 32, 3);
+    PlaneEvidence isolated;
+    isolated.plane = {{0, 0, 1}, -200};
+    isolated.confidence = .99;
+    for (int group = 0; group < 2; ++group)
+        for (int row = 0; row < 10; ++row)
+            for (int column = 0; column < 16; ++column) {
+                PointSample point;
+                point.position = {group * 100. + row, double(column), 200};
+                fixture.add(point, isolated.supportPointIds);
+            }
+    fixture.evidence.emplace_back(isolated);
+    SurfaceAnalysisOptions options;
+    options.connectivityDistance = 1000;
+    options.supportValidation.workerCount = 1;
+    std::vector<PrimitiveEvidence> serial, parallel;
+    const auto serialReport = run(fixture, serial, options);
+    options.supportValidation.workerCount = 4;
+    const auto parallelReport = run(fixture, parallel, options);
+    require(serializeSurfaceSupportReport(serialReport) == serializeSurfaceSupportReport(parallelReport),
+        "parallel verification preserves ordered decisions, metrics and geometry settings signature");
+    require(serial.size() == parallel.size(), "parallel verification keeps the same surfaces");
+    for (std::size_t index = 0; index < serial.size(); ++index) {
+        require(std::get<PlaneEvidence>(serial[index]).supportPointIds ==
+                std::get<PlaneEvidence>(parallel[index]).supportPointIds, "parallel verification keeps the same support IDs");
+    }
+    for (std::size_t index = 0; index < serialReport.decisions.size(); ++index) {
+        const auto& first = serialReport.decisions[index].footprint;
+        const auto& second = parallelReport.decisions[index].footprint;
+        require(bool(first) == bool(second), "parallel verification keeps the same finite domains");
+        if (first) require(first->triangles == second->triangles && first->positions == second->positions,
+            "parallel verification preserves footprint geometry");
+    }
+    PointStore points(fixture.points);
+    std::string error;
+    SurfaceSupportValidationReport cancelledReport;
+    cancelledReport.pointFingerprint = 42;
+    unsigned checks = 0;
+    require(!validateSurfaceSupport(points, fixture.evidence, options, parallel, cancelledReport, error, nullptr,
+        [&] { return ++checks >= 3; }), "parallel verification propagates mid-flight cancellation");
+    require(error == "Cancelled" && cancelledReport.pointFingerprint == 42 && parallel.size() == serial.size(),
+        "cancelled verification publishes no partial state");
 }
-int main(){try{densityAndModes();cylinder(false);cylinder(true);spheres();cones();transactionAndSettings();heterogeneousReference();invalidRing();footprintsKeepHolesAndStrips();disconnectedDomainMembership();std::cout<<"surface_support_validation_test passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+}
+int main(){try{densityAndModes();cylinder(false);cylinder(true);spheres();cones();transactionAndSettings();heterogeneousReference();invalidRing();footprintsKeepHolesAndStrips();repeatedPlaneSamplingPreservesOpenings();irregularPlaneSamplingDoesNotInventSupport();revalidationRetainsFullResolutionSurfaceIndex();disconnectedDomainMembership();parallelMatchesSerial();std::cout<<"surface_support_validation_test passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
