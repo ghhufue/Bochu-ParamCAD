@@ -195,6 +195,5 @@ bool PointCloudDocument::undo()
 }
 void PointCloudDocument::replacePartCandidates(const std::vector<DetectedPointCloudSurface>& parts,bool recordUndo)
 {
-    m_selection.replacePartCandidates(parts,recordUndo);
-    notifyEdit();
+    if (m_selection.replacePartCandidates(parts,recordUndo)) notifyEdit();
 }

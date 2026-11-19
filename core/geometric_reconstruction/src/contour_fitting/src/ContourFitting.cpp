@@ -1,4 +1,5 @@
 #include "contour_fitting/ContourFitting.h"
+#include "contour_fitting/detail/BoundaryWalk.h"
 
 #include <CGAL/Constrained_Delaunay_triangulation_2.h>
 #include <CGAL/Constrained_triangulation_plus_2.h>
@@ -17,8 +18,9 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <map>
+#include <numeric>
 #include <stdexcept>
-#include <unordered_map>
 
 namespace contour_fitting {
 namespace {
@@ -29,7 +31,7 @@ using Polygon = CGAL::Polygon_2<Kernel>;
 
 struct FaceState {
     bool kept = false;
-    std::array<bool, 3> visited{};
+    std::array<bool, 3> boundaryVisited{};
     bool componentVisited = false;
 };
 
@@ -37,8 +39,6 @@ using VertexBase = CGAL::Triangulation_vertex_base_with_info_2<std::size_t, Kern
 using FaceBase = CGAL::Triangulation_face_base_with_info_2<FaceState, Kernel>;
 using Triangulation = CGAL::Delaunay_triangulation_2<Kernel,
     CGAL::Triangulation_data_structure_2<VertexBase, FaceBase>>;
-using Edge = Triangulation::Edge;
-using Vertex = Triangulation::Vertex_handle;
 
 double estimateRadius(const Triangulation& triangulation)
 {
@@ -66,42 +66,6 @@ double estimateRadius(const Triangulation& triangulation)
 bool kept(const Triangulation& triangulation, Triangulation::Face_handle face)
 {
     return !triangulation.is_infinite(face) && face->info().kept;
-}
-
-Edge nextBoundaryEdge(const Triangulation& triangulation, Edge edge)
-{
-    auto [face, side] = edge;
-    side = triangulation.ccw(side);
-    // Follow the same fan of retained faces around the end vertex. Separate
-    // regions that only meet at a vertex cannot redirect the boundary walk.
-    while (kept(triangulation, face->neighbor(side))) {
-        const auto next = face->neighbor(side);
-        side = triangulation.ccw(next->index(face));
-        face = next;
-    }
-    return {face, side};
-}
-
-void appendCycles(const std::vector<Vertex>& walk, std::vector<Polygon>& rings)
-{
-    std::vector<Vertex> path;
-    std::unordered_map<std::size_t, std::size_t> positions;
-    for (std::size_t i = 0; i <= walk.size(); ++i) {
-        const auto vertex = walk[i % walk.size()];
-        const auto [entry, inserted] = positions.emplace(vertex->info(), path.size());
-        if (inserted) {
-            path.push_back(vertex);
-            continue;
-        }
-        const auto start = entry->second;
-        if (path.size() - start >= 3) {
-            Polygon ring;
-            for (std::size_t j = start; j < path.size(); ++j) ring.push_back(path[j]->point());
-            if (ring.is_simple() && ring.orientation() != CGAL::COLLINEAR) rings.push_back(std::move(ring));
-        }
-        for (std::size_t j = start + 1; j < path.size(); ++j) positions.erase(path[j]->info());
-        path.resize(start + 1);
-    }
 }
 
 std::size_t discardWeakRegions(Triangulation& triangulation, std::size_t minimumPoints)
@@ -149,22 +113,14 @@ std::vector<Polygon> traceRings(Triangulation& triangulation, double radius,
             face->vertex(2)->point()) <= radius * radius;
     }
     if (minimumPoints > 3) discarded = discardWeakRegions(triangulation, minimumPoints);
+    std::vector<Point> vertices(triangulation.number_of_vertices());
+    for (auto vertex = triangulation.finite_vertices_begin(); vertex != triangulation.finite_vertices_end(); ++vertex)
+        vertices[vertex->info()] = vertex->point();
     std::vector<Polygon> rings;
-    for (auto face = triangulation.finite_faces_begin(); face != triangulation.finite_faces_end(); ++face) {
-        if (!face->info().kept) continue;
-        for (int side = 0; side < 3; ++side) {
-            if (face->info().visited[side] || kept(triangulation, face->neighbor(side))) continue;
-            const Edge start{face, side};
-            Edge edge = start;
-            std::vector<Vertex> walk;
-            do {
-                auto [current, index] = edge;
-                current->info().visited[index] = true;
-                walk.push_back(current->vertex(triangulation.ccw(index)));
-                edge = nextBoundaryEdge(triangulation, edge);
-            } while (edge != start);
-            appendCycles(walk, rings);
-        }
+    for (const auto& cycle : detail::traceBoundaryRings(triangulation)) {
+        Polygon ring;
+        for (const auto index : cycle) ring.push_back(vertices[index]);
+        if (ring.is_simple() && ring.orientation() != CGAL::COLLINEAR) rings.push_back(std::move(ring));
     }
     return rings;
 }
@@ -209,32 +165,37 @@ Ring outputRing(const Polygon& polygon)
     return result;
 }
 
-std::vector<Contour> groupRings(std::vector<Polygon> rings)
+struct RingGroup {
+    std::size_t outer;
+    std::vector<std::size_t> holes;
+};
+
+std::vector<RingGroup> groupRings(const std::vector<Polygon>& rings)
 {
-    std::stable_sort(rings.begin(), rings.end(), [](const Polygon& a, const Polygon& b) {
-        return std::abs(a.area()) > std::abs(b.area());
+    std::vector<std::size_t> order(rings.size());
+    std::iota(order.begin(), order.end(), 0);
+    std::stable_sort(order.begin(), order.end(), [&](auto a, auto b) {
+        return std::abs(rings[a].area()) > std::abs(rings[b].area());
     });
-    std::vector<Contour> contours;
-    std::vector<const Polygon*> outers;
-    for (const auto& ring : rings) {
+    std::vector<RingGroup> groups;
+    for (const auto index : order) {
+        const auto& ring = rings[index];
         if (ring.is_counterclockwise_oriented()) {
-            outers.push_back(&ring);
-            contours.push_back({outputRing(ring), {}});
+            groups.push_back({index, {}});
             continue;
         }
         // Larger rings were processed first. The last containing outer is the
         // smallest one, so a nested island receives its own holes.
-        const auto containing = std::find_if(outers.rbegin(), outers.rend(), [&](const Polygon* outer) {
+        const auto containing = std::find_if(groups.rbegin(), groups.rend(), [&](const RingGroup& group) {
             for (const auto& point : ring) {
-                const auto side = outer->bounded_side(point);
+                const auto side = rings[group.outer].bounded_side(point);
                 if (side != CGAL::ON_BOUNDARY) return side == CGAL::ON_BOUNDED_SIDE;
             }
             return false;
         });
-        if (containing != outers.rend())
-            contours[std::size_t(containing.base() - outers.begin() - 1)].holes.push_back(outputRing(ring));
+        if (containing != groups.rend()) containing->holes.push_back(index);
     }
-    return contours;
+    return groups;
 }
 
 } // namespace
@@ -276,8 +237,94 @@ Result fitContours(const std::vector<Point2D>& points, const Options& options)
     const auto minimumPoints = std::max(options.minimumRegionPoints, fractionMinimum);
     auto rings = traceRings(triangulation, result.alphaRadius, minimumPoints, result.discardedRegionCount);
     simplify(rings, result.simplificationTolerance);
-    result.contours = groupRings(std::move(rings));
+    for (const auto& group : groupRings(rings)) {
+        Contour contour{outputRing(rings[group.outer]), {}};
+        for (const auto hole : group.holes) contour.holes.push_back(outputRing(rings[hole]));
+        result.contours.push_back(std::move(contour));
+    }
     return result;
+}
+
+std::vector<TriangleContour> extractTriangleContours(
+    const std::vector<Point2D>& vertices, const std::vector<std::array<std::size_t, 3>>& triangles)
+{
+    using Edge = std::pair<std::size_t, int>;
+    constexpr Edge noNeighbor{0, -1};
+    struct Face {
+        std::array<std::size_t, 3> vertices;
+        std::array<Edge, 3> neighbors;
+        std::array<bool, 3> visited{};
+    };
+    std::vector<Point> points;
+    points.reserve(vertices.size());
+    for (const auto& point : vertices) {
+        if (!std::isfinite(point.x) || !std::isfinite(point.y)) return {};
+        points.emplace_back(point.x, point.y);
+    }
+    const auto nextSide = [](int side) { return (side + 1) % 3; };
+    const auto previousSide = [](int side) { return (side + 2) % 3; };
+    std::vector<Face> faces;
+    faces.reserve(triangles.size());
+    std::map<std::pair<std::size_t, std::size_t>, Edge> edges;
+    for (auto triangle : triangles) {
+        if (*std::max_element(triangle.begin(), triangle.end()) >= points.size()) return {};
+        const auto orientation = CGAL::orientation(points[triangle[0]], points[triangle[1]], points[triangle[2]]);
+        if (orientation == CGAL::COLLINEAR) continue;
+        if (orientation == CGAL::CLOCKWISE) std::swap(triangle[1], triangle[2]);
+        const auto face = faces.size();
+        faces.push_back({triangle, {noNeighbor, noNeighbor, noNeighbor}});
+        for (int side = 0; side < 3; ++side) {
+            const auto from = triangle[nextSide(side)], to = triangle[previousSide(side)];
+            const auto [entry, inserted] = edges.emplace(std::minmax(from, to), Edge{face, side});
+            if (inserted) continue;
+            const auto [other, otherSide] = entry->second;
+            if (faces[other].neighbors[otherSide] != noNeighbor ||
+                faces[other].vertices[nextSide(otherSide)] != to) return {};
+            faces[other].neighbors[otherSide] = {face, side};
+            faces[face].neighbors[side] = {other, otherSide};
+        }
+    }
+    const auto next = [&](Edge edge) {
+        auto [face, side] = edge;
+        side = nextSide(side);
+        while (faces[face].neighbors[side] != noNeighbor) {
+            const auto neighbor = faces[face].neighbors[side];
+            face = neighbor.first;
+            side = nextSide(neighbor.second);
+        }
+        return Edge{face, side};
+    };
+    const auto visit = [&](Edge edge) {
+        auto [face, side] = edge;
+        faces[face].visited[side] = true;
+        return faces[face].vertices[nextSide(side)];
+    };
+    std::vector<IndexRing> rings;
+    for (std::size_t face = 0; face < faces.size(); ++face) {
+        for (int side = 0; side < 3; ++side) {
+            if (!faces[face].visited[side] && faces[face].neighbors[side] == noNeighbor)
+                detail::appendBoundaryRings(Edge{face, side}, next, visit, rings);
+        }
+    }
+    std::vector<Polygon> polygons;
+    polygons.reserve(rings.size());
+    for (auto& ring : rings) {
+        Polygon polygon;
+        for (const auto vertex : ring) polygon.push_back(points[vertex]);
+        if (!polygon.is_simple() || polygon.orientation() == CGAL::COLLINEAR) return {};
+        const auto first = std::min_element(ring.begin(), ring.end(), [&](auto a, auto b) {
+            return points[a] < points[b];
+        });
+        std::rotate(ring.begin(), first, ring.end());
+        polygons.push_back(std::move(polygon));
+    }
+    std::vector<TriangleContour> contours;
+    for (const auto& group : groupRings(polygons)) {
+        TriangleContour contour{std::move(rings[group.outer]), {}};
+        for (const auto hole : group.holes) contour.holes.push_back(std::move(rings[hole]));
+        contours.push_back(std::move(contour));
+    }
+    return contours;
 }
 
 } // namespace contour_fitting

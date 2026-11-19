@@ -19,6 +19,20 @@
 #include <random>
 
 void require(bool ok,const char* message) {if(!ok)throw std::runtime_error(message);}
+void vertexTouchingBoundaries()
+{
+    PointCloudRegion region;
+    region.geometry = "plane";
+    region.parameters = {{"normal", QJsonArray{0, 0, 1}}, {"offset", 0}};
+    PointCloudSurfaceMesh mesh;
+    mesh.positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {-1, 0, 0}, {0, -1, 0}};
+    mesh.triangles = {{0, 1, 2}, {0, 4, 3}};
+    const auto boundary = planarBoundaryOfMesh(region, mesh);
+    require(boundary && boundary->regions.size() == 2, "triangles touching at a vertex have separate outer rings");
+    for (const auto& component : boundary->regions)
+        require(component.outer.size() == 3 && component.holes.empty(), "each triangle retains its own closed ring");
+}
+
 void surfaceDisplay()
 {
     PlyCloud cloud;
@@ -46,6 +60,27 @@ void surfaceDisplay()
     auto* points=vtkPolyDataMapper::SafeDownCast(actor.actor()->GetMapper())->GetInput();
     auto* surface=vtkPolyDataMapper::SafeDownCast(actor.surfaceActor()->GetMapper())->GetInput();
     require(actor.displayedSurfaceRegions()==std::set<int>{id},"open fitted face is displayed by default");
+    const auto* retained = actor.surfaceMesh(id);
+    const auto boundary = planarBoundaryOfMesh(*selection.region(id), *retained);
+    require(boundary && boundary->regions.size() == 2 && boundary->regions.front().holes.size() == 1 &&
+            boundary->regions.back().holes.empty(), "the fitted mesh yields independent islands and the observed hole");
+    using Edge = std::pair<std::size_t, std::size_t>;
+    std::map<Edge, int> incidence;
+    for (const auto& triangle : retained->triangles)
+        for (std::size_t i = 0; i < 3; ++i)
+            ++incidence[std::minmax(std::size_t(triangle[i]), std::size_t(triangle[(i + 1) % 3]))];
+    std::set<Edge> meshBoundary, tracedBoundary;
+    for (const auto& [edge, count] : incidence)
+        if (count == 1) meshBoundary.insert(edge);
+    const auto collect = [&](const auto& ring) {
+        for (std::size_t i = 0; i < ring.size(); ++i)
+            tracedBoundary.insert(std::minmax(ring[i], ring[(i + 1) % ring.size()]));
+    };
+    for (const auto& component : boundary->regions) {
+        collect(component.outer);
+        for (const auto& hole : component.holes) collect(hole);
+    }
+    require(meshBoundary == tracedBoundary, "every exposed mesh edge occurs in the traced rings");
     require(surface->GetNumberOfPolys()>0 && points->GetNumberOfVerts()==2,"surface hides supported samples while retaining an unassigned point and an unsupported spur");
     const auto color=PointCloudActor::regionColor(id);
     auto* colors=surface->GetCellData()->GetScalars();
@@ -90,6 +125,13 @@ void surfaceDisplay()
     require(!actor.surfaceActor()->GetVisibility() && points->GetNumberOfVerts()==vtkIdType(cloud.positions.size()),"capture restores source points without fitted overlays");
     actor.setAnnotations(&selection);
     require(actor.surfaceActor()->GetVisibility() && selection.revision()==revision,"display switches leave source and document revision unchanged");
+    const auto beforeRelations = surface->GetMTime();
+    selection.applyInferredRelations({}, false);
+    actor.setAnnotations(&selection);
+    require(surface->GetMTime() == beforeRelations && actor.surfaceMesh(id) == retained,
+            "relation updates retain the existing display mesh");
+    require(!selection.replacePartCandidates({{region, members}}, false) && selection.region(id),
+            "identical reconstruction candidates preserve the collection and display cache");
     selection.select({0});selection.deleteSelectedPoints();actor.setPointMask(selection.deleted());actor.setAnnotations(&selection);
     require(actor.availableSurfaceRegions().empty() && points->GetNumberOfVerts()==vtkIdType(cloud.positions.size()-1),"stale fit returns to points after membership edits");
     require(selection.undo(),"undo membership edit");actor.setPointMask(selection.deleted());actor.setAnnotations(&selection);
@@ -587,7 +629,7 @@ int main(int argc,char** argv) {
         if(argc==4 && QString::fromLocal8Bit(argv[1])=="--trace-surface") {
             traceSurface(QString::fromLocal8Bit(argv[2]),QString::fromLocal8Bit(argv[3]));return 0;
         }
-        unsupportedPlaneSamples();surfaceDisplay();finalSurfaceMinimum();wideConeSupport();curvedSurfaces();irregularSampling();fragmentedPlanes();narrowAndUnevenPlanes();finitePlaneBoundaries();distantCoplanarIslands();relativeDensitySurfaces();boundaryAndInteriorSupport();
+        unsupportedPlaneSamples();surfaceDisplay();vertexTouchingBoundaries();finalSurfaceMinimum();wideConeSupport();curvedSurfaces();irregularSampling();fragmentedPlanes();narrowAndUnevenPlanes();finitePlaneBoundaries();distantCoplanarIslands();relativeDensitySurfaces();boundaryAndInteriorSupport();
         PlyCloud cloud;cloud.positions={{0,0,0},{1,0,0},{2,0,0}};
         cloud.colors={{12,34,56},{78,90,12},{34,56,78}};
         PointCloudSelection selection;selection.setCloud(cloud);

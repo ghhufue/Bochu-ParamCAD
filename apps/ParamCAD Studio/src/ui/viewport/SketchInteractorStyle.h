@@ -53,6 +53,8 @@ public:
     // "Delete". The style only reports it; the viewer decides what it means.
     std::function<void(const std::string&)> keyPressed;
 
+    void setOrbitEnabled(bool enabled) { m_orbitEnabled = enabled; }
+
 protected:
     SketchInteractorStyle() = default;
     ~SketchInteractorStyle() override = default;
@@ -65,4 +67,5 @@ private:
     // from a pan drag.
     int m_rightPressX = 0;
     int m_rightPressY = 0;
+    bool m_orbitEnabled = true;
 };

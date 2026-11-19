@@ -32,7 +32,8 @@ set(detection "${reconstruction}/src/segmentation/*.cpp" "${reconstruction}/src/
     "${reconstruction}/include/reconstruction/segmentation/*.h"
     "${reconstruction}/src/surface/expansion/*.cpp"
     "${reconstruction}/src/surface/SurfaceAnalysis.cpp")
-set(surfaces "${reconstruction}/src/surface/*.cpp" "${reconstruction}/src/surface/*.h"
+set(boundaryWalk "${reconstruction}/src/contour_fitting/include/contour_fitting/detail/BoundaryWalk.h")
+set(surfaces "${reconstruction}/src/surface/*.cpp" "${reconstruction}/src/surface/*.h" ${boundaryWalk}
     "${reconstruction}/include/reconstruction/surface/*.h"
     "${reconstruction}/include/reconstruction/settings/SurfaceMeshingSettings.h")
 set(recognition "${reconstruction}/src/recognition/*.cpp" "${reconstruction}/src/recognition/*.h"

@@ -332,6 +332,23 @@ void PointCloudWorkspaceController::connectUi()
             m_ui.viewer, &VTKViewer::setAutomaticPointCloudSurfaces);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::regionSurfaceDisplayRequested,
             m_ui.viewer, &VTKViewer::setPointCloudRegionSurface);
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::boundaryInspectionRequested, this, [this](int id) {
+        const auto* region = m_document->selection().region(id);
+        if (!region) return;
+        const auto counts = m_ui.viewer->inspectPointCloudBoundary(id);
+        if (!counts) {
+            m_ui.relationsPanel->setStatus(workspaceTr("当前平面无法进入边界检查。"));
+            return;
+        }
+        m_ui.relationsPanel->showBoundaryInspection(region->name, counts->points, counts->triangles,
+                                                    counts->outerRings, counts->innerRings);
+    });
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::boundaryInspectionLayersChanged,
+            m_ui.viewer, &VTKViewer::setBoundaryInspectionLayers);
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::boundaryInspectionCloseRequested,
+            m_ui.viewer, &VTKViewer::closeBoundaryInspection);
+    connect(m_ui.viewer, &VTKViewer::boundaryInspectionClosed,
+            m_ui.relationsPanel, &PointCloudRelationsPanel::clearBoundaryInspection);
     connect(m_ui.viewer, &VTKViewer::pointCloudSurfaceDisplayChanged, this, [this] {
         m_ui.relationsPanel->setSurfaceDisplayState(m_ui.viewer->availablePointCloudSurfaces(),
                                                    m_ui.viewer->displayedPointCloudSurfaces());
@@ -1214,7 +1231,13 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
                 .arg(preprocessingReport.normalsWithoutOrientation));
         }
     }
-    if(result.assembly && !result.assembly->parts.empty()) {
+    std::vector<DetectedPointCloudSurface> surfaces;
+    if (result.outcome == CadReconstructionResult::Outcome::Unsupported) {
+        const double sourceScale = cloudUnit(*m_document) == reconstruction::LengthUnit::Meter ? 1000.0 : 1.0;
+        const auto& preview = result.sourceSurfacePreview ? *result.sourceSurfacePreview : result.analysis;
+        surfaces = describeAnalysisPatches(preview, m_document->sourceCloud().positions.size(), sourceScale);
+    }
+    if(result.assembly && !result.assembly->parts.empty() && surfaces.empty()) {
         std::vector<DetectedPointCloudSurface> groups;size_t closed=0;
         const double scale=cloudUnit(*m_document)==reconstruction::LengthUnit::Meter?.001:1.0;
         const auto vector=[&](modeling::Vec3 p){return QJsonArray{p.x*scale,p.y*scale,p.z*scale};};
@@ -1253,10 +1276,7 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
                 .arg(result.assembly->candidate.projectionPrograms.size()));
     }
     if (result.outcome == CadReconstructionResult::Outcome::Unsupported) {
-        const double sourceScale=cloudUnit(*m_document)==reconstruction::LengthUnit::Meter?1000.0:1.0;
-        const auto& preview = result.sourceSurfacePreview ? *result.sourceSurfacePreview : result.analysis;
         if (!result.sourceSurfacePreviewError.isEmpty()) emit logWarning(result.sourceSurfacePreviewError);
-        const auto surfaces=describeAnalysisPatches(preview,m_document->sourceCloud().positions.size(),sourceScale);
         if(!surfaces.empty()) {
             m_document->replacePartCandidates(surfaces,false);
             // Use the validated source presentation for disk restoration.
@@ -1269,7 +1289,7 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
                 };
                 m_surfaceSupportReport = {{"version", 1}, {"scope", "cad_active_source"},
                     {"before_ownership", report(result.analysis.sourceSupportValidation)},
-                    {"after_ownership", report(preview.supportValidation)}};
+                    {"after_ownership", report(result.sourceSurfacePreview->supportValidation)}};
                 m_surfaceSupportReportFingerprint = surfaceSupportFingerprint(*m_document);
             }
             // Assembly part IDs no longer own the displayed surface regions.

@@ -1,4 +1,5 @@
 #include "reconstruction/surface/SurfaceFootprint.h"
+#include <contour_fitting/detail/BoundaryWalk.h>
 #include "reconstruction/data/StageProfile.h"
 #include "common/Math3.h"
 #include "common/spatial/KdTree.h"
@@ -484,34 +485,6 @@ void recoverDomain(DT& dt, const Support& support) {
     }
 }
 
-std::vector<std::vector<size_t>> boundaryLoops(DT& dt) {
-    std::vector<std::vector<size_t>> loops;
-    for (auto face=dt.finite_faces_begin();face!=dt.finite_faces_end();++face) if (face->info().kept)
-        for (int side=0;side<3;++side) {
-            if (face->info().boundaryVisited[size_t(side)] || kept(dt,face->neighbor(side))) continue;
-            const DT::Edge start{face,side};DT::Edge edge=start;std::vector<size_t> walk;
-            do {
-                auto current=edge.first;int index=edge.second;
-                current->info().boundaryVisited[size_t(index)]=true;
-                walk.push_back(current->vertex(dt.ccw(index))->info());
-                index=dt.ccw(index);
-                while (kept(dt,current->neighbor(index))) { auto next=current->neighbor(index);index=dt.ccw(next->index(current));current=next; }
-                edge={current,index};
-            } while (edge!=start);
-            // Split vertex-touching cycles before introducing trim constraints.
-            std::vector<size_t> path;std::map<size_t,size_t> positions;
-            for (size_t i=0;i<=walk.size();++i) {
-                const size_t vertex=walk[i%walk.size()];const auto inserted=positions.emplace(vertex,path.size());
-                if (inserted.second) { path.push_back(vertex);continue; }
-                const auto begin=inserted.first->second;
-                if (path.size()-begin>=3) loops.emplace_back(path.begin()+begin,path.end());
-                for (size_t j=begin+1;j<path.size();++j) positions.erase(path[j]);
-                path.resize(begin+1);
-            }
-        }
-    return loops;
-}
-
 // Segment distances measure actual geometric boundary bands. They must not
 // reuse the density-expanded reach that admitted an isolated point upstream.
 class BoundaryDistances {
@@ -638,11 +611,11 @@ SurfaceFootprint triangulateDomain(const std::vector<Sample>& samples,const Opti
     for (size_t i=0;i<samples.size();++i) input.emplace_back(Point(samples[i].position[0],samples[i].position[1]),i);
     DT dt;dt.insert(input.begin(),input.end());if (dt.dimension()!=2) return output;
     recoverDomain(dt,support);
-    auto loops=boundaryLoops(dt);if (loops.empty()) return output;
+    auto loops=contour_fitting::detail::traceBoundaryRings(dt);if (loops.empty()) return output;
     output.domainSupportChecks=validateInteriorSupport(dt,loops,samples,settings);
     if(std::any_of(output.domainSupportChecks.begin(),output.domainSupportChecks.end(),[](const auto& check){return check.rejected;})) {
         for(auto face=dt.finite_faces_begin();face!=dt.finite_faces_end();++face)face->info().boundaryVisited={};
-        loops=boundaryLoops(dt);
+        loops=contour_fitting::detail::traceBoundaryRings(dt);
         if(loops.empty())return output;
     }
     CDT cdt;

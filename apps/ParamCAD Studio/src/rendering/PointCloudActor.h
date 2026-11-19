@@ -35,6 +35,7 @@ public:
     void setRegionSurfaceDisplay(int region, bool enabled);
     std::set<int> availableSurfaceRegions() const;
     std::set<int> displayedSurfaceRegions() const;
+    const PointCloudSurfaceMesh* surfaceMesh(int region) const;
     PointCloudSurfaceDisplay surfaceDisplaySnapshot() const;
     void invalidateSurfaceMeshes() {m_surfaceSelection=nullptr;m_baseColorsReady=false;}
     static std::array<unsigned char, 3> regionColor(int region);

@@ -64,7 +64,8 @@ target_link_libraries(ReconstructionSegmentation PUBLIC ReconstructionData PRIVA
 add_library(ReconstructionSurfaces STATIC ${RECONSTRUCTION_SURFACES_SOURCES})
 add_library(GeometricReconstruction::Surfaces ALIAS ReconstructionSurfaces)
 configure_reconstruction_library(ReconstructionSurfaces)
-target_link_libraries(ReconstructionSurfaces PUBLIC ReconstructionSegmentation ReconstructionInput PRIVATE CGAL::CGAL Eigen3::Eigen Threads::Threads)
+target_link_libraries(ReconstructionSurfaces PUBLIC ReconstructionSegmentation ReconstructionInput
+    PRIVATE ContourFitting::ContourFitting CGAL::CGAL Eigen3::Eigen Threads::Threads)
 
 # CAD-backed feature/part recognition and workflow orchestration live above the
 # numerical libraries. Existing clients retain the same aggregate target name.

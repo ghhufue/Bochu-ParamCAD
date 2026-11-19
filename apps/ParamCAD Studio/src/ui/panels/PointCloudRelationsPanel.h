@@ -1,6 +1,7 @@
 #pragma once
 #include "core/PointCloudSelection.h"
 #include <QWidget>
+#include <array>
 #include <map>
 #include <set>
 
@@ -37,11 +38,17 @@ public:
     double angleTolerance() const;
     bool automaticSurfaceDisplay() const;
     void setSurfaceDisplayState(const std::set<int>& available, const std::set<int>& displayed);
+    void showBoundaryInspection(const QString& name, std::size_t points, std::size_t triangles,
+                                std::size_t outerRings, std::size_t innerRings);
+    void clearBoundaryInspection();
 
 signals:
     void showAllBoundariesChanged(bool enabled);
     void automaticSurfaceDisplayChanged(bool enabled);
     void regionSurfaceDisplayRequested(int region, bool enabled);
+    void boundaryInspectionRequested(int region);
+    void boundaryInspectionLayersChanged(bool points, bool surface, bool outerRings, bool innerRings);
+    void boundaryInspectionCloseRequested();
     void detectRequested();
     void reconstructRequested();
     void cancelCadRequested();
@@ -83,7 +90,12 @@ private:
     int m_pickedRegion = 0;
     bool m_busy = false;
     bool m_analysisExportBusy = false;
+    bool m_boundaryActive = false;
     QTabWidget* m_pages;
+    QWidget* m_boundaryPage;
+    QLabel* m_boundarySummary;
+    QPushButton* m_closeBoundary;
+    std::array<QCheckBox*, 4> m_boundaryLayers;
     QTreeWidget* m_tree;
     QTreeWidget* m_relationTree;
     QTreeWidget* m_activeTree;
@@ -109,6 +121,7 @@ private:
     QAction* m_editRegion;
     QAction* m_showSurface;
     QAction* m_showPoints;
+    QAction* m_inspectBoundary;
     QAction* m_append;
     QAction* m_replace;
     QAction* m_removeRegion;

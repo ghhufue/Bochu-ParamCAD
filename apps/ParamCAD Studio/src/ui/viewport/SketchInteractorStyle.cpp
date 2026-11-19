@@ -53,7 +53,7 @@ void SketchInteractorStyle::OnLeftButtonDown()
 
 void SketchInteractorStyle::OnMiddleButtonDown()
 {
-    if (this->Interactor == nullptr) {
+    if (!m_orbitEnabled || this->Interactor == nullptr) {
         return;
     }
     this->FindPokedRenderer(this->Interactor->GetEventPosition()[0],

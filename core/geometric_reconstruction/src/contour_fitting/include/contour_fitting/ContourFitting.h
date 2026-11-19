@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <optional>
 #include <vector>
@@ -18,6 +19,19 @@ struct Contour {
     Ring outer;               // Counterclockwise.
     std::vector<Ring> holes;  // Clockwise.
 };
+
+using IndexRing = std::vector<std::size_t>;
+struct TriangleContour {
+    IndexRing outer;
+    std::vector<IndexRing> holes;
+};
+
+// Extract implicitly closed rings from an indexed planar triangle
+// mesh. Outer rings are counterclockwise and holes clockwise in the supplied
+// coordinates. Indices refer to the original vertices, without moving them.
+// Invalid triangle indices or non-manifold edges yield no contours.
+std::vector<TriangleContour> extractTriangleContours(
+    const std::vector<Point2D>& vertices, const std::vector<std::array<std::size_t, 3>>& triangles);
 
 struct Options {
     double alphaRadius = 0; // Zero estimates a scale from the samples.

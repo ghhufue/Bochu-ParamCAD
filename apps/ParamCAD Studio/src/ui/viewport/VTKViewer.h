@@ -42,6 +42,10 @@ class VTKViewer final : public QVTKOpenGLNativeWidget
     Q_OBJECT
 
 public:
+    struct BoundaryInspectionCounts {
+        std::size_t points = 0, triangles = 0, outerRings = 0, innerRings = 0;
+    };
+
     // An injected document must outlive this view; standalone views create one.
     explicit VTKViewer(QWidget* parent = nullptr, PointCloudDocument* document = nullptr);
     ~VTKViewer() override;
@@ -57,6 +61,9 @@ public:
     void setAutomaticPointCloudSurfaces(bool enabled);
     void setPointCloudRegionSurface(int region, bool enabled);
     void refreshPointCloudSurfaceSettings();
+    std::optional<BoundaryInspectionCounts> inspectPointCloudBoundary(int region);
+    void setBoundaryInspectionLayers(bool points, bool surface, bool outerRings, bool innerRings);
+    void closeBoundaryInspection();
     ObjectPresentation objectPresentation() const { return m_bodyActor.presentation(); }
     bool bodyTextureEnabled() const { return m_bodyActor.textureEnabled(); }
     bool captureImage(const QString& filePath, int width, int height);
@@ -211,6 +218,7 @@ signals:
     void bodyShapeChanged(const TopoDS_Shape& shape);
     void pointCloudSelectionChanged();
     void pointCloudSurfaceDisplayChanged();
+    void boundaryInspectionClosed();
     // Region of the fitted surface clicked in the viewport; 0 when the click did
     // not land on a displayed surface. Emitted on every click so the picked face
     // name stays current even when the selection itself does not change.
@@ -246,6 +254,8 @@ signals:
 private:
     void renderFrame(bool interacting);
     void refreshAssemblyBoundaries();
+    void alignCameraToPlane(vtkRenderer* renderer, const double center[3], const double normal[3],
+                            const double up[3], double distance, double halfHeight);
     static void onCameraModified(vtkObject* caller, unsigned long eventId,
                                  void* clientData, void* callData);
     void createOrientationAxes();
@@ -291,6 +301,9 @@ private:
     QString m_bodyTexturePath;
     quint64 m_bodyRevision = 0;
     PointCloudActor m_pointCloudActor;
+    vtkSmartPointer<vtkRenderer> m_boundaryInspectionRenderer;
+    std::array<vtkSmartPointer<vtkActor>, 4> m_boundaryInspectionActors;
+    quint64 m_boundaryInspectionRevision = 0;
     vtkSmartPointer<vtkActor> m_assemblyBoundaryActor;
     int m_boundaryPointCount=0;
     std::size_t m_assemblyBoundarySegments=0;

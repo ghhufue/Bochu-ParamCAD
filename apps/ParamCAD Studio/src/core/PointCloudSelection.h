@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <vtkSmartPointer.h>
 
+#include <set>
 #include <vector>
 
 class vtkPlanes;
@@ -79,7 +80,7 @@ public:
     void selectUnassigned();
     void selectRelation(int relationId);
     void addSurfaces(const std::vector<DetectedPointCloudSurface>& surfaces, bool recordUndo = true);
-    void replacePartCandidates(const std::vector<DetectedPointCloudSurface>& parts,bool recordUndo=true);
+    bool replacePartCandidates(const std::vector<DetectedPointCloudSurface>& parts,bool recordUndo=true);
     int setRelation(int relationId, int first, int second, const QString& type);
     void removeRelation(int relationId);
     void inferRelations(double distanceTolerance, double angleDegrees, bool recordUndo = true);
@@ -88,6 +89,7 @@ public:
     bool active(vtkIdType id) const;
     int activePointCount() const;
     quint64 revision() const { return m_revision; }
+    quint64 surfaceRevision() const { return m_surfaceRevision; }
     const QString& positionsFingerprint() const { return m_fingerprint; }
     const PlyCloud& sourceCloud() const noexcept { return m_sourceCloud; }
     const std::vector<unsigned char>& deleted() const { return m_deleted; }
@@ -123,8 +125,12 @@ private:
         std::vector<vtkIdType> selected;
         int nextRegionId = 1;
         int nextRelationId = 1;
+        quint64 surfaceRevision = 0;
     };
-    void checkpoint(bool recordUndo = true);
+    enum class Edit { Surface, Annotation };
+    void checkpoint(bool recordUndo = true, Edit edit = Edit::Surface);
+    bool samePartCandidates(const std::vector<DetectedPointCloudSurface>& parts,
+                            const std::set<int>& replaceable) const;
     void rebuildLocator();
     void invalidateRegion(int id);
     void deletePoints(const std::vector<vtkIdType>& ids);
@@ -144,4 +150,5 @@ private:
     std::vector<QString> m_suppressed;
     std::vector<EditState> m_undo;
     quint64 m_revision = 0;
+    quint64 m_surfaceRevision = 0;
 };

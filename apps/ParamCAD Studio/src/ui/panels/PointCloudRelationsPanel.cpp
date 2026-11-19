@@ -100,6 +100,9 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
     m_editRegion = makeAction(tr("编辑名称 / 模板…"), "editPointCollectionAction");
     m_showSurface = makeAction(tr("显示表面"), "showCloudRegionSurfaceAction");
     m_showPoints = makeAction(tr("显示原始点云"), "showCloudRegionPointsAction");
+    m_inspectBoundary = makeAction(tr("查看平面边界"), "inspectCloudRegionBoundaryAction");
+    connect(m_inspectBoundary, &QAction::triggered, this,
+        [this] { emit boundaryInspectionRequested(selectedRegion()); });
     auto* displayMode = new QActionGroup(this);
     for (auto* action : {m_showSurface, m_showPoints}) { action->setCheckable(true); displayMode->addAction(action); }
     m_showSurface->setToolTip(tr("按集合的拟合曲面显示，隐藏被表面覆盖的点；其余点保留为点云，无需闭合实体。"));
@@ -219,6 +222,41 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
     settingsScroll->setWidget(settings);
     m_pages->addTab(settingsScroll, tr("设置"));
 
+    m_boundaryPage = new QWidget(m_pages);
+    m_boundaryPage->setObjectName("cloudBoundaryPage");
+    auto* boundaryLayout = new QVBoxLayout(m_boundaryPage);
+    boundaryLayout->setContentsMargins(6, 8, 6, 6);
+    m_boundarySummary = new QLabel(m_boundaryPage);
+    m_boundarySummary->setObjectName("cloudBoundarySummary");
+    m_boundarySummary->setWordWrap(true);
+    boundaryLayout->addWidget(m_boundarySummary);
+    const std::array<QString, 4> layerLabels{tr("显示观测点"), tr("显示拟合面片"),
+                                            tr("显示外环（黄色）"), tr("显示内环（粉色）")};
+    const std::array<const char*, 4> layerNames{"cloudBoundaryPoints", "cloudBoundarySurface",
+                                               "cloudBoundaryOuterRings", "cloudBoundaryInnerRings"};
+    for (std::size_t i = 0; i < m_boundaryLayers.size(); ++i) {
+        auto*& layer = m_boundaryLayers[i];
+        layer = new QCheckBox(layerLabels[i], m_boundaryPage);
+        layer->setObjectName(layerNames[i]);
+        layer->setChecked(true);
+        boundaryLayout->addWidget(layer);
+        connect(layer, &QCheckBox::toggled, this, [this] {
+            if (m_boundaryActive)
+                emit boundaryInspectionLayersChanged(m_boundaryLayers[0]->isChecked(), m_boundaryLayers[1]->isChecked(),
+                                                    m_boundaryLayers[2]->isChecked(), m_boundaryLayers[3]->isChecked());
+        });
+    }
+    m_closeBoundary = new QPushButton(tr("返回三维视图"), m_boundaryPage);
+    m_closeBoundary->setObjectName("closeCloudBoundaryInspection");
+    connect(m_closeBoundary, &QPushButton::clicked, this, &PointCloudRelationsPanel::boundaryInspectionCloseRequested);
+    boundaryLayout->addWidget(m_closeBoundary);
+    boundaryLayout->addStretch(1);
+    m_pages->addTab(m_boundaryPage, tr("边界"));
+    clearBoundaryInspection();
+    connect(m_pages, &QTabWidget::currentChanged, this, [this] {
+        if (m_boundaryActive && m_pages->currentWidget() != m_boundaryPage) emit boundaryInspectionCloseRequested();
+    });
+
     m_status = new QLabel(this); m_status->setObjectName("pointCloudRelationStatus");
     m_status->setWordWrap(true); layout->addWidget(m_status);
     auto* footer = new QHBoxLayout;
@@ -287,6 +325,33 @@ void PointCloudRelationsPanel::insertSelectionPage(QWidget* page)
     m_pages->insertTab(0, page, tr("选点"));
     m_pages->setCurrentIndex(1);
 }
+
+void PointCloudRelationsPanel::showBoundaryInspection(const QString& name, std::size_t points,
+                                                       std::size_t triangles, std::size_t outerRings,
+                                                       std::size_t innerRings)
+{
+    m_boundaryActive = true;
+    m_boundarySummary->setText(tr("%1\n%2 个观测点，%3 个三角形\n%4 个外环，%5 个候选空洞")
+        .arg(name).arg(points).arg(triangles).arg(outerRings).arg(innerRings));
+    m_boundaryLayers[0]->setEnabled(points > 0);
+    m_boundaryLayers[1]->setEnabled(triangles > 0);
+    m_boundaryLayers[2]->setEnabled(outerRings > 0);
+    m_boundaryLayers[3]->setEnabled(innerRings > 0);
+    m_closeBoundary->setEnabled(true);
+    m_pages->setCurrentWidget(m_boundaryPage);
+    emit boundaryInspectionLayersChanged(m_boundaryLayers[0]->isChecked(), m_boundaryLayers[1]->isChecked(),
+                                        m_boundaryLayers[2]->isChecked(), m_boundaryLayers[3]->isChecked());
+}
+
+void PointCloudRelationsPanel::clearBoundaryInspection()
+{
+    const bool returnToSets = m_boundaryActive && m_pages->currentWidget() == m_boundaryPage;
+    m_boundaryActive = false;
+    m_boundarySummary->setText(tr("在集合中右键点击已拟合的平面，选择「查看平面边界」。"));
+    for (auto* layer : m_boundaryLayers) layer->setEnabled(false);
+    m_closeBoundary->setEnabled(false);
+    if (returnToSets) m_pages->setCurrentWidget(m_tree->parentWidget());
+}
 QMenu* PointCloudRelationsPanel::createSelectionMenu(QWidget* parent)
 {
     auto* menu = new QMenu(parent);
@@ -314,7 +379,9 @@ void PointCloudRelationsPanel::showContextMenu(QTreeWidget* tree, const QPoint& 
         menu.addAction(m_editRelation); menu.addAction(m_removeRelation);
     } else if (selectedRegion() >= 0) {
         if (selectedRegion() > 0) {
-            menu.addAction(m_showSurface); menu.addAction(m_showPoints); menu.addSeparator();
+            menu.addAction(m_showSurface); menu.addAction(m_showPoints);
+            if (m_inspectBoundary->isEnabled()) menu.addAction(m_inspectBoundary);
+            menu.addSeparator();
             menu.addAction(m_editRegion); menu.addAction(m_refit);
             menu.addSeparator(); menu.addAction(m_append); menu.addAction(m_replace);
             menu.addAction(m_addRelation);
@@ -495,6 +562,8 @@ void PointCloudRelationsPanel::updateActions()
     m_editRegion->setEnabled(region); m_removeRegion->setEnabled(region);
     m_showSurface->setEnabled(region && m_availableSurfaces.count(id));
     m_showPoints->setEnabled(region);
+    m_inspectBoundary->setEnabled(region && region->geometry == "plane" && !region->fitStale &&
+                                  m_availableSurfaces.count(id));
     m_showSurface->setChecked(region && m_displayedSurfaces.count(id));
     m_showPoints->setChecked(region && !m_displayedSurfaces.count(id));
     m_refit->setEnabled(region && !m_busy && m_document->regionPointCount(id) >= 20);

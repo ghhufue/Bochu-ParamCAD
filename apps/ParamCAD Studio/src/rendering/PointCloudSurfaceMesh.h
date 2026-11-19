@@ -4,6 +4,7 @@
 #include <reconstruction/surface/SurfaceFootprint.h>
 #include <array>
 #include <map>
+#include <optional>
 
 // Display geometry only: neither source observations nor fitted equations change.
 using PlanarDomainSupportCheck = reconstruction::PlanarDomainSupportCheck;
@@ -27,6 +28,23 @@ struct PointCloudSurfaceDisplay
     // Includes rejected domains even when a whole family stays in point mode.
     std::map<int, std::vector<PlanarDomainSupportCheck>> planeSupportChecks;
 };
+
+struct PointCloudBoundaryRegion
+{
+    std::vector<std::size_t> outer;
+    std::vector<std::vector<std::size_t>> holes;
+};
+
+struct PointCloudPlanarBoundary
+{
+    modeling::Vec3 center, normal, up;
+    double width = 0, height = 0;
+    std::vector<PointCloudBoundaryRegion> regions;
+};
+
+// Uses the triangles assigned to this collection in the displayed mesh.
+std::optional<PointCloudPlanarBoundary> planarBoundaryOfMesh(
+    const PointCloudRegion& region, const PointCloudSurfaceMesh& mesh);
 
 PointCloudSurfaceMesh meshPointCloudSurface(const PointCloudRegion& region,
     const PlyCloud& cloud, const std::vector<vtkIdType>& members);

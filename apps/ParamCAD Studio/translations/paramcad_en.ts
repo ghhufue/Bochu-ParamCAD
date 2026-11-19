@@ -1052,6 +1052,10 @@
 <context>
     <name>MainWindow</name>
     <message>
+        <source>当前平面无法进入边界检查。</source>
+        <translation>Boundary inspection is unavailable for this plane.</translation>
+    </message>
+    <message>
         <source>已重建部分独立部件；不确定部件仍保留在点云中。</source>
         <translation>Some independent components were reconstructed; uncertain components remain in the point cloud.</translation>
     </message>
@@ -1940,6 +1944,46 @@ Middle-drag to orbit, right-drag to pan, scroll to zoom.</translation>
 </context>
 <context>
     <name>PointCloudRelationsPanel</name>
+    <message>
+        <source>查看平面边界</source>
+        <translation>Inspect plane boundary</translation>
+    </message>
+    <message>
+        <source>边界</source>
+        <translation>Boundary</translation>
+    </message>
+    <message>
+        <source>显示观测点</source>
+        <translation>Show observed points</translation>
+    </message>
+    <message>
+        <source>显示拟合面片</source>
+        <translation>Show fitted surface</translation>
+    </message>
+    <message>
+        <source>显示外环（黄色）</source>
+        <translation>Show outer rings (yellow)</translation>
+    </message>
+    <message>
+        <source>显示内环（粉色）</source>
+        <translation>Show inner rings (pink)</translation>
+    </message>
+    <message>
+        <source>返回三维视图</source>
+        <translation>Return to 3D view</translation>
+    </message>
+    <message>
+        <source>%1
+%2 个观测点，%3 个三角形
+%4 个外环，%5 个候选空洞</source>
+        <translation>%1
+%2 observed points, %3 triangles
+%4 outer rings, %5 candidate holes</translation>
+    </message>
+    <message>
+        <source>在集合中右键点击已拟合的平面，选择「查看平面边界」。</source>
+        <translation>In Sets, right-click a fitted plane and choose Inspect plane boundary.</translation>
+    </message>
     <message>
         <source>显示表面</source>
         <translation>Show surface</translation>

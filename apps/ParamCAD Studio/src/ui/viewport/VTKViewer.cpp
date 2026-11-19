@@ -164,7 +164,9 @@ VTKViewer::VTKViewer(QWidget* parent, PointCloudDocument* document)
     };
     m_interactorStyle->mouseMoved = [this](int x, int y) { onMouseMoved(x, y); };
     m_interactorStyle->cancelRequested = [this]() { onCancelRequested(); };
-    m_interactorStyle->panMoved = [this]() { emit cameraPanned(); };
+    m_interactorStyle->panMoved = [this]() {
+        if (!m_boundaryInspectionRenderer) emit cameraPanned();
+    };
     m_interactorStyle->cameraInteractionStarted = [this]() { beginCameraInteraction(); };
     m_interactorStyle->cameraInteractionFinished = [this]() { endCameraInteraction(); };
     m_interactorStyle->renderRequested = [this]() { requestRender(); };
@@ -222,10 +224,13 @@ VTKViewer::VTKViewer(QWidget* parent, PointCloudDocument* document)
     connect(m_pointCloudDocument, &PointCloudDocument::cloudChanged,
             this, &VTKViewer::syncPointCloud);
     connect(m_pointCloudDocument, &PointCloudDocument::documentChanged, this, [this] {
+        const auto surfaceRevision = pointCloudSelection().surfaceRevision();
+        if (m_boundaryInspectionRenderer && m_boundaryInspectionRevision != surfaceRevision)
+            closeBoundaryInspection();
         m_pointCloudActor.setPointMask(pointCloudSelection().deleted());
         if(m_boundaryPointCount && (m_boundaryPointCount!=m_pointCloudDocument->pointCount() ||
-            m_boundaryRevision!=m_pointCloudDocument->revision()))setAssemblyBoundaries({},{});
-        m_renderer->ResetCameraClippingRange();
+            m_boundaryRevision!=surfaceRevision))setAssemblyBoundaries({},{});
+        if (!m_boundaryInspectionRenderer) m_renderer->ResetCameraClippingRange();
     });
     connect(m_pointCloudDocument, &PointCloudDocument::selectionChanged,
             this, &VTKViewer::refreshPointCloudSelection);
@@ -309,6 +314,7 @@ bool VTKViewer::hasBody() const noexcept
 bool VTKViewer::beginBoxReferenceSelection(const modeling::BoxPrimitiveParams& box)
 {
     if (m_sketchInteraction || !hasBody() || !objectVisible()) return false;
+    closeBoundaryInspection();
     m_boxReferenceActor.setBox(box);
     m_boxReferenceActor.setTransform(m_bodyActor.surfaceActor()->GetMatrix());
     m_sketchActor.actor()->SetUserMatrix(m_bodyActor.surfaceActor()->GetMatrix());
@@ -340,7 +346,8 @@ void VTKViewer::renderFrame(bool interacting)
     m_renderTimer.stop();
     // The preview light rides on the camera, so its pose and shadow map are
     // refreshed from the pose the frame is about to be drawn with.
-    m_bodyActor.updateMaterialPreview(m_renderer->GetActiveCamera(), interacting);
+    if (!m_boundaryInspectionRenderer)
+        m_bodyActor.updateMaterialPreview(m_renderer->GetActiveCamera(), interacting);
     m_interactionFrameRendered = interacting;
     m_renderWindow->Render();
 }
@@ -417,6 +424,7 @@ ViewportTool VTKViewer::viewportTool() const noexcept
 
 void VTKViewer::setSketchInteractionEnabled(bool enabled)
 {
+    if (enabled) closeBoundaryInspection();
     if (enabled) endBoxReferenceSelection();
     if (enabled) setPointCloudSelectionMode(0);
     m_sketchInteraction = enabled;
@@ -452,23 +460,25 @@ void VTKViewer::alignToSketchPlane(const sketchapp::PlaneFrame& modelFrame)
     placement->TransformVector(modelFrame.yDirection, frame.yDirection);
     normalize(frame.normal);
     normalize(frame.yDirection);
-    vtkCamera* camera = m_renderer->GetActiveCamera();
+    alignCameraToPlane(m_renderer, frame.origin, frame.normal, frame.yDirection,
+                       kSketchViewDistance, kSketchViewHalfExtent);
+    renderNow();
+}
 
-    // The camera sits on the +normal side looking back at the plane origin with
-    // the plane's own Y axis up, so the sketch's X/Y axes land on the screen's
-    // X/Y axes and the drawing reads flat.
+void VTKViewer::alignCameraToPlane(vtkRenderer* renderer, const double center[3], const double normal[3],
+                                   const double up[3], double distance, double halfHeight)
+{
+    auto* camera = renderer->GetActiveCamera();
     const double position[3] = {
-        frame.origin[0] + frame.normal[0] * kSketchViewDistance,
-        frame.origin[1] + frame.normal[1] * kSketchViewDistance,
-        frame.origin[2] + frame.normal[2] * kSketchViewDistance};
+        center[0] + normal[0] * distance, center[1] + normal[1] * distance,
+        center[2] + normal[2] * distance};
     camera->SetPosition(position);
-    camera->SetFocalPoint(frame.origin[0], frame.origin[1], frame.origin[2]);
-    camera->SetViewUp(frame.yDirection[0], frame.yDirection[1], frame.yDirection[2]);
+    camera->SetFocalPoint(center);
+    camera->SetViewUp(up);
     camera->OrthogonalizeViewUp();
     camera->SetParallelProjection(1);
-    camera->SetParallelScale(kSketchViewHalfExtent);
-    m_renderer->ResetCameraClippingRange();
-    renderNow();
+    camera->SetParallelScale(halfHeight);
+    renderer->ResetCameraClippingRange();
 }
 
 bool VTKViewer::hasSketchVertexAt(const modeling::Point2D& point,
@@ -775,6 +785,7 @@ bool VTKViewer::pickSketchEntityAt(int x, int y, modeling::SketchEntityId& entit
 
 void VTKViewer::onLeftButtonPressed(int x, int y)
 {
+    if (m_boundaryInspectionRenderer) return;
     if (m_referenceSelection) {
         const int anchor=m_boxReferenceActor.pick(m_referenceRenderer,x,y);
         if (anchor>=0) { endBoxReferenceSelection(); emit boxReferencePicked(anchor); }
@@ -896,6 +907,7 @@ void VTKViewer::onMouseMoved(int x, int y)
 
 void VTKViewer::onCancelRequested()
 {
+    if (m_boundaryInspectionRenderer) return;
     if (m_referenceSelection) {
         endBoxReferenceSelection(); emit boxReferenceSelectionCancelled(); return;
     }
@@ -910,6 +922,10 @@ void VTKViewer::onCancelRequested()
 
 void VTKViewer::onKeyPressed(const std::string& keySym)
 {
+    if (m_boundaryInspectionRenderer) {
+        if (keySym == "Escape") closeBoundaryInspection();
+        return;
+    }
     if (m_referenceSelection && keySym=="Escape") {
         endBoxReferenceSelection(); emit boxReferenceSelectionCancelled(); return;
     }
@@ -932,6 +948,7 @@ bool VTKViewer::captureImage(const QString& filePath, int width, int height)
     if (filePath.isEmpty() || width <= 0 || height <= 0) {
         return false;
     }
+    closeBoundaryInspection();
 
     // A photo is of the model. The datum planes, the corner orientation marker
     // and the face highlight are editing aids, so they are taken out of the frame
@@ -1023,6 +1040,7 @@ QSize VTKViewer::captureSourceSize() const
 
 void VTKViewer::syncPointCloud()
 {
+    closeBoundaryInspection();
     clearProjectionPreview();
     setAssemblyBoundaries({},{});
     if (m_pointCloudDocument->hasCloud()) {
@@ -1048,6 +1066,7 @@ bool VTKViewer::hasPointCloud() const noexcept { return m_pointCloudDocument->ha
 
 void VTKViewer::resetCameraToPointCloud()
 {
+    if (m_boundaryInspectionRenderer) return;
     if (!m_pointCloudActor.hasCloud()) {
         return;
     }
@@ -1121,7 +1140,7 @@ void VTKViewer::setAssemblyBoundaries(const std::vector<std::array<double,6>>& l
 {
     m_assemblyBoundaryLines=lines;m_assemblyBoundaryClosed=closed;m_assemblyBoundaryRegions=regions;
     m_boundaryPointCount=lines.empty()?0:m_pointCloudDocument->pointCount();
-    m_boundaryRevision=m_pointCloudDocument->revision();
+    m_boundaryRevision=pointCloudSelection().surfaceRevision();
     refreshAssemblyBoundaries();
 }
 
@@ -1175,7 +1194,7 @@ void VTKViewer::setPointCloudSelectionMode(int mode)
 {
     m_pointSelectionMode = hasPointCloud() && m_pointCloudVisible && !m_sketchInteraction
         ? std::clamp(mode, 0, 2) : 0;
-    m_pointBox->SetEnabled(m_pointSelectionMode == 2 ? 1 : 0);
+    m_pointBox->SetEnabled(m_pointSelectionMode == 2 && !m_boundaryInspectionRenderer);
     emit pointCloudSelectionChanged();
     renderNow();
 }
@@ -1298,6 +1317,7 @@ bool VTKViewer::sceneBounds(double bounds[6])
 
 void VTKViewer::setStandardView(CameraController::StandardView view)
 {
+    closeBoundaryInspection();
     CameraController::applyStandardView(m_renderer->GetActiveCamera(), view);
     double bounds[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
     if (sceneBounds(bounds)) {
@@ -1312,6 +1332,7 @@ void VTKViewer::setStandardView(CameraController::StandardView view)
 
 void VTKViewer::applyCamera(const CameraParameters& parameters)
 {
+    closeBoundaryInspection();
     CameraController::apply(m_renderer->GetActiveCamera(), parameters);
     m_renderer->ResetCameraClippingRange();
     renderNow();
@@ -1320,6 +1341,7 @@ void VTKViewer::applyCamera(const CameraParameters& parameters)
 
 void VTKViewer::setParallelProjection(bool enabled)
 {
+    if (m_boundaryInspectionRenderer) return;
     m_renderer->GetActiveCamera()->SetParallelProjection(enabled ? 1 : 0);
     renderNow();
     publishCameraChange();

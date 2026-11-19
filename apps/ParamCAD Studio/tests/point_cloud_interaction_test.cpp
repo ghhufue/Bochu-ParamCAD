@@ -38,12 +38,15 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
 #include <QTabWidget>
+#include <vtkActor.h>
+#include <vtkActorCollection.h>
 #include <vtkCamera.h>
 #include <vtkGenericOpenGLRenderWindow.h>
 #include <vtkRenderWindowInteractor.h>
 #include <vtkRenderer.h>
 #include <vtkRendererCollection.h>
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -77,6 +80,18 @@ QTreeWidgetItem* findNode(QTreeWidget* tree, int kind, qint64 id)
         ++items;
     }
     return nullptr;
+}
+vtkRenderer* boundaryInspectionRenderer(VTKViewer* viewer)
+{
+    auto* renderers = viewer->renderWindow()->GetRenderers();
+    vtkRenderer* inspection = nullptr;
+    renderers->InitTraversal();
+    while (auto* renderer = renderers->GetNextItem()) {
+        if (!renderer->GetDraw()) continue;
+        require(!inspection, "only the selected plane renderer draws in inspection");
+        inspection = renderer;
+    }
+    return inspection;
 }
 void createCollection(PointCloudRelationsPanel* panel, const QString& geometry)
 {
@@ -263,6 +278,42 @@ int previewCloud(const QString& path, const QString& output)
     std::cout<<QJsonDocument(summary).toJson(QJsonDocument::Compact).constData()<<std::endl;
     window.close();return 0;
 }
+
+int previewBoundaries(const QString& path, const QString& annotations, const QString& output)
+{
+    require(QDir().mkpath(output), "create boundary preview output directory");
+    MainWindow window;
+    window.setAttribute(Qt::WA_DontShowOnScreen);
+    window.resize(1500, 1000);
+    window.show();
+    QCoreApplication::processEvents();
+    auto* viewer = window.findChild<VTKViewer*>();
+    auto* document = viewer->pointCloudDocument();
+    QString error;
+    require(document->load(path, error), qPrintable(error));
+    QFile snapshot(annotations);
+    require(snapshot.open(QIODevice::ReadOnly), "open previously fitted face annotations");
+    require(document->restoreAutomaticAnnotations(QJsonDocument::fromJson(snapshot.readAll()).object(), error),
+            qPrintable(error));
+    auto* tree = window.findChild<QTreeWidget*>("pointCloudRelationshipTree");
+    for (const auto& name : {QStringLiteral("Plane 1"), QStringLiteral("Plane 4")}) {
+        const auto& regions = document->selection().regions();
+        const auto region = std::find_if(regions.begin(), regions.end(), [&](const auto& item) { return item.name == name; });
+        require(region != regions.end(), "requested fitted plane is in Sets");
+        contextAction(tree, findNode(tree, 1, region->id), "inspectCloudRegionBoundaryAction");
+        auto* summary = window.findChild<QLabel*>("cloudBoundarySummary");
+        auto* renderer = boundaryInspectionRenderer(viewer);
+        require(summary->text().startsWith(name) && renderer && renderer->GetActiveCamera()->GetParallelProjection(),
+                "requested plane opens in the isolated orthographic view");
+        require(window.findChild<QCheckBox*>("cloudBoundaryOuterRings")->isEnabled(), "requested plane has an outer ring");
+        window.findChild<QCheckBox*>("cloudBoundaryPoints")->setChecked(false);
+        QCoreApplication::processEvents();
+        require(viewer->captureViewport(QDir(output).filePath(name + ".png")), "capture fitted surface and its rings");
+        std::cout << qPrintable(summary->text()) << std::endl;
+        window.findChild<QPushButton*>("closeCloudBoundaryInspection")->click();
+    }
+    return 0;
+}
 }
 
 int main(int argc, char** argv)
@@ -275,6 +326,8 @@ int main(int argc, char** argv)
             return exportCloud(QString::fromLocal8Bit(argv[2]),QString::fromLocal8Bit(argv[3]),QString::fromLocal8Bit(argv[4]));
         if(argc==4 && QString::fromLocal8Bit(argv[1])=="--surface-preview")
             return previewCloud(QString::fromLocal8Bit(argv[2]),QString::fromLocal8Bit(argv[3]));
+        if(argc==5 && QString::fromLocal8Bit(argv[1])=="--boundary-preview")
+            return previewBoundaries(QString::fromLocal8Bit(argv[2]),QString::fromLocal8Bit(argv[3]),QString::fromLocal8Bit(argv[4]));
         QTemporaryDir temp;
         require(temp.isValid(), "temporary directory");
         QFile ply(temp.filePath("cloud.ply"));
@@ -311,9 +364,9 @@ int main(int argc, char** argv)
         auto* property = window.findChild<PropertyPanel*>();
         auto* cadDock = window.findChild<QDockWidget*>("modelingDock");
         require(mode && radius && expand && relationships && pages && tree && relationTree, "unified selection and collection controls available");
-        require(property->isAncestorOf(relationships) && pages->count() == 4
+        require(property->isAncestorOf(relationships) && pages->count() == 5
                 && pages->tabText(0) == "选点" && pages->tabText(1) == "集合"
-                && pages->tabText(2) == "关系" && pages->tabText(3) == "设置",
+                && pages->tabText(2) == "关系" && pages->tabText(3) == "设置" && pages->tabText(4) == "边界",
                 "all point-cloud pages belong to Properties");
         require(!window.findChild<QTabWidget*>("structureTabs") && !cadDock->isAncestorOf(relationships),
                 "left CAD dock contains no duplicate point-cloud panel");
@@ -482,6 +535,28 @@ int main(int argc, char** argv)
                 "right-click restores just the targeted collection to points");
         contextAction(tree, findNode(tree,1,displayRegion), "showCloudRegionSurfaceAction");
         require(document->revision()==displayRevision,"display settings do not alter cloud annotations or trigger reconstruction");
+        const auto cameraBeforeBoundary = viewer->cameraParameters();
+        contextAction(tree, findNode(tree, 1, displayRegion), "inspectCloudRegionBoundaryAction");
+        auto* boundaryPage = window.findChild<QWidget*>("cloudBoundaryPage");
+        auto* inspection = boundaryInspectionRenderer(viewer);
+        require(pages->currentWidget() == boundaryPage && inspection && inspection->GetActiveCamera()->GetParallelProjection(),
+                "Sets boundary action opens the dedicated orthographic inspection tab");
+        require(inspection->GetActors()->GetNumberOfItems() == 4,
+                "the isolated view contains only the selected plane's display layers");
+        auto* boundaryPoints = window.findChild<QCheckBox*>("cloudBoundaryPoints");
+        auto* actors = inspection->GetActors();
+        actors->InitTraversal();
+        auto* observedPoints = actors->GetNextActor();
+        require(boundaryPoints->isChecked() && observedPoints->GetVisibility(),
+                "the selected plane's observations are visible by default");
+        boundaryPoints->setChecked(false);
+        require(!observedPoints->GetVisibility(), "Boundary tab controls point visibility");
+        boundaryPoints->setChecked(true);
+        window.findChild<QPushButton*>("closeCloudBoundaryInspection")->click();
+        require(pages->currentWidget() == tree->parentWidget() &&
+                viewer->cameraParameters().parallelProjection == cameraBeforeBoundary.parallelProjection &&
+                !changed(viewer->cameraParameters().position, cameraBeforeBoundary.position) &&
+                document->revision() == displayRevision, "leaving inspection restores the original scene and camera");
         viewer->resetCameraToPointCloud();viewer->setStandardView(CameraController::StandardView::Top);
         viewer->setPointCloudSelectionMode(1);
         const int frontRegion=document->selection().memberships()[500];

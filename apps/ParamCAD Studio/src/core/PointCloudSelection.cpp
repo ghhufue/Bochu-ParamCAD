@@ -36,6 +36,7 @@ PointCloudSelection::PointCloudSelection()
 void PointCloudSelection::setCloud(const PlyCloud& cloud)
 {
     ++m_revision;
+    ++m_surfaceRevision;
     m_sourceCloud = cloud;
     m_deleted.assign(cloud.positions.size(), 0);
     vtkNew<vtkPoints> points;
@@ -78,8 +79,10 @@ void PointCloudSelection::select(const std::vector<vtkIdType>& ids, bool add)
 void PointCloudSelection::adoptProject(PointCloudSelection&& prepared)
 {
     const auto nextRevision = m_revision + 1;
+    const auto nextSurfaceRevision = m_surfaceRevision + 1;
     *this = std::move(prepared);
     m_revision = nextRevision;
+    m_surfaceRevision = nextSurfaceRevision;
     m_undo.clear();
 }
 

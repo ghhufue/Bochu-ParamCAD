@@ -146,7 +146,7 @@ find_package(VTK REQUIRED COMPONENTS
 add_library(ParamCADSurfaceMeshing STATIC src/rendering/PointCloudSurfaceMesh.cpp src/rendering/PlanarSurfaceDomain.cpp)
 target_include_directories(ParamCADSurfaceMeshing PRIVATE src)
 target_link_libraries(ParamCADSurfaceMeshing PRIVATE Qt6::Core VTK::CommonCore VTK::CommonDataModel
-    GeometricReconstruction::GeometricReconstruction CGAL::CGAL)
+    GeometricReconstruction::GeometricReconstruction ContourFitting::ContourFitting CGAL::CGAL)
 if(MSVC)
     target_compile_options(ParamCADSurfaceMeshing PRIVATE /W4 /permissive- /utf-8)
 endif()
@@ -317,6 +317,7 @@ qt_add_executable(CadPointCloudClient WIN32
     src/ui/viewport/SketchInteractorStyle.cpp
     src/ui/viewport/VTKViewer.h
     src/ui/viewport/VTKViewer.cpp
+    src/ui/viewport/VTKViewerBoundary.cpp
     src/ui/panels/ModelingPanel.h
     src/ui/panels/ModelingPanel.cpp
     src/ui/panels/FeatureDetailsPanel.h
@@ -726,7 +727,8 @@ if(CAD_CLIENT_BUILD_TESTS)
         endif()
         add_executable(${interaction_test}
             tests/${interaction_test}.cpp ${CAD_CLIENT_TEST_SOURCES})
-        target_include_directories(${interaction_test} PRIVATE src)
+        target_include_directories(${interaction_test} PRIVATE src "${PARAMCAD_BUILD_INFO_DIR}")
+        add_dependencies(${interaction_test} paramcad_build_info)
         target_link_directories(${interaction_test} PRIVATE ${OpenCASCADE_LIBRARY_DIR})
         target_link_libraries(${interaction_test} PRIVATE
             ParamCADSurfaceMeshing

@@ -26,14 +26,15 @@ const PointCloudRelation* PointCloudSelection::relation(int id) const
     return found == m_relations.end() ? nullptr : &*found;
 }
 
-void PointCloudSelection::checkpoint(bool recordUndo)
+void PointCloudSelection::checkpoint(bool recordUndo, Edit edit)
 {
     if (recordUndo) {
         if (m_undo.size() >= 20) m_undo.erase(m_undo.begin());
         m_undo.push_back({m_memberships, m_deleted, m_regions, m_relations, m_suppressed,
-                          m_selected, m_nextRegionId, m_nextRelationId});
+                          m_selected, m_nextRegionId, m_nextRelationId, m_surfaceRevision});
     }
     ++m_revision;
+    if (edit == Edit::Surface) ++m_surfaceRevision;
 }
 
 bool PointCloudSelection::undo()
@@ -50,6 +51,7 @@ bool PointCloudSelection::undo()
     m_nextRegionId = previous.nextRegionId;
     m_nextRelationId = previous.nextRelationId;
     ++m_revision;
+    if (previous.surfaceRevision != m_surfaceRevision) ++m_surfaceRevision;
     rebuildLocator();
     return true;
 }
@@ -82,8 +84,9 @@ void PointCloudSelection::invalidateRegion(int id)
 
 bool PointCloudSelection::editRegion(int id, const QString& name, const QString& geometry)
 {
-    if (!region(id) || name.trimmed().isEmpty() || !validGeometry(geometry)) return false;
-    checkpoint();
+    const auto* original = region(id);
+    if (!original || name.trimmed().isEmpty() || !validGeometry(geometry)) return false;
+    checkpoint(true, original->geometry == geometry ? Edit::Annotation : Edit::Surface);
     for (auto& r : m_regions) if (r.id == id) {
         if (r.geometry != geometry) { r.parameters = {}; r.source = "manual"; r.fitStale = false; invalidateRegion(id); }
         r.geometry = geometry;
@@ -130,7 +133,7 @@ void PointCloudSelection::lockTemplate(int id)
 {
     const auto* original = region(id);
     if (!original || original->templateLocked || original->geometry=="part") return;
-    checkpoint();
+    checkpoint(true, Edit::Annotation);
     for (auto& r : m_regions) if (r.id == id) { r.templateLocked = true; r.source = "manual"; }
 }
 
@@ -183,15 +186,44 @@ void PointCloudSelection::addSurfaces(const std::vector<DetectedPointCloudSurfac
     }
 }
 
-void PointCloudSelection::replacePartCandidates(const std::vector<DetectedPointCloudSurface>& parts,bool recordUndo)
+bool PointCloudSelection::samePartCandidates(const std::vector<DetectedPointCloudSurface>& parts,
+                                              const std::set<int>& replaceable) const
 {
-    checkpoint(recordUndo);
+    std::vector<const PointCloudRegion*> current;
+    for (const auto& region : m_regions)
+        if (replaceable.count(region.id)) current.push_back(&region);
+    auto memberships = m_memberships;
+    for (auto& id : memberships)
+        if (replaceable.count(id)) id = 0;
+    std::size_t index = 0;
+    for (const auto& part : parts) {
+        const auto& next = part.surface;
+        if (!validGeometry(next.geometry)) continue;
+        const auto available = [&](vtkIdType id) { return active(id) && memberships[static_cast<std::size_t>(id)] == 0; };
+        if (std::none_of(part.points.begin(), part.points.end(), available)) continue;
+        if (index == current.size()) return false;
+        const auto& prior = *current[index++];
+        if (prior.name != next.name || prior.geometry != next.geometry ||
+            prior.parameters != next.parameters || prior.supportValidation != next.supportValidation ||
+            prior.residual != next.residual || prior.confidence != next.confidence ||
+            prior.fitStale != next.fitStale || prior.templateLocked != next.templateLocked) return false;
+        for (const auto id : part.points)
+            if (available(id)) memberships[static_cast<std::size_t>(id)] = prior.id;
+    }
+    return index == current.size() && memberships == m_memberships;
+}
+
+bool PointCloudSelection::replacePartCandidates(const std::vector<DetectedPointCloudSurface>& parts,bool recordUndo)
+{
     std::set<int> removed;
     for(const auto& region:m_regions)if(region.source=="detected"&&!region.templateLocked)removed.insert(region.id);
+    if (samePartCandidates(parts, removed)) return false;
+    checkpoint(recordUndo);
     for(auto& membership:m_memberships)if(removed.count(membership))membership=0;
     m_regions.erase(std::remove_if(m_regions.begin(),m_regions.end(),[&](const auto& r){return removed.count(r.id)!=0;}),m_regions.end());
     m_relations.erase(std::remove_if(m_relations.begin(),m_relations.end(),[&](const auto& r){return removed.count(r.first)||removed.count(r.second);}),m_relations.end());
     addSurfaces(parts,false);
+    return true;
 }
 
 PlyCloud PointCloudSelection::workingCloud(std::vector<vtkIdType>* originalIds, bool unassignedOnly, int regionId) const

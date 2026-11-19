@@ -1,6 +1,7 @@
 #include "rendering/PointCloudSurfaceMesh.h"
 #include "rendering/PlanarSurfaceDomain.h"
 #include "io/SurfaceEvidenceAdapter.h"
+#include <contour_fitting/ContourFitting.h>
 #include <reconstruction/settings/ModuleConfig.h>
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Delaunay_triangulation_2.h>
@@ -58,6 +59,42 @@ using Kernel=CGAL::Exact_predicates_inexact_constructions_kernel;
 struct Info {vtkIdType index=0;double spacing2=0;};
 using Vertex=CGAL::Triangulation_vertex_base_with_info_2<Info,Kernel>;
 using DT=CGAL::Delaunay_triangulation_2<Kernel,CGAL::Triangulation_data_structure_2<Vertex>>;
+}
+
+std::optional<PointCloudPlanarBoundary> planarBoundaryOfMesh(
+    const PointCloudRegion& region, const PointCloudSurfaceMesh& mesh)
+{
+    const auto evidence = regionEvidence(region);
+    const auto* plane = evidence ? std::get_if<reconstruction::PlaneEvidence>(&*evidence) : nullptr;
+    if (!plane || mesh.positions.empty() || mesh.triangles.empty()) return {};
+
+    const auto normal = plane->plane.normal;
+    const auto& anchor = mesh.positions.front();
+    const V first{anchor[0], anchor[1], anchor[2]};
+    const auto origin = sub(first, mul(normal, dot(normal, first) + plane->plane.offset));
+    const V reference = std::abs(normal.x) < .8 ? V{1, 0, 0} : V{0, 1, 0};
+    const auto axisU = unit(sub(reference, mul(normal, dot(reference, normal))));
+    const auto axisV = cross(normal, axisU);
+    double minU = 0, maxU = 0, minV = 0, maxV = 0;
+    std::vector<contour_fitting::Point2D> uv;
+    uv.reserve(mesh.positions.size());
+    for (const auto& point : mesh.positions) {
+        const auto relative = sub({point[0], point[1], point[2]}, origin);
+        const auto u = dot(relative, axisU), v = dot(relative, axisV);
+        minU = std::min(minU, u); maxU = std::max(maxU, u);
+        minV = std::min(minV, v); maxV = std::max(maxV, v);
+        uv.push_back({u, v});
+    }
+    std::vector<std::array<std::size_t, 3>> triangles;
+    triangles.reserve(mesh.triangles.size());
+    for (const auto& triangle : mesh.triangles)
+        triangles.push_back({std::size_t(triangle[0]), std::size_t(triangle[1]), std::size_t(triangle[2])});
+    auto contours = contour_fitting::extractTriangleContours(uv, triangles);
+    const auto center = add(origin, add(mul(axisU, (minU + maxU) * .5), mul(axisV, (minV + maxV) * .5)));
+    PointCloudPlanarBoundary boundary{center, normal, axisV, maxU - minU, maxV - minV, {}};
+    for (auto& contour : contours)
+        boundary.regions.push_back({std::move(contour.outer), std::move(contour.holes)});
+    return boundary;
 }
 
 PointCloudSurfaceMesh meshPointCloudSurface(const PointCloudRegion& region,

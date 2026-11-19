@@ -31,7 +31,7 @@ int PointCloudSelection::setRelation(int id, int first, int second, const QStrin
     for (const auto& r : m_relations) {
         if (r.id != id && key(r.first, r.second, r.type) == newKey) return 0;
     }
-    checkpoint();
+    checkpoint(true, Edit::Annotation);
     if (id) {
         for (auto& r : m_relations) if (r.id == id) {
             const auto oldKey = key(r.first, r.second, r.type);
@@ -51,7 +51,7 @@ void PointCloudSelection::removeRelation(int id)
     const auto* r = relation(id);
     if (!r) return;
     const QString removed = key(r->first, r->second, r->type);
-    checkpoint();
+    checkpoint(true, Edit::Annotation);
     m_suppressed.push_back(removed);
     m_relations.erase(std::remove_if(m_relations.begin(), m_relations.end(),
                                    [id](const auto& value) { return value.id == id; }), m_relations.end());
@@ -108,7 +108,7 @@ bool PointCloudSelection::computeRelations(const RelationSnapshot& snapshot, dou
 
 void PointCloudSelection::applyInferredRelations(const std::vector<reconstruction::SurfaceRelation>& inferred, bool recordUndo)
 {
-    checkpoint(recordUndo);
+    checkpoint(recordUndo, Edit::Annotation);
     std::map<QString, int> previousIds;
     for (const auto& r : m_relations) previousIds[key(r.first, r.second, r.type)] = r.id;
     m_relations.erase(std::remove_if(m_relations.begin(), m_relations.end(),
