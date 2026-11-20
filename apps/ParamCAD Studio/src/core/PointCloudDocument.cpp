@@ -7,18 +7,33 @@ PointCloudDocument::PointCloudDocument(QObject* parent) : QObject(parent) {}
 
 bool PointCloudDocument::load(const QString& path, QString& error)
 {
+    PreparedCloud prepared;
+    if (!prepareLoad(path, prepared, error)) return false;
+    adoptCloud(std::move(prepared));
+    return true;
+}
+
+bool PointCloudDocument::prepareLoad(const QString& path, PreparedCloud& prepared, QString& error)
+{
     PlyCloud cloud;
     if (!PlyReader::read(path, cloud, error)) return false;
     if (cloud.positions.empty()) {
         error = QCoreApplication::translate("VTKViewer", "Point cloud is empty: %1").arg(path);
         return false;
     }
-    m_selection.setCloud(cloud);
-    m_sourcePath = path;
-    m_sourceUnit = pointCloudUnitName(path);
+    prepared.selection.setCloud(cloud);
+    prepared.path = path;
+    prepared.unit = pointCloudUnitName(path);
+    return true;
+}
+
+void PointCloudDocument::adoptCloud(PreparedCloud&& prepared)
+{
+    m_selection.adoptProject(std::move(prepared.selection));
+    m_sourcePath = std::move(prepared.path);
+    m_sourceUnit = std::move(prepared.unit);
     emit cloudChanged();
     notifyEdit();
-    return true;
 }
 
 void PointCloudDocument::clear()

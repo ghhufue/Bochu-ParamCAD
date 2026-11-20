@@ -1163,6 +1163,48 @@
         <translation>Open Point Cloud...</translation>
     </message>
     <message>
+        <source>正在载入点云：%1</source>
+        <translation>Loading point cloud: %1</translation>
+    </message>
+    <message>
+        <source>边界无法形成有效闭环。请检查相交、接触或缺失的边界。</source>
+        <translation>The boundary does not form valid closed loops. Check for crossing, touching, or missing edges.</translation>
+    </message>
+    <message>
+        <source>当前容差下超出草图边数上限。请提高边数上限或调整容差。</source>
+        <translation>The fit exceeds the sketch edge limit at this tolerance. Adjust the limit or tolerance.</translation>
+    </message>
+    <message>
+        <source>轮廓拟合已取消。</source>
+        <translation>Contour fitting cancelled.</translation>
+    </message>
+    <message>
+        <source>草图构面校验失败：%1</source>
+        <translation>Sketch face validation failed: %1</translation>
+    </message>
+    <message>
+        <source>源单位</source>
+        <translation>source units</translation>
+    </message>
+    <message>
+        <source>青色为拟合轮廓。%1 张草图，%2 条边
+最大偏差 ≤ %3 %5，P95 偏差 %4 %5</source>
+        <translation>Cyan shows the fitted contour. %1 sketches, %2 edges
+Maximum deviation ≤ %3 %5, P95 deviation %4 %5</translation>
+    </message>
+    <message>
+        <source>正在后台拟合轮廓…</source>
+        <translation>Fitting contours in the background…</translation>
+    </message>
+    <message>
+        <source>点云尺度已变化。请重新载入点云后拟合。</source>
+        <translation>The cloud scale changed. Reload the cloud before fitting.</translation>
+    </message>
+    <message>
+        <source>已生成 %1 张轮廓草图。</source>
+        <translation>Created %1 contour sketches.</translation>
+    </message>
+    <message>
         <location filename="../src/app/MainWindow.cpp" line="316"/>
         <source>将 .ply 点云载入视口</source>
         <translation>Load a .ply point cloud into the viewport</translation>
@@ -1542,6 +1584,10 @@ Executable path %7</translation>
 </context>
 <context>
     <name>ModelingPanel</name>
+    <message>
+        <source>编辑草图</source>
+        <translation>Edit Sketch</translation>
+    </message>
     <message>
         <location filename="../src/ui/panels/ModelingPanel.cpp" line="20"/>
         <source>草图</source>
@@ -1944,6 +1990,54 @@ Middle-drag to orbit, right-drag to pan, scroll to zoom.</translation>
 </context>
 <context>
     <name>PointCloudRelationsPanel</name>
+    <message>
+        <source>粗</source>
+        <translation>Coarse</translation>
+    </message>
+    <message>
+        <source>中</source>
+        <translation>Medium</translation>
+    </message>
+    <message>
+        <source>细</source>
+        <translation>Fine</translation>
+    </message>
+    <message>
+        <source>自定义</source>
+        <translation>Custom</translation>
+    </message>
+    <message>
+        <source>轮廓精细度</source>
+        <translation>Contour Detail</translation>
+    </message>
+    <message>
+        <source>拟合容差</source>
+        <translation>Fit Tolerance</translation>
+    </message>
+    <message>
+        <source>识别整圆</source>
+        <translation>Recognize Full Circles</translation>
+    </message>
+    <message>
+        <source>高级设置</source>
+        <translation>Advanced Settings</translation>
+    </message>
+    <message>
+        <source>每张草图边数上限</source>
+        <translation>Edge Limit per Sketch</translation>
+    </message>
+    <message>
+        <source>拟合预览</source>
+        <translation>Preview Fit</translation>
+    </message>
+    <message>
+        <source>生成草图</source>
+        <translation>Create Sketch</translation>
+    </message>
+    <message>
+        <source> 源单位</source>
+        <translation> source units</translation>
+    </message>
     <message>
         <source>查看平面边界</source>
         <translation>Inspect plane boundary</translation>

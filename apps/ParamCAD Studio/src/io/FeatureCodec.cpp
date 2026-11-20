@@ -176,7 +176,9 @@ QJsonObject paramsJson(const FeatureParams& params)
                                                 {"kind", static_cast<int>(entity.geometry.index())},
                                                 {"values", data}});
                 }
-                return {{"plane", planeJson(p.plane)}, {"entities", entities}};
+                QJsonObject sketch{{"plane", planeJson(p.plane)}, {"entities", entities}};
+                if (p.keepCoincidentEndpoints) sketch["keep_coincident_endpoints"] = true;
+                return sketch;
             } else if constexpr (std::is_same_v<P, ExtrudeFeatureParams>) {
                 QJsonObject result{{"sketch", QString::number(p.sketchId)},
                         {"values", values({p.depth})},
@@ -258,6 +260,8 @@ FeatureParams paramsFromJson(const QJsonObject& p)
         check(p["plane"].isObject() && p["entities"].isArray());
         SketchFeatureParams sketch;
         sketch.plane = planeFromJson(p["plane"].toObject());
+        if (p.contains("keep_coincident_endpoints"))
+            sketch.keepCoincidentEndpoints = boolean(p["keep_coincident_endpoints"]);
         for (const auto& value : p["entities"].toArray()) {
             check(value.isObject());
             const auto entity = value.toObject();

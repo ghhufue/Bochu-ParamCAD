@@ -22,6 +22,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QSpinBox>
 #include <QTabWidget>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
@@ -222,11 +223,16 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
     settingsScroll->setWidget(settings);
     m_pages->addTab(settingsScroll, tr("设置"));
 
-    m_boundaryPage = new QWidget(m_pages);
+    auto* boundaryScroll = new QScrollArea(m_pages);
+    boundaryScroll->setWidgetResizable(true);
+    boundaryScroll->setFrameShape(QFrame::NoFrame);
+    m_boundaryPage = boundaryScroll;
     m_boundaryPage->setObjectName("cloudBoundaryPage");
-    auto* boundaryLayout = new QVBoxLayout(m_boundaryPage);
+    auto* boundaryContent = new QWidget;
+    boundaryScroll->setWidget(boundaryContent);
+    auto* boundaryLayout = new QVBoxLayout(boundaryContent);
     boundaryLayout->setContentsMargins(6, 8, 6, 6);
-    m_boundarySummary = new QLabel(m_boundaryPage);
+    m_boundarySummary = new QLabel(boundaryContent);
     m_boundarySummary->setObjectName("cloudBoundarySummary");
     m_boundarySummary->setWordWrap(true);
     boundaryLayout->addWidget(m_boundarySummary);
@@ -236,7 +242,7 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
                                                "cloudBoundaryOuterRings", "cloudBoundaryInnerRings"};
     for (std::size_t i = 0; i < m_boundaryLayers.size(); ++i) {
         auto*& layer = m_boundaryLayers[i];
-        layer = new QCheckBox(layerLabels[i], m_boundaryPage);
+        layer = new QCheckBox(layerLabels[i], boundaryContent);
         layer->setObjectName(layerNames[i]);
         layer->setChecked(true);
         boundaryLayout->addWidget(layer);
@@ -246,7 +252,82 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
                                                     m_boundaryLayers[2]->isChecked(), m_boundaryLayers[3]->isChecked());
         });
     }
-    m_closeBoundary = new QPushButton(tr("返回三维视图"), m_boundaryPage);
+    m_contourControls = new QWidget(boundaryContent);
+    auto* contourLayout = new QVBoxLayout(m_contourControls);
+    contourLayout->setContentsMargins(0, 6, 0, 6);
+    m_contourOptions = new QWidget(m_contourControls);
+    auto* contourOptions = new QFormLayout(m_contourOptions);
+    contourOptions->setContentsMargins(0, 0, 0, 0);
+    m_contourPrecision = new QComboBox(m_contourOptions);
+    m_contourPrecision->setObjectName("cloudContourPrecision");
+    m_contourPrecision->addItem(tr("粗"), 2.);
+    m_contourPrecision->addItem(tr("中"), 1.);
+    m_contourPrecision->addItem(tr("细"), .5);
+    m_contourPrecision->addItem(tr("自定义"));
+    contourOptions->addRow(tr("轮廓精细度"), m_contourPrecision);
+    m_contourTolerance = new QDoubleSpinBox(m_contourOptions);
+    m_contourTolerance->setObjectName("cloudContourTolerance");
+    m_contourTolerance->setDecimals(6);
+    m_contourTolerance->setRange(0, 1e9);
+    m_contourTolerance->setKeyboardTracking(false);
+    contourOptions->addRow(tr("拟合容差"), m_contourTolerance);
+    m_contourCircles = new QCheckBox(tr("识别整圆"), m_contourOptions);
+    m_contourCircles->setObjectName("cloudContourRecognizeCircles");
+    m_contourCircles->setChecked(true);
+    contourOptions->addRow(m_contourCircles);
+    auto* advanced = new QToolButton(m_contourOptions);
+    advanced->setText(tr("高级设置"));
+    advanced->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    advanced->setArrowType(Qt::RightArrow);
+    advanced->setCheckable(true);
+    contourOptions->addRow(advanced);
+    m_contourEdgeBudget = new QSpinBox(m_contourOptions);
+    m_contourEdgeBudget->setObjectName("cloudContourEdgeBudget");
+    m_contourEdgeBudget->setRange(1, 10000);
+    m_contourEdgeBudget->setValue(256);
+    m_contourEdgeBudget->setKeyboardTracking(false);
+    contourOptions->addRow(tr("每张草图边数上限"), m_contourEdgeBudget);
+    contourOptions->setRowVisible(m_contourEdgeBudget, false);
+    connect(advanced, &QToolButton::toggled, this, [this, advanced, contourOptions](bool visible) {
+        advanced->setArrowType(visible ? Qt::DownArrow : Qt::RightArrow);
+        contourOptions->setRowVisible(m_contourEdgeBudget, visible);
+    });
+    contourLayout->addWidget(m_contourOptions);
+    m_fitContour = new QPushButton(tr("拟合预览"), m_contourControls);
+    m_fitContour->setObjectName("fitCloudContour");
+    m_createContourSketch = new QPushButton(tr("生成草图"), m_contourControls);
+    m_createContourSketch->setObjectName("createCloudContourSketch");
+    auto* fitButtons = new QHBoxLayout;
+    fitButtons->addWidget(m_fitContour);
+    fitButtons->addWidget(m_createContourSketch);
+    contourLayout->addLayout(fitButtons);
+    m_contourStatus = new QLabel(m_contourControls);
+    m_contourStatus->setObjectName("cloudContourStatus");
+    m_contourStatus->setWordWrap(true);
+    m_contourStatus->setTextFormat(Qt::PlainText);
+    contourLayout->addWidget(m_contourStatus);
+    boundaryLayout->addWidget(m_contourControls);
+    connect(m_contourPrecision, &QComboBox::currentIndexChanged, this, [this] {
+        const auto factor = m_contourPrecision->currentData();
+        if (factor.isValid()) {
+            const QSignalBlocker blocker(m_contourTolerance);
+            m_contourTolerance->setValue(std::max(.000001, factor.toDouble()*m_contourSpacing));
+        }
+        emit contourFitSettingsChanged();
+    });
+    connect(m_contourTolerance, &QDoubleSpinBox::valueChanged, this, [this] {
+        const QSignalBlocker blocker(m_contourPrecision);
+        m_contourPrecision->setCurrentIndex(3);
+        emit contourFitSettingsChanged();
+    });
+    connect(m_contourEdgeBudget, &QSpinBox::valueChanged, this, &PointCloudRelationsPanel::contourFitSettingsChanged);
+    connect(m_contourCircles, &QCheckBox::toggled, this, &PointCloudRelationsPanel::contourFitSettingsChanged);
+    connect(m_fitContour, &QPushButton::clicked, this, [this] {
+        emit contourFitRequested(m_contourTolerance->value(), m_contourEdgeBudget->value(), m_contourCircles->isChecked());
+    });
+    connect(m_createContourSketch, &QPushButton::clicked, this, &PointCloudRelationsPanel::contourSketchRequested);
+
+    m_closeBoundary = new QPushButton(tr("返回三维视图"), boundaryContent);
     m_closeBoundary->setObjectName("closeCloudBoundaryInspection");
     connect(m_closeBoundary, &QPushButton::clicked, this, &PointCloudRelationsPanel::boundaryInspectionCloseRequested);
     boundaryLayout->addWidget(m_closeBoundary);
@@ -349,8 +430,29 @@ void PointCloudRelationsPanel::clearBoundaryInspection()
     m_boundaryActive = false;
     m_boundarySummary->setText(tr("在集合中右键点击已拟合的平面，选择「查看平面边界」。"));
     for (auto* layer : m_boundaryLayers) layer->setEnabled(false);
+    m_contourControls->hide();
     m_closeBoundary->setEnabled(false);
     if (returnToSets) m_pages->setCurrentWidget(m_tree->parentWidget());
+}
+
+void PointCloudRelationsPanel::configureContourFit(double spacing, bool knownUnits)
+{
+    m_contourControls->setVisible(spacing > 0);
+    m_contourSpacing = spacing;
+    const QSignalBlocker precision(m_contourPrecision), tolerance(m_contourTolerance);
+    m_contourPrecision->setCurrentIndex(1);
+    m_contourTolerance->setSuffix(knownUnits ? QStringLiteral(" mm") : tr(" 源单位"));
+    m_contourTolerance->setValue(std::max(.000001, spacing));
+    setContourFitState(false, false);
+}
+
+void PointCloudRelationsPanel::setContourFitState(bool busy, bool ready, const QString& message)
+{
+    m_contourOptions->setEnabled(!busy);
+    m_fitContour->setEnabled(m_boundaryActive && !busy);
+    m_createContourSketch->setEnabled(m_boundaryActive && !busy && ready);
+    m_contourStatus->setText(message);
+    m_contourStatus->setVisible(!message.isEmpty());
 }
 QMenu* PointCloudRelationsPanel::createSelectionMenu(QWidget* parent)
 {

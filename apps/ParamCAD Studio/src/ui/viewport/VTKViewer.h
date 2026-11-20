@@ -36,6 +36,8 @@ class vtkRenderer;
 class vtkActor;
 class vtkBoxWidget2;
 class vtkBoxRepresentation;
+struct PointCloudContourInput;
+namespace contour_fitting { struct ParameterizationResult; }
 
 class VTKViewer final : public QVTKOpenGLNativeWidget
 {
@@ -61,8 +63,11 @@ public:
     void setAutomaticPointCloudSurfaces(bool enabled);
     void setPointCloudRegionSurface(int region, bool enabled);
     void refreshPointCloudSurfaceSettings();
-    std::optional<BoundaryInspectionCounts> inspectPointCloudBoundary(int region);
+    std::optional<BoundaryInspectionCounts> inspectPointCloudBoundary(int region, PointCloudContourInput* input = nullptr);
     void setBoundaryInspectionLayers(bool points, bool surface, bool outerRings, bool innerRings);
+    void setBoundaryContourPreview(const PointCloudContourInput& input,
+                                   const contour_fitting::ParameterizationResult& result, double sourceScale);
+    void clearBoundaryContourPreview();
     void closeBoundaryInspection();
     ObjectPresentation objectPresentation() const { return m_bodyActor.presentation(); }
     bool bodyTextureEnabled() const { return m_bodyActor.textureEnabled(); }
@@ -159,7 +164,7 @@ public:
     // normal in an orthographic projection, with the plane's own Y axis pointing
     // up, so a sketch reads as a flat 2D drawing. The window restores the 3D view
     // it saved before the sketch on exit.
-    void alignToSketchPlane(const sketchapp::PlaneFrame& frame);
+    void alignToSketchPlane(const sketchapp::PlaneFrame& frame, bool fitSketch = false);
 
     // Whether the open sketch already owns a vertex at the given sketch position.
     // A drawing tool uses it to tell a click that landed on existing geometry from
@@ -303,6 +308,7 @@ private:
     PointCloudActor m_pointCloudActor;
     vtkSmartPointer<vtkRenderer> m_boundaryInspectionRenderer;
     std::array<vtkSmartPointer<vtkActor>, 4> m_boundaryInspectionActors;
+    vtkSmartPointer<vtkActor> m_boundaryContourActor;
     quint64 m_boundaryInspectionRevision = 0;
     vtkSmartPointer<vtkActor> m_assemblyBoundaryActor;
     int m_boundaryPointCount=0;

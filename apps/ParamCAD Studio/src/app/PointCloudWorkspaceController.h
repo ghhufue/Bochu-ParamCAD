@@ -7,6 +7,7 @@
 #include <QPointer>
 #include <QStringList>
 #include <QJsonObject>
+#include <memory>
 
 class QAction;
 class QLabel;
@@ -24,6 +25,7 @@ struct ReconstructRequest;
 class ScenePanel;
 class QThread;
 class VTKViewer;
+struct PointCloudContourInput;
 namespace reconstruction { enum class ProjectionPath; }
 
 struct PointCloudWorkspaceUi
@@ -52,6 +54,7 @@ public:
     ~PointCloudWorkspaceController() override;
     void connectUi();
     void openPointCloud();
+    void importPointCloudFromFile(const QString& filePath);
     void loadPointCloudFromFile(const QString& filePath);
     void reconstructCad();
     void reconstructCadWithoutProjection();
@@ -63,6 +66,7 @@ public:
 signals:
     // Emitted only after the ordinary UI result handlers apply/reject the result.
     void cliOperationFinished(const QJsonObject& result);
+    void contourSketchCreated(modeling::FeatureId id);
 
 private:
     void startCadReconstruction(bool projectionFallback);
@@ -71,13 +75,16 @@ private:
     std::optional<reconstruction::LengthUnit> confirmCloudUnit();
     void showProjectionDebugResult(const CadReconstructionResult& result);
     void updateCadActions();
-    void requestGuidedReconstruction();
-    void startQueuedReconstruction();
+    void inspectCloudBoundary(int regionId);
+    void invalidateContourPreview();
+    void closeContourInspection();
+    void startContourFit(double tolerance, int maximumEdges, bool recognizeCircles);
+    void createContourSketch();
+    void frameImportedCloud(const QString& filePath);
+    void reportCloudLoadError(const QString& error);
     void onCadReconstructionFinished(const CadReconstructionResult& result);
     void startPointCloudAnalysis(int regionId = 0, bool recordUndo = true);
     void startRelationInference(bool recordUndo = true);
-    void restoreCachedPresentation();
-    void saveCachedPresentation();
     void startAnalysisExport();
     void startAnalysisExportTo(const QString& path);
     void finishCliOperation(bool success,const QString& error={},QJsonObject details={});
@@ -96,7 +103,15 @@ private:
     QThread* m_analysisThread = nullptr;
     QThread* m_downsampleThread = nullptr;
     QThread* m_exportThread = nullptr;
-    QThread* m_presentationThread = nullptr;
+    QThread* m_importThread = nullptr;
+    QThread* m_contourFitThread = nullptr;
+    struct ContourPreview;
+    std::shared_ptr<const PointCloudContourInput> m_contourInput;
+    std::shared_ptr<const ContourPreview> m_contourPreview;
+    std::optional<double> m_contourUnitScale;
+    quint64 m_contourFitRevision = 0;
+    QString m_pendingImport;
+    quint64 m_importGeneration = 0;
     CadReconstructionTask* m_cadTask;
     QPointer<QWidget> m_projectionPage;
     QPointer<QWidget> m_projectionReport;
@@ -108,8 +123,6 @@ private:
     bool m_cadOverwriteManual = false;
     bool m_analyseAfterCad = false;
     bool m_inferAfterCad = false;
-    bool m_presentationPending = false;
-    bool m_guidedQueued = false;
     quint64 m_cadCloudRevision = 0;
     quint64 m_cadBodyRevision = 0;
     modeling::ModelRevision m_cadModelRevision = 0;
@@ -118,9 +131,5 @@ private:
     std::optional<reconstruction::SurfaceAnalysisResult> m_surfaceAnalysis;
     QJsonObject m_surfaceSupportReport;
     QByteArray m_surfaceSupportReportFingerprint;
-    QByteArray m_presentationContext;
-    bool m_presentationAssembly = false;
-    QByteArray m_cadSurfaceContext;
-    QByteArray m_cadAssemblyContext;
     QString m_cliOperation;
 };

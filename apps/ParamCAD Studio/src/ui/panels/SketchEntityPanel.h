@@ -23,7 +23,7 @@ public:
     explicit SketchEntityPanel(QWidget* parent = nullptr);
 
     // Passing nullptr shows the empty state and hides every field.
-    void setEntity(const modeling::SketchEntity* entity);
+    void setEntity(const modeling::SketchEntity* entity, bool fittedContour = false);
 
     // Rebuilds the geometry described by the currently visible fields.
     modeling::SketchGeometry geometry() const;

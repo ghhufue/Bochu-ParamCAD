@@ -44,6 +44,8 @@ void SketchWorkspaceController::connectUi()
             this, &SketchWorkspaceController::onSketchEntityEdited);
     connect(m_ui.modelingPanel, &ModelingPanel::deleteFeatureRequested,
             this, &SketchWorkspaceController::deleteFeature);
+    connect(m_ui.modelingPanel, &ModelingPanel::editSketchRequested,
+            this, &SketchWorkspaceController::openSketch);
     connect(m_ui.modelingPanel, &ModelingPanel::featureSelected, this, [this](modeling::FeatureId id) {
         m_ui.propertyPanel->featureDetailsPanel()->setFeature(m_modelingController->features(), id);
         if (id != modeling::kInvalidFeatureId) m_ui.propertyPanel->showFeatureDetails();
@@ -78,7 +80,9 @@ void SketchWorkspaceController::onModelRebuilt()
 {
     // A selected transient face belongs to the previous body revision.
     clearPendingSelection();
-    m_ui.viewer->setBodyShape(m_modelingController->bodyShape());
+    const auto& body = m_modelingController->bodyShape();
+    if (m_hasPublishedModelBody || !body.IsNull()) m_ui.viewer->setBodyShape(body);
+    m_hasPublishedModelBody = !body.IsNull();
     m_ui.viewer->renderNow();
 
     m_ui.modelingPanel->setFeatures(m_modelingController->features());
@@ -137,7 +141,7 @@ void SketchWorkspaceController::pushSketchState()
     // The property editor keeps describing the selected entity, whose values the
     // core may have just re-validated.
     m_ui.propertyPanel->sketchEntityPanel()->setEntity(
-        m_ui.sketchPanel->findEntity(m_ui.sketchPanel->selectedEntityId()));
+        m_ui.sketchPanel->findEntity(m_ui.sketchPanel->selectedEntityId()), params->keepCoincidentEndpoints);
 }
 
 void SketchWorkspaceController::onModelError(const QString& message)
@@ -285,12 +289,24 @@ void SketchWorkspaceController::beginSketch(const modeling::SketchPlaneReference
 
     // The rebuild this command triggered ran before the id was known, so the new
     // sketch is pushed here; from now on onModelRebuilt() keeps it in sync.
-    m_sketchFeatureId = createdId;
-    pushSketchState();
-    enterSketchMode();
+    openSketch(createdId);
     emit logInfo(workspaceTr("Sketch started (feature %1) on %2")
                 .arg(createdId)
                 .arg(sketchapp::planeLabel(plane)));
+}
+
+void SketchWorkspaceController::openSketch(modeling::FeatureId id)
+{
+    if (!m_modelingController->sketchParams(id) || (m_sketchMode && m_sketchFeatureId == id)) return;
+    if (m_sketchMode) exitSketchMode();
+    clearPendingSelection();
+    m_ui.viewer->closeBoundaryInspection();
+    m_ui.sketchPanel->clearSketch();
+    onSketchEntitySelectionCleared();
+    m_sketchFeatureId = id;
+    m_ui.modelingPanel->selectFeature(id);
+    pushSketchState();
+    enterSketchMode();
 }
 
 void SketchWorkspaceController::enterSketchMode()
@@ -314,7 +330,8 @@ void SketchWorkspaceController::enterSketchMode()
         // orthographic projection; the 3D view it replaced is restored on exit.
         m_cameraBeforeSketch = m_ui.viewer->cameraParameters();
         m_hasCameraBeforeSketch = true;
-        m_ui.viewer->alignToSketchPlane(m_sketchFrame);
+        const auto* sketch = m_modelingController->sketchParams(m_sketchFeatureId);
+        m_ui.viewer->alignToSketchPlane(m_sketchFrame, sketch && !sketch->entities.empty());
     }
     updateSketchEntryState();
     updateSketchHint();
@@ -544,7 +561,8 @@ void SketchWorkspaceController::onSketchEntityRemoved(modeling::SketchEntityId e
 void SketchWorkspaceController::onSketchEntitySelected(modeling::SketchEntityId entityId)
 {
     const modeling::SketchEntity* entity = m_ui.sketchPanel->findEntity(entityId);
-    m_ui.propertyPanel->sketchEntityPanel()->setEntity(entity);
+    const auto* sketch = m_modelingController->sketchParams(m_sketchFeatureId);
+    m_ui.propertyPanel->sketchEntityPanel()->setEntity(entity, sketch && sketch->keepCoincidentEndpoints);
     m_ui.propertyPanel->showSketchEntityPanel(entity != nullptr);
 }
 

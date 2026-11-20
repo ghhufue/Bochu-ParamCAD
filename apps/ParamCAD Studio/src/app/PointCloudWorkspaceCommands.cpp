@@ -14,7 +14,7 @@
 
 bool PointCloudWorkspaceController::commandBusy()const {
     return m_startingCad||m_cadTask->isRunning()||m_analysisThread||m_downsampleThread
-        ||m_exportThread||m_guidedQueued||m_reconstructionController->isRunning()||!m_cliOperation.isEmpty();
+        ||m_exportThread||m_importThread||m_reconstructionController->isRunning()||!m_cliOperation.isEmpty();
 }
 void PointCloudWorkspaceController::finishCliOperation(bool success,const QString& error,QJsonObject details) {
     if(m_cliOperation.isEmpty())return;

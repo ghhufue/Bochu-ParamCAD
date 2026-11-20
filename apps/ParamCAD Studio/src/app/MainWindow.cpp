@@ -215,7 +215,7 @@ void MainWindow::dropEvent(QDropEvent* event)
     event->setDropAction(Qt::CopyAction);
     event->accept();
     if (QFileInfo(path).suffix().compare("ply", Qt::CaseInsensitive) == 0)
-        m_pointCloudWorkspace->loadPointCloudFromFile(path);
+        m_pointCloudWorkspace->importPointCloudFromFile(path);
     else
         m_modelViewController->loadModelFromFile(path);
 }
@@ -304,6 +304,8 @@ void MainWindow::createWorkspaceControllers()
         {m_viewer, m_modelingPanel, m_relationsPanel, m_scenePanel,
           m_propertyPanel, m_reconstructCadAction, m_cancelCadAction, m_reconstructToolAction,
           m_projectionDebugAction}, this, this);
+    connect(m_pointCloudWorkspace, &PointCloudWorkspaceController::contourSketchCreated,
+            m_sketchWorkspace, &SketchWorkspaceController::openSketch);
     connect(m_pointCloudWorkspace,&PointCloudWorkspaceController::cliOperationFinished,this,[this](QJsonObject result) {
         result["id"]=m_lastCliResult["id"];m_lastCliResult=result;
         auto callback=std::move(m_cliReply);m_cliReply={};if(callback)callback(result);

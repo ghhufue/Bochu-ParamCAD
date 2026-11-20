@@ -50,10 +50,6 @@ public:
     void writePreview(const QByteArray& key, const reconstruction::SurfaceAnalysisResult& preview);
 
     // The document owns publication and resolves region IDs before it applies a snapshot.
-    QByteArray readPresentation(const QByteArray& key);
-    void writePresentation(const QByteArray& key, const QByteArray& snapshot);
-    static QByteArray presentationKey(const reconstruction::PointStore& source, const QByteArray& context,
-        bool assembly);
 
 private:
     QByteArray read(const QString& stage, const QByteArray& key);

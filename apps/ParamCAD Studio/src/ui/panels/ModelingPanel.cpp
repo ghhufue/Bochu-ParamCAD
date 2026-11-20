@@ -67,6 +67,10 @@ ModelingPanel::ModelingPanel(QWidget* parent)
     featureLayout->addWidget(m_features);
 
     auto* featureButtons = new QHBoxLayout();
+    m_editSketch = new QPushButton(tr("编辑草图"), featureGroup);
+    m_editSketch->setObjectName(QStringLiteral("editExistingSketchButton"));
+    m_editSketch->setEnabled(false);
+    featureButtons->addWidget(m_editSketch);
     auto* deleteFeatureButton = new QPushButton(tr("删除特征"), featureGroup);
     deleteFeatureButton->setObjectName(QStringLiteral("deleteFeatureButton"));
     featureButtons->addWidget(deleteFeatureButton);
@@ -77,7 +81,12 @@ ModelingPanel::ModelingPanel(QWidget* parent)
     outer->addStretch();
 
     connect(m_features, &QTreeWidget::itemSelectionChanged, this, [this] {
+        updateSketchAction();
         emit featureSelected(selectedFeatureId());
+    });
+    connect(m_editSketch, &QPushButton::clicked, this, [this] { emit editSketchRequested(selectedFeatureId()); });
+    connect(m_features, &QTreeWidget::itemDoubleClicked, this, [this] {
+        if (m_editSketch->isEnabled()) emit editSketchRequested(selectedFeatureId());
     });
 
     connect(deleteFeatureButton, &QPushButton::clicked, this, [this] {
@@ -105,6 +114,7 @@ void ModelingPanel::setFeatures(const std::vector<modeling::Feature>& features)
         item->setText(0, QString::number(feature.id));
         item->setText(1, QString::fromStdString(feature.name));
         item->setText(2, featureTypeLabel(feature.type));
+        item->setData(2, Qt::UserRole, static_cast<int>(feature.type));
         item->setText(3, feature.valid ? tr("是") : tr("否"));
         item->setText(4, QString::fromStdString(feature.errorText));
         if (feature.id == previous) {
@@ -115,6 +125,14 @@ void ModelingPanel::setFeatures(const std::vector<modeling::Feature>& features)
     m_features->resizeColumnToContents(1);
     m_features->resizeColumnToContents(2);
     m_features->resizeColumnToContents(3);
+    updateSketchAction();
+}
+
+void ModelingPanel::updateSketchAction()
+{
+    const auto selected = m_features->selectedItems();
+    m_editSketch->setEnabled(!selected.isEmpty() && selected.front()->data(2, Qt::UserRole).toInt()
+        == static_cast<int>(modeling::FeatureType::Sketch));
 }
 
 void ModelingPanel::selectFeature(modeling::FeatureId id)

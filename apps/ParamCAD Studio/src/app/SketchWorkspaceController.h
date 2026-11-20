@@ -40,6 +40,7 @@ public:
                               QWidget* dialogParent, QObject* parent = nullptr);
     void connectUi();
     void resetForProject();
+    void openSketch(modeling::FeatureId id);
 
 private:
     void onModelRebuilt();
@@ -94,6 +95,7 @@ private:
     // sketch plane instead of picking body faces, the datum planes are hidden and
     // the tool palette appears.
     bool m_sketchMode = false;
+    bool m_hasPublishedModelBody = false;
     sketchapp::PlaneFrame m_sketchFrame;
     bool m_hasSketchFrame = false;
 

@@ -8,6 +8,7 @@
 #include <vector>
 
 class QLabel;
+class QPushButton;
 class QTreeWidget;
 
 // Read-only view of the core feature history. It mirrors the features and
@@ -34,8 +35,11 @@ public:
 signals:
     void deleteFeatureRequested(modeling::FeatureId featureId);
     void featureSelected(modeling::FeatureId featureId);
+    void editSketchRequested(modeling::FeatureId featureId);
 
 private:
+    void updateSketchAction();
     QTreeWidget* m_features = nullptr;
     QLabel* m_status = nullptr;
+    QPushButton* m_editSketch = nullptr;
 };

@@ -54,4 +54,8 @@ struct Result {
 // Non-finite coordinates or invalid options throw std::invalid_argument.
 Result fitContours(const std::vector<Point2D>& points, const Options& options = {});
 
+// Simplifies already validated, ordered contours as a single constraint set.
+// Returns the same contour and hole order.
+std::vector<Contour> simplifyContours(const std::vector<Contour>& contours, double tolerance);
+
 } // namespace contour_fitting

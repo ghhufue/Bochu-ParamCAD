@@ -3,6 +3,7 @@
 #include "app/CadReconstructionTask.h"
 #include "core/PointCloudDocument.h"
 #include "ui/panels/CameraPanel.h"
+#include "ui/panels/PointCloudRelationsPanel.h"
 #include "ui/viewport/VTKViewer.h"
 
 #include <BRepPrimAPI_MakeBox.hxx>
@@ -10,6 +11,7 @@
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
+#include <QEventLoop>
 #include <QFile>
 #include <QKeyEvent>
 #include <QLabel>
@@ -17,6 +19,7 @@
 #include <QMimeData>
 #include <QSurfaceFormat>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QUrl>
 #include <algorithm>
 #include <cmath>
@@ -65,6 +68,17 @@ bool drop(QWidget* target, const QList<QUrl>& urls)
     QDropEvent event(QPointF(10, 10), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
     QApplication::sendEvent(target, &event);
     return event.isAccepted();
+}
+
+void waitForCloud(PointCloudDocument* document, const QString& path)
+{
+    QEventLoop loop;
+    QObject::connect(document, &PointCloudDocument::documentChanged, &loop, [&] {
+        if (document->sourcePath() == path) loop.quit();
+    });
+    QTimer::singleShot(5000, &loop, &QEventLoop::quit);
+    loop.exec();
+    require(document->sourcePath() == path, "dropped PLY was published by the import worker");
 }
 }
 
@@ -150,8 +164,10 @@ int main(int argc, char** argv)
         file.write("ply\nformat ascii 1.0\nelement vertex 3\nproperty float x\nproperty float y\nproperty float z\nend_header\n10 20 30\n11 20 30\n10 21 30\n");
         file.close();
         panel->setOriginLock(true);
-        require(drop(viewer, {QUrl::fromLocalFile(cloudPath)}), "drop PLY over VTK viewport");
         auto* document = viewer->pointCloudDocument();
+        require(drop(viewer, {QUrl::fromLocalFile(cloudPath)}), "drop PLY over VTK viewport");
+        require(!document->hasCloud(), "drop returns before the new document is published");
+        waitForCloud(document, cloudPath);
         require(document->pointCount() == 3 && document->sourcePath() == cloudPath
                 && !panel->originLocked() && viewer->hasFocus(), "PLY drop loads and focuses viewport");
         const auto fitted = viewer->cameraParameters();
@@ -178,6 +194,40 @@ int main(int argc, char** argv)
         require(viewer->hasBody() && !modelView->currentBody().IsNull() && document->pointCount() == 3,
                 "STEP import uses existing model loader and preserves cloud");
         require(editor.text() == "123", "drop never inserts file path into text input");
+
+        const auto templatePath = temp.filePath("template.ply");
+        QFile templateFile(templatePath);
+        require(templateFile.open(QIODevice::WriteOnly), "write template PLY fixture");
+        templateFile.write("ply\nformat ascii 1.0\nelement vertex 25\nproperty float x\nproperty float y\nproperty float z\nend_header\n");
+        for (int y = 0; y < 5; ++y)
+            for (int x = 0; x < 5; ++x)
+                templateFile.write(QByteArray::number(x) + ' ' + QByteArray::number(y) + " 0\n");
+        templateFile.close();
+        QFile sidecar(temp.filePath("template.json"));
+        require(sidecar.open(QIODevice::WriteOnly), "write unit sidecar");
+        sidecar.write(R"({"unit":"mm"})");
+        sidecar.close();
+        int imports = 0;
+        QObject::connect(document, &PointCloudDocument::cloudChanged, &window, [&] { ++imports; });
+        auto* task = window.findChild<CadReconstructionTask*>();
+        int reconstructions = 0;
+        QObject::connect(task, &CadReconstructionTask::runningChanged, &window,
+                         [&](bool running) { if (running) ++reconstructions; });
+        require(drop(viewer, {QUrl::fromLocalFile(cloudPath)}) &&
+                drop(viewer, {QUrl::fromLocalFile(templatePath)}), "accept successive PLY imports");
+        waitForCloud(document, templatePath);
+        require(imports == 1 && document->pointCount() == 25 && document->sourceUnit() == "mm" &&
+                document->selection().regions().empty() && reconstructions == 0 && viewer->hasBody(),
+                "latest PLY import publishes only raw points and preserves the open body");
+        auto* relations = window.findChild<PointCloudRelationsPanel*>();
+        require(relations, "point-cloud collections panel");
+        document->selectUnassigned();
+        emit relations->assignRequested("plane", "Template", 0);
+        app.processEvents();
+        require(document->selection().regions().size() == 1 && reconstructions == 0,
+                "assigning a template does not start reconstruction");
+        emit relations->refitRequested(document->selection().regions().front().id);
+        require(reconstructions == 1, "explicit template reconstruction starts the CAD task");
         std::cout << "Navigation and drag/drop tests passed.\n";
         return 0;
     } catch (const std::exception& error) {

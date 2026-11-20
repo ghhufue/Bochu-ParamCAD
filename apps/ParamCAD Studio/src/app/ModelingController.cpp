@@ -32,6 +32,25 @@ bool ModelingController::addSketch(const modeling::SketchFeatureParams& params,
     return rebuildAndPublish();
 }
 
+bool ModelingController::addContourSketches(const std::vector<modeling::SketchFeatureParams>& sketches,
+                                            modeling::FeatureId& firstId)
+{
+    if (sketches.empty()) return false;
+    modeling::ModelPatch patch;
+    patch.expectedRevision = m_core->revision();
+    for (const auto& sketch : sketches) patch.commands.push_back(modeling::AddFeatureCommand{sketch});
+    const auto before = *m_core;
+    const auto result = m_core->apply(patch);
+    if (!result.success) {
+        m_lastError = QString::fromStdString(result.error);
+        emit modelError(m_lastError);
+        return false;
+    }
+    firstId = result.affectedFeatures.front();
+    recordHistory(before);
+    return rebuildAndPublish();
+}
+
 bool ModelingController::editSketch(modeling::FeatureId sketchId,
                                     const modeling::SketchFeatureParams& params)
 {

@@ -13,6 +13,7 @@ namespace modeling {
 struct SketchFeatureParams {
     SketchPlaneReference plane = DatumPlaneReference{DatumPlane::XY};
     std::vector<SketchEntity> entities;
+    bool keepCoincidentEndpoints = false;
 };
 
 enum class ExtrudeOperation {

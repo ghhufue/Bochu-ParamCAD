@@ -30,6 +30,8 @@ public:
 
     bool addSketch(const modeling::SketchFeatureParams& params,
                    modeling::FeatureId& createdId);
+    bool addContourSketches(const std::vector<modeling::SketchFeatureParams>& sketches,
+                            modeling::FeatureId& firstId);
     bool editSketch(modeling::FeatureId sketchId,
                     const modeling::SketchFeatureParams& params);
 

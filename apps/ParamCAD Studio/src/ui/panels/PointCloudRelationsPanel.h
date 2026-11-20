@@ -12,6 +12,8 @@ class QLabel;
 class QLineEdit;
 class QMenu;
 class QPushButton;
+class QComboBox;
+class QSpinBox;
 class QTabWidget;
 class QToolButton;
 class QTreeWidget;
@@ -41,6 +43,8 @@ public:
     void showBoundaryInspection(const QString& name, std::size_t points, std::size_t triangles,
                                 std::size_t outerRings, std::size_t innerRings);
     void clearBoundaryInspection();
+    void configureContourFit(double spacing, bool knownUnits);
+    void setContourFitState(bool busy, bool ready, const QString& message = {});
 
 signals:
     void showAllBoundariesChanged(bool enabled);
@@ -49,6 +53,9 @@ signals:
     void boundaryInspectionRequested(int region);
     void boundaryInspectionLayersChanged(bool points, bool surface, bool outerRings, bool innerRings);
     void boundaryInspectionCloseRequested();
+    void contourFitSettingsChanged();
+    void contourFitRequested(double tolerance, int maximumEdges, bool recognizeCircles);
+    void contourSketchRequested();
     void detectRequested();
     void reconstructRequested();
     void cancelCadRequested();
@@ -96,6 +103,16 @@ private:
     QLabel* m_boundarySummary;
     QPushButton* m_closeBoundary;
     std::array<QCheckBox*, 4> m_boundaryLayers;
+    QWidget* m_contourControls;
+    QWidget* m_contourOptions;
+    QComboBox* m_contourPrecision;
+    QDoubleSpinBox* m_contourTolerance;
+    QSpinBox* m_contourEdgeBudget;
+    QCheckBox* m_contourCircles;
+    QLabel* m_contourStatus;
+    QPushButton* m_fitContour;
+    QPushButton* m_createContourSketch;
+    double m_contourSpacing = 0;
     QTreeWidget* m_tree;
     QTreeWidget* m_relationTree;
     QTreeWidget* m_activeTree;

@@ -200,6 +200,30 @@ std::vector<RingGroup> groupRings(const std::vector<Polygon>& rings)
 
 } // namespace
 
+std::vector<Contour> simplifyContours(const std::vector<Contour>& contours, double tolerance)
+{
+    std::vector<Polygon> rings;
+    const auto append = [&](const Ring& ring) {
+        Polygon polygon;
+        for (const auto& point : ring) polygon.push_back(Point(point.x, point.y));
+        rings.push_back(std::move(polygon));
+    };
+    for (const auto& contour : contours) {
+        append(contour.outer);
+        for (const auto& hole : contour.holes) append(hole);
+    }
+    simplify(rings, tolerance);
+    std::vector<Contour> result;
+    std::size_t index = 0;
+    for (const auto& contour : contours) {
+        Contour simplified{outputRing(rings[index++]), {}};
+        for (std::size_t hole = 0; hole < contour.holes.size(); ++hole)
+            simplified.holes.push_back(outputRing(rings[index++]));
+        result.push_back(std::move(simplified));
+    }
+    return result;
+}
+
 Result fitContours(const std::vector<Point2D>& points, const Options& options)
 {
     const auto valid = [](double value) { return std::isfinite(value) && value >= 0; };

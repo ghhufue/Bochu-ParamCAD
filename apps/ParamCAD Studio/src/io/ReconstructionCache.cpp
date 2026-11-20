@@ -429,21 +429,3 @@ void ReconstructionCache::writePreview(const QByteArray& cacheKey, const Surface
 {
     if (!cacheKey.isEmpty() && !cancelled()) write("source_surface_preview", cacheKey, encode(preview));
 }
-
-QByteArray ReconstructionCache::readPresentation(const QByteArray& cacheKey)
-{
-    return read("presentation", cacheKey);
-}
-
-void ReconstructionCache::writePresentation(const QByteArray& cacheKey, const QByteArray& snapshot)
-{
-    write("presentation", cacheKey, snapshot);
-}
-
-QByteArray ReconstructionCache::presentationKey(const PointStore& source, const QByteArray& context,
-    bool assembly)
-{
-    return key(versions::presentation, pointsKey(source), context,
-        std::string(assembly ? versions::assemblyClosure : versions::analysis),
-        std::string(assembly ? versions::projection : ""));
-}

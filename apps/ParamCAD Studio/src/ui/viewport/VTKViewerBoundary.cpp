@@ -1,9 +1,14 @@
 #include "ui/viewport/VTKViewer.h"
+#include "core/SketchFrame.h"
+#include "rendering/PointCloudContour.h"
+
+#include <contour_fitting/ContourParameterization.h>
 
 #include <vtkActor.h>
 #include <vtkBoxWidget2.h>
 #include <vtkCellArray.h>
 #include <vtkGenericOpenGLRenderWindow.h>
+#include <vtkMath.h>
 #include <vtkNew.h>
 #include <vtkOrientationMarkerWidget.h>
 #include <vtkPoints.h>
@@ -13,6 +18,7 @@
 #include <vtkRenderer.h>
 
 #include <algorithm>
+#include <cmath>
 
 namespace {
 enum Layer { Points, Surface, OuterRings, InnerRings };
@@ -35,9 +41,49 @@ void addClosedRing(vtkCellArray* cells, const std::vector<std::size_t>& ring)
     indices.push_back(indices.front());
     cells->InsertNextCell(static_cast<vtkIdType>(indices.size()), indices.data());
 }
+
+PointCloudContourInput contourInput(const PointCloudPlanarBoundary& boundary, const PointCloudSurfaceMesh& mesh)
+{
+    PointCloudContourInput result;
+    const auto& [nx, ny, nz] = boundary.normal;
+    const auto& [ux, uy, uz] = boundary.up;
+    const double normal[]{nx, ny, nz}, up[]{ux, uy, uz};
+    double right[3];
+    vtkMath::Cross(up, normal, right);
+    result.plane = {boundary.center, boundary.normal, {right[0], right[1], right[2]}};
+    std::vector<double> spacings;
+    const auto project = [&](const auto& indices) {
+        contour_fitting::Ring ring;
+        ring.reserve(indices.size());
+        const auto& center = boundary.center;
+        for (const auto index : indices) {
+            const auto& point = mesh.positions[index];
+            const double relative[]{point[0]-center.x, point[1]-center.y, point[2]-center.z};
+            ring.push_back({vtkMath::Dot(relative, right), vtkMath::Dot(relative, up)});
+        }
+        for (std::size_t i = 0; i < ring.size(); ++i) {
+            const auto a = ring[i], b = ring[(i+1)%ring.size()];
+            const auto distance = std::hypot(a.x-b.x, a.y-b.y);
+            if (distance > 0) spacings.push_back(distance);
+        }
+        return ring;
+    };
+    for (const auto& component : boundary.regions) {
+        contour_fitting::Contour contour{project(component.outer), {}};
+        for (const auto& hole : component.holes) contour.holes.push_back(project(hole));
+        result.contours.push_back(std::move(contour));
+    }
+    if (!spacings.empty()) {
+        const auto median = spacings.begin() + spacings.size()/2;
+        std::nth_element(spacings.begin(), median, spacings.end());
+        result.spacing = *median;
+    }
+    return result;
+}
 }
 
-std::optional<VTKViewer::BoundaryInspectionCounts> VTKViewer::inspectPointCloudBoundary(int regionId)
+std::optional<VTKViewer::BoundaryInspectionCounts> VTKViewer::inspectPointCloudBoundary(
+    int regionId, PointCloudContourInput* input)
 {
     if (m_sketchInteraction || m_referenceSelection) return {};
     const auto& selection = pointCloudSelection();
@@ -46,6 +92,7 @@ std::optional<VTKViewer::BoundaryInspectionCounts> VTKViewer::inspectPointCloudB
     if (!region || !mesh) return {};
     const auto boundary = planarBoundaryOfMesh(*region, *mesh);
     if (!boundary) return {};
+    if (input) *input = contourInput(*boundary, *mesh);
 
     const auto members = selection.regionPoints(regionId);
     const auto& cloud = selection.sourceCloud();
@@ -137,12 +184,66 @@ void VTKViewer::setBoundaryInspectionLayers(bool points, bool surface, bool oute
     requestRender();
 }
 
+void VTKViewer::setBoundaryContourPreview(const PointCloudContourInput& input,
+    const contour_fitting::ParameterizationResult& result, double sourceScale)
+{
+    if (!m_boundaryInspectionRenderer) return;
+    clearBoundaryContourPreview();
+    const auto frame = sketchapp::planeFrameOf(input.plane);
+    vtkNew<vtkPoints> points;
+    points->SetDataTypeToDouble();
+    vtkNew<vtkCellArray> lines;
+    const auto append = [&](const contour_fitting::FittedRing& ring) {
+        std::vector<std::size_t> indices;
+        const auto insert = [&](double x, double y) {
+            double world[3];
+            for (int axis = 0; axis < 3; ++axis)
+                world[axis] = frame.origin[axis] + sourceScale*(x*frame.xDirection[axis] + y*frame.yDirection[axis]);
+            indices.push_back(static_cast<std::size_t>(points->InsertNextPoint(world)));
+        };
+        if (ring.circle) {
+            const auto& circle = *ring.circle;
+            constexpr int segments = 160;
+            for (int i = 0; i < segments; ++i) {
+                const double angle = 2*vtkMath::Pi()*i/segments;
+                insert(circle.center.x + circle.radius*std::cos(angle), circle.center.y + circle.radius*std::sin(angle));
+            }
+        } else {
+            for (const auto point : ring.polyline) insert(point.x, point.y);
+        }
+        if (!indices.empty()) addClosedRing(lines, indices);
+    };
+    for (const auto& contour : result.contours) {
+        append(contour.outer);
+        for (const auto& hole : contour.holes) append(hole);
+    }
+    vtkNew<vtkPolyData> previewData;
+    previewData->SetPoints(points);
+    previewData->SetLines(lines);
+    m_boundaryContourActor = inspectionActor(previewData, .36, 1., .92);
+    m_boundaryContourActor->GetProperty()->SetLineWidth(1.5);
+    auto* mapper = vtkPolyDataMapper::SafeDownCast(m_boundaryContourActor->GetMapper());
+    mapper->SetResolveCoincidentTopologyToPolygonOffset();
+    mapper->SetRelativeCoincidentTopologyLineOffsetParameters(0, -10);
+    m_boundaryInspectionRenderer->AddActor(m_boundaryContourActor);
+    requestRender();
+}
+
+void VTKViewer::clearBoundaryContourPreview()
+{
+    if (!m_boundaryContourActor) return;
+    m_boundaryInspectionRenderer->RemoveActor(m_boundaryContourActor);
+    m_boundaryContourActor = nullptr;
+    requestRender();
+}
+
 void VTKViewer::closeBoundaryInspection()
 {
     if (!m_boundaryInspectionRenderer) return;
     m_renderWindow->RemoveRenderer(m_boundaryInspectionRenderer);
     m_boundaryInspectionRenderer = nullptr;
     m_boundaryInspectionActors = {};
+    m_boundaryContourActor = nullptr;
     m_renderer->InteractiveOn();
     m_renderer->DrawOn();
     m_referenceRenderer->DrawOn();

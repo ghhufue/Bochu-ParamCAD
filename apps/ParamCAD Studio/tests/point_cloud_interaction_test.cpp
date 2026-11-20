@@ -1,6 +1,9 @@
 #include "app/MainWindow.h"
+#include "app/ModelingController.h"
+#include "app/ProjectController.h"
 #include "ui/panels/PointCloudPanel.h"
 #include "ui/panels/PointCloudRelationsPanel.h"
+#include "ui/panels/SketchPanel.h"
 #include "ui/viewport/VTKViewer.h"
 #include "SurfaceMeshMetrics.h"
 
@@ -24,6 +27,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QImage>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
@@ -33,6 +37,7 @@
 #include <QScopeGuard>
 #include <QSpinBox>
 #include <reconstruction/settings/ModuleConfig.h>
+#include <modeling/SketchValidation.h>
 #include <QTemporaryDir>
 #include <QThread>
 #include <QTreeWidget>
@@ -155,6 +160,114 @@ void waitForAnalysis(QLabel* status, int timeout = 30000)
         QCoreApplication::processEvents(QEventLoop::AllEvents,50); QThread::msleep(5);
     }
     require(!status->text().startsWith(QStringLiteral("正在后台")), "background analysis completed within deadline");
+}
+
+void verifyContourWorkflow(MainWindow& window, VTKViewer* viewer, QTreeWidget* tree,
+                           const QTemporaryDir& temp)
+{
+    QByteArray points;
+    DetectedPointCloudSurface plane;
+    plane.surface.geometry = "plane";
+    plane.surface.name = "Slotted plate";
+    plane.surface.parameters = {{"normal", QJsonArray{0,0,1}}, {"offset", -.012}};
+    for (int y = 0; y <= 42; ++y) for (int x = 0; x <= 64; ++x) {
+        if ((x-18)*(x-18) + (y-20)*(y-20) < 81 || (x > 30 && x < 36 && y > 27)) continue;
+        plane.points.push_back(static_cast<vtkIdType>(plane.points.size()));
+        points += QStringLiteral("%1 %2 .012\n").arg(x*.001).arg(y*.001).toUtf8();
+    }
+    QFile ply(temp.filePath("slotted-plate.ply"));
+    require(ply.open(QIODevice::WriteOnly), "write slotted plate source");
+    ply.write("ply\nformat ascii 1.0\nelement vertex " + QByteArray::number(plane.points.size())
+        + "\nproperty float x\nproperty float y\nproperty float z\nend_header\n" + points);
+    ply.close();
+    QFile sidecar(temp.filePath("slotted-plate.json"));
+    require(sidecar.open(QIODevice::WriteOnly), "write metre units");
+    sidecar.write(R"({"unit":"m"})");
+    sidecar.close();
+    auto* document = viewer->pointCloudDocument();
+    QString error;
+    require(document->load(ply.fileName(), error), qPrintable(error));
+    document->addSurfaces({plane});
+    require(document->selection().regions().size() == 1 && document->sourceUnit() == "m",
+            "fitted metric plane is available to boundary inspection");
+    contextAction(tree, findNode(tree, 1, document->selection().regions().front().id), "inspectCloudRegionBoundaryAction");
+    auto* fit = window.findChild<QPushButton*>("fitCloudContour");
+    auto* create = window.findChild<QPushButton*>("createCloudContourSketch");
+    auto* fitStatus = window.findChild<QLabel*>("cloudContourStatus");
+    auto* tolerance = window.findChild<QDoubleSpinBox*>("cloudContourTolerance");
+    auto* precision = window.findChild<QComboBox*>("cloudContourPrecision");
+    auto* budget = window.findChild<QSpinBox*>("cloudContourEdgeBudget");
+    require(fit && create && fitStatus && tolerance && precision && budget && fit->isEnabled() && !create->isEnabled(),
+            "only explicit fitting is available before preview");
+    require(tolerance->suffix().contains("mm") && tolerance->value() >= .9,
+            "metre observations expose a millimetre fit tolerance");
+    const double standard = tolerance->value();
+    precision->setCurrentIndex(0);
+    require(std::abs(tolerance->value()-2*standard) < .000002, "coarse preset expands the fitting tolerance");
+    tolerance->setValue(1.1);
+    budget->setValue(1);
+    fit->click();
+    require(!fit->isEnabled(), "contour fitting leaves the event loop before publishing");
+    waitForAnalysis(fitStatus);
+    require(!create->isEnabled() && fitStatus->text().contains(QStringLiteral("边数上限")),
+            "edge budget is enforced before sketch submission");
+    budget->setValue(256);
+    fit->click();
+    waitForAnalysis(fitStatus);
+    require(create->isEnabled(), qPrintable(fitStatus->text()));
+    require(boundaryInspectionRenderer(viewer)->GetActors()->GetNumberOfItems() == 5 && fitStatus->text().contains("P95"),
+            "fit overlays the original boundary and publishes diagnostics");
+    tolerance->setValue(1.2);
+    require(!create->isEnabled() && boundaryInspectionRenderer(viewer)->GetActors()->GetNumberOfItems() == 4,
+            "adjusted settings invalidate the previous candidate");
+    fit->click();
+    waitForAnalysis(fitStatus);
+    require(create->isEnabled(), qPrintable(fitStatus->text()));
+
+    auto* model = window.findChild<ModelingController*>();
+    const auto before = model->features().size();
+    create->click();
+    require(model->features().size() == before + 1, "the connected contour generates one editable sketch");
+    const auto sketchId = model->features().back().id;
+    const auto* sketch = model->sketchParams(sketchId);
+    auto* panel = window.findChild<SketchPanel*>();
+    require(sketch && sketch->keepCoincidentEndpoints && panel->hasSketch()
+            && std::abs(std::get<modeling::Plane3d>(sketch->plane).origin.z-12) < 1e-6,
+            "the new sketch opens for editing on the measured, millimetre plane");
+    const auto circle = std::find_if(sketch->entities.begin(), sketch->entities.end(),
+        [](const auto& item) { return std::holds_alternative<modeling::Circle2D>(item.geometry); });
+    require(circle != sketch->entities.end(), "a circular cutout is represented by its radius");
+    const auto circleId = circle->id;
+    const double radius = std::get<modeling::Circle2D>(circle->geometry).radius;
+    panel->selectEntity(circleId);
+    window.findChild<QDoubleSpinBox*>("sketchCircleRadius")->setValue(radius-1);
+    require(std::abs(std::get<modeling::Circle2D>(panel->findEntity(circleId)->geometry).radius-radius+1) < .001,
+            "radius edits flow through the ordinary sketch editor");
+    sketch = model->sketchParams(sketchId);
+    const auto& first = sketch->entities.front();
+    auto line = std::get<modeling::Line2D>(first.geometry);
+    line.x1 += .1; line.y1 += .1;
+    require(model->editSketchEntity(sketchId, first.id, line), "move a shared contour vertex");
+    std::string validation;
+    require(modeling::validateSketch(*model->sketchParams(sketchId), validation), "shared endpoint edit keeps the loop closed");
+    window.findChild<QLineEdit*>("extrudeDepth")->setText("5");
+    window.findChild<QPushButton*>("extrudeButton")->click();
+    require(model->features().size() == before + 2 && !model->bodyShape().IsNull(), "the contour extrudes through the ordinary CAD path");
+    require(model->undo() && model->features().size() == before + 1 && model->redo(), "extrusion can be undone and redone");
+    const auto projectPath = temp.filePath("contour-project.pcad");
+    auto* project = window.findChild<ProjectController*>();
+    require(project->saveTo(projectPath, error) && project->loadFrom(projectPath, error), qPrintable(error));
+    require(model->sketchParams(sketchId)->keepCoincidentEndpoints && !model->bodyShape().IsNull(),
+            "project round trip preserves the contour sketch and extrusion");
+    auto* features = window.findChild<QTreeWidget*>("featureList");
+    for (int i = 0; i < features->topLevelItemCount(); ++i)
+        if (features->topLevelItem(i)->text(0).toULongLong() == sketchId)
+            features->setCurrentItem(features->topLevelItem(i));
+    auto* edit = window.findChild<QPushButton*>("editExistingSketchButton");
+    require(edit && edit->isEnabled(), "the restored sketch has a visible editing entry point");
+    edit->click();
+    require(panel->hasSketch() && panel->findEntity(circleId), "restored sketch reopens with its editable hole");
+    window.findChild<QToolButton*>("exitSketch")->click();
 }
 
 void exportBundle(MainWindow& window,const QString& path)
@@ -653,6 +766,7 @@ int main(int argc, char** argv)
         require(document->sourcePath() == originalPath
                     && document->pointCount() == originalCount,
                 "the original entry restores the source cloud");
+        verifyContourWorkflow(window, viewer, tree, temp);
         viewer->pointCloudDocument()->clear();
         require(!panel->isEnabled() && !relationships->isEnabled(), "clearing cloud disables both point-cloud panels");
         require(document->sourcePath().isEmpty(), "clear resets the shared source identity");

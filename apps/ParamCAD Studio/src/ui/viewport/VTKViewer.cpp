@@ -1,4 +1,5 @@
 #include "ui/viewport/VTKViewer.h"
+#include <vtkMath.h>
 #include <cstdint>
 #include <map>
 #include <set>
@@ -450,7 +451,7 @@ void VTKViewer::clearSketchPlane()
     m_hasSketchPlane = false;
 }
 
-void VTKViewer::alignToSketchPlane(const sketchapp::PlaneFrame& modelFrame)
+void VTKViewer::alignToSketchPlane(const sketchapp::PlaneFrame& modelFrame, bool fitSketch)
 {
     vtkNew<vtkTransform> placement;
     placement->SetMatrix(m_bodyActor.surfaceActor()->GetMatrix());
@@ -460,8 +461,26 @@ void VTKViewer::alignToSketchPlane(const sketchapp::PlaneFrame& modelFrame)
     placement->TransformVector(modelFrame.yDirection, frame.yDirection);
     normalize(frame.normal);
     normalize(frame.yDirection);
-    alignCameraToPlane(m_renderer, frame.origin, frame.normal, frame.yDirection,
-                       kSketchViewDistance, kSketchViewHalfExtent);
+    double halfHeight = kSketchViewHalfExtent;
+    double distance = kSketchViewDistance;
+    const auto* bounds = m_sketchActor.actor()->GetBounds();
+    if (fitSketch && bounds && vtkMath::AreBoundsInitialized(bounds)) {
+        double right[3];
+        vtkMath::Cross(frame.yDirection, frame.normal, right);
+        normalize(right);
+        double width = 0, height = 0;
+        for (int i = 0; i < 8; ++i) {
+            const double offset[]{bounds[i&1]-frame.origin[0],
+                                  bounds[2 + ((i>>1)&1)]-frame.origin[1],
+                                  bounds[4 + ((i>>2)&1)]-frame.origin[2]};
+            width = std::max(width, std::abs(vtkMath::Dot(offset, right)));
+            height = std::max(height, std::abs(vtkMath::Dot(offset, frame.yDirection)));
+        }
+        const double aspect = double(std::max(1, this->width())) / std::max(1, this->height());
+        halfHeight = 1.15 * std::max({width/aspect, height, 1e-3});
+        distance = std::max(distance, 2*halfHeight);
+    }
+    alignCameraToPlane(m_renderer, frame.origin, frame.normal, frame.yDirection, distance, halfHeight);
     renderNow();
 }
 
@@ -1059,7 +1078,7 @@ void VTKViewer::syncPointCloud()
         emit pointCloudVisibilityChanged(false);
     }
     m_renderer->ResetCameraClippingRange();
-    renderNow();
+    requestRender();
 }
 
 bool VTKViewer::hasPointCloud() const noexcept { return m_pointCloudDocument->hasCloud(); }
@@ -1196,7 +1215,7 @@ void VTKViewer::setPointCloudSelectionMode(int mode)
         ? std::clamp(mode, 0, 2) : 0;
     m_pointBox->SetEnabled(m_pointSelectionMode == 2 && !m_boundaryInspectionRenderer);
     emit pointCloudSelectionChanged();
-    renderNow();
+    requestRender();
 }
 
 double VTKViewer::suggestedPointCloudRadius() const
@@ -1221,7 +1240,7 @@ void VTKViewer::resetPointCloudBox()
         }
     }
     m_pointBoxRepresentation->PlaceWidget(bounds);
-    renderNow();
+    requestRender();
 }
 
 void VTKViewer::selectPointCloudBox(bool add)
@@ -1249,6 +1268,7 @@ void VTKViewer::setAutomaticPointCloudSurfaces(bool enabled)
 
 void VTKViewer::refreshPointCloudSurfaceSettings()
 {
+    closeBoundaryInspection();
     m_pointCloudActor.invalidateSurfaceMeshes();
     refreshPointCloudSelection();
 }

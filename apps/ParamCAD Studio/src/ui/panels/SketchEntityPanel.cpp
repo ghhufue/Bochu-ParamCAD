@@ -119,7 +119,7 @@ void SketchEntityPanel::connectField(QDoubleSpinBox* field)
     });
 }
 
-void SketchEntityPanel::setEntity(const modeling::SketchEntity* entity)
+void SketchEntityPanel::setEntity(const modeling::SketchEntity* entity, bool fittedContour)
 {
     if (entity == nullptr) {
         m_currentId = modeling::kInvalidSketchEntityId;
@@ -134,8 +134,12 @@ void SketchEntityPanel::setEntity(const modeling::SketchEntity* entity)
 
     // Filling the fields must not look like a user edit, so every field is
     // blocked while it is being seeded.
-    const auto seed = [](QDoubleSpinBox* field, double value) {
+    const auto seed = [fittedContour](QDoubleSpinBox* field, double value, bool positive = false) {
         const QSignalBlocker blocker(field);
+        field->setDecimals(fittedContour ? 9 : 3);
+        const double limit = fittedContour ? 1e9 : 1000.;
+        const double minimum = fittedContour ? 1e-9 : .001;
+        field->setRange(positive ? minimum : -limit, limit);
         field->setValue(value);
     };
 
@@ -160,8 +164,8 @@ void SketchEntityPanel::setEntity(const modeling::SketchEntity* entity)
         const auto& rectangle = std::get<modeling::Rectangle2D>(entity->geometry);
         seed(m_rectX, rectangle.x);
         seed(m_rectY, rectangle.y);
-        seed(m_rectWidth, rectangle.width);
-        seed(m_rectHeight, rectangle.height);
+        seed(m_rectWidth, rectangle.width, true);
+        seed(m_rectHeight, rectangle.height, true);
         m_stack->setCurrentIndex(3);
         break;
     }
@@ -169,7 +173,7 @@ void SketchEntityPanel::setEntity(const modeling::SketchEntity* entity)
         const auto& circle = std::get<modeling::Circle2D>(entity->geometry);
         seed(m_circleX, circle.x);
         seed(m_circleY, circle.y);
-        seed(m_circleRadius, circle.radius);
+        seed(m_circleRadius, circle.radius, true);
         m_stack->setCurrentIndex(4);
         break;
     }

@@ -15,7 +15,6 @@
 #include "io/PointCloudMetadata.h"
 #include "io/PlyReader.h"
 #include "io/PlyWriter.h"
-#include "io/ReconstructionCache.h"
 #include "ui/panels/ModelingPanel.h"
 #include "ui/panels/CameraPanel.h"
 #include "ui/panels/PropertyPanel.h"
@@ -26,7 +25,6 @@
 #include "ui/panels/ScenePanel.h"
 #include "ui/viewport/VTKViewer.h"
 #include <reconstruction/parts/ProjectionSettings.h>
-#include <reconstruction/settings/ModuleConfig.h>
 
 #include <QAction>
 #include <QApplication>
@@ -35,7 +33,6 @@
 #include <QCryptographicHash>
 #include <QDialogButtonBox>
 #include <QDir>
-#include <QDateTime>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -48,8 +45,6 @@
 #include <QSaveFile>
 #include <QScopeGuard>
 #include <QThread>
-#include <QThreadPool>
-#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <map>
@@ -98,37 +93,6 @@ QByteArray surfaceSupportFingerprint(const PointCloudDocument& document)
     return fingerprint.result();
 }
 
-QByteArray presentationContext(const QString& scope, double tolerance, bool projection = true)
-{
-    try {
-        using namespace reconstruction;
-        QJsonObject context{{"scope", scope}};
-        if (scope == "assembly") {
-            context["assembly"] = QString::fromStdString(serializeAssemblySettings(loadAssemblySettings()));
-            context["projection_enabled"] = projection;
-            if (projection)
-                context["projection"] = QString::fromStdString(serializeProjectionOptions(loadProjectionOptions()));
-        } else {
-            context["fit_tolerance"] = tolerance;
-            context["preprocessing"] = QString::fromStdString(serializePreprocessingSettings(loadPreprocessingSettings()));
-            context["detection"] = QString::fromStdString(serializeDetectionSettings(loadDetectionSettings()));
-            auto analysis = loadAnalysisSettings();
-            // Relation-page tolerances are applied after membership publication.
-            const AnalysisSettings defaults;
-            analysis.relationToleranceDiagonalFraction = defaults.relationToleranceDiagonalFraction;
-            analysis.defaultAngleToleranceDegrees = defaults.defaultAngleToleranceDegrees;
-            context["analysis"] = QString::fromStdString(serializeAnalysisSettings(analysis));
-            auto quotas = RecognitionSettings{};
-            quotas.analysis = loadRecognitionSettings().analysis;
-            context["quotas"] = QString::fromStdString(serializeRecognitionSettings(quotas));
-            context["seed"] = qEnvironmentVariable("PCAD_RANSAC_SEED");
-        }
-        return QJsonDocument(context).toJson(QJsonDocument::Compact);
-    } catch (const std::exception&) {
-        return {};
-    }
-}
-
 QString projectionOperationLabel(modeling::ExtrudeOperation operation)
 {
     using Operation = modeling::ExtrudeOperation;
@@ -153,12 +117,6 @@ PointCloudWorkspaceController::PointCloudWorkspaceController(
 {
     connect(m_cadTask, &CadReconstructionTask::runningChanged, this, [this](bool running) {
         updateCadActions();
-        if (!running && m_guidedQueued) {
-            m_analyseAfterCad = false;
-            m_inferAfterCad = false;
-            QTimer::singleShot(0,this,&PointCloudWorkspaceController::startQueuedReconstruction);
-            return;
-        }
         if (!running && std::exchange(m_analyseAfterCad, false)) startPointCloudAnalysis(0, false);
         if (!running && std::exchange(m_inferAfterCad, false)) startRelationInference(false);
     });
@@ -190,10 +148,14 @@ PointCloudWorkspaceController::PointCloudWorkspaceController(
 
 PointCloudWorkspaceController::~PointCloudWorkspaceController()
 {
-    if (m_presentationThread) {
-        disconnect(m_presentationThread, nullptr, this, nullptr);
-        m_presentationThread->requestInterruption();
-        m_presentationThread->wait();
+    if (m_contourFitThread) {
+        disconnect(m_contourFitThread, nullptr, this, nullptr);
+        m_contourFitThread->requestInterruption();
+        m_contourFitThread->wait();
+    }
+    if (m_importThread) {
+        disconnect(m_importThread, nullptr, this, nullptr);
+        m_importThread->wait();
     }
     if(m_exportThread) {
         disconnect(m_exportThread,nullptr,this,nullptr);
@@ -217,10 +179,8 @@ PointCloudWorkspaceController::~PointCloudWorkspaceController()
 void PointCloudWorkspaceController::connectUi()
 {
     connect(m_modelingController, &ModelingController::modelRebuilt, this, [this] {
-        if (m_modelingController->hasProtectedReconstruction()) {
-            m_guidedQueued = false;
-            if (m_cadTask->isRunning()) m_cadTask->cancel();
-        }
+        if (m_modelingController->hasProtectedReconstruction() && m_cadTask->isRunning())
+            m_cadTask->cancel();
     });
     connect(m_ui.scenePanel, &ScenePanel::nodeVisibilityRequested, this,
             [this](SceneNodeType type, bool visible) {
@@ -236,10 +196,13 @@ void PointCloudWorkspaceController::connectUi()
         m_ui.scenePanel->setNodeState(SceneNodeType::PointCloud, m_document->hasCloud(), visible);
     });
     connect(m_document, &PointCloudDocument::cloudChanged, this, [this] {
-        m_guidedQueued = false;
-        m_presentationContext.clear();
+        ++m_importGeneration;
+        m_pendingImport.clear();
+        m_analyseAfterCad = false;
+        m_inferAfterCad = false;
         m_surfaceAnalysis.reset();
-        QTimer::singleShot(0, this, &PointCloudWorkspaceController::restoreCachedPresentation);
+        m_surfaceSupportReport = {};
+        m_surfaceSupportReportFingerprint.clear();
         clearProjectionDebugResult();
         updateCadActions();
         refreshDownsampleControls();
@@ -252,9 +215,10 @@ void PointCloudWorkspaceController::connectUi()
     connect(m_ui.viewer, &VTKViewer::pointCloudSelectionChanged, this, refreshCloudPanel);
     connect(m_ui.viewer, &VTKViewer::pointCloudLoaded, this, [this, cloudPanel, refreshCloudPanel] {
         if (m_analysisThread) m_analysisThread->requestInterruption();
-        m_ui.relationsPanel->setDefaultTolerances(m_ui.viewer->suggestedPointCloudRadius() / 0.02);
+        const double radius = m_ui.viewer->suggestedPointCloudRadius();
+        m_ui.relationsPanel->setDefaultTolerances(radius / 0.02);
         m_ui.relationsPanel->setStatus(workspaceTr("可识别未归属点，或先在三维视图中手动建立集合。"));
-        cloudPanel->setDefaultRadius(m_ui.viewer->suggestedPointCloudRadius());
+        cloudPanel->setDefaultRadius(radius);
         refreshCloudPanel();
         m_ui.propertyPanel->showPointCloudProperties();
     });
@@ -271,15 +235,12 @@ void PointCloudWorkspaceController::connectUi()
         if (m_document->selection().active(id)) m_document->selectPoint(id);
         else m_ui.relationsPanel->setStatus(workspaceTr("该点 ID 不存在或已删除。"));
     });
-    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::assignRequested, this,
-        [this](const QString& geometry, const QString& name, int target) {
-            if (m_document->assignRegion(geometry, name, target)) requestGuidedReconstruction();
-        });
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::assignRequested,
+        m_document, &PointCloudDocument::assignRegion);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::reconstructRequested,
         this, &PointCloudWorkspaceController::reconstructCad);
-    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::unassignRequested, this, [this] {
-        m_document->unassignSelection(); requestGuidedReconstruction();
-    });
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::unassignRequested,
+        m_document, &PointCloudDocument::unassignSelection);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::saveRequested, this, [this] {
         QString path = QFileDialog::getSaveFileName(m_dialogParent, workspaceTr("保存点云标注"),
             m_document->sourcePath() + QStringLiteral(".regions.json"), workspaceTr("点云标注 (*.json)"));
@@ -304,7 +265,6 @@ void PointCloudWorkspaceController::connectUi()
             return;
         }
         emit logInfo(workspaceTr("点云标注已载入：%1").arg(path));
-        requestGuidedReconstruction();
     });
     refreshCloudPanel();
     const auto refreshRelationships = [this] {
@@ -332,65 +292,57 @@ void PointCloudWorkspaceController::connectUi()
             m_ui.viewer, &VTKViewer::setAutomaticPointCloudSurfaces);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::regionSurfaceDisplayRequested,
             m_ui.viewer, &VTKViewer::setPointCloudRegionSurface);
-    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::boundaryInspectionRequested, this, [this](int id) {
-        const auto* region = m_document->selection().region(id);
-        if (!region) return;
-        const auto counts = m_ui.viewer->inspectPointCloudBoundary(id);
-        if (!counts) {
-            m_ui.relationsPanel->setStatus(workspaceTr("当前平面无法进入边界检查。"));
-            return;
-        }
-        m_ui.relationsPanel->showBoundaryInspection(region->name, counts->points, counts->triangles,
-                                                    counts->outerRings, counts->innerRings);
-    });
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::boundaryInspectionRequested,
+            this, &PointCloudWorkspaceController::inspectCloudBoundary);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::boundaryInspectionLayersChanged,
             m_ui.viewer, &VTKViewer::setBoundaryInspectionLayers);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::boundaryInspectionCloseRequested,
             m_ui.viewer, &VTKViewer::closeBoundaryInspection);
     connect(m_ui.viewer, &VTKViewer::boundaryInspectionClosed,
-            m_ui.relationsPanel, &PointCloudRelationsPanel::clearBoundaryInspection);
+            this, &PointCloudWorkspaceController::closeContourInspection);
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::contourFitSettingsChanged,
+            this, &PointCloudWorkspaceController::invalidateContourPreview);
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::contourFitRequested,
+            this, &PointCloudWorkspaceController::startContourFit);
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::contourSketchRequested,
+            this, &PointCloudWorkspaceController::createContourSketch);
     connect(m_ui.viewer, &VTKViewer::pointCloudSurfaceDisplayChanged, this, [this] {
         m_ui.relationsPanel->setSurfaceDisplayState(m_ui.viewer->availablePointCloudSurfaces(),
                                                    m_ui.viewer->displayedPointCloudSurfaces());
     });
     m_ui.viewer->setAutomaticPointCloudSurfaces(m_ui.relationsPanel->automaticSurfaceDisplay());
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::pointSelected, m_document, &PointCloudDocument::selectPoint);
-    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::editRegionRequested,this,[this](int id,const QString& name,const QString& geometry) {
-        if(m_document->editRegion(id,name,geometry)) requestGuidedReconstruction();
-    });
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::editRegionRequested,
+        m_document, &PointCloudDocument::editRegion);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::appendSelectionRequested, this, [this](int id) {
         const auto* region = m_document->selection().region(id);
-        if (region && m_document->assignRegion(region->geometry, region->name, id)) requestGuidedReconstruction();
+        if (region) m_document->assignRegion(region->geometry, region->name, id);
     });
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::replaceSelectionRequested,this,[this](int id) {
-        m_document->replaceRegionPoints(id); m_document->lockTemplate(id); requestGuidedReconstruction();
+        m_document->replaceRegionPoints(id);
+        m_document->lockTemplate(id);
     });
-    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::removeRegionRequested,this,[this](int id) {
-        m_document->removeRegion(id); requestGuidedReconstruction();
-    });
-    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::deleteRegionPointsRequested, this, [this](int id) {
-        m_document->deleteRegionPoints(id);
-        requestGuidedReconstruction();
-    });
-    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::deleteSelectedPointsRequested, this, [this] {
-        m_document->deleteSelectedPoints();
-        requestGuidedReconstruction();
-    });
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::removeRegionRequested,
+        m_document, &PointCloudDocument::removeRegion);
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::deleteRegionPointsRequested,
+        m_document, &PointCloudDocument::deleteRegionPoints);
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::deleteSelectedPointsRequested,
+        m_document, &PointCloudDocument::deleteSelectedPoints);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::setRelationRequested, this,
         [this](int id, int first, int second, const QString& type) {
             if (!m_document->setRelation(id, first, second, type))
                 m_ui.relationsPanel->setStatus(workspaceTr("关系未保存：端点须为两个非空集合，且不能与现有关系重复。"));
         });
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::removeRelationRequested, m_document, &PointCloudDocument::removeRelation);
-    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::undoRequested, this, [this] {
-        if (m_document->undo()) requestGuidedReconstruction();
-    });
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::undoRequested,
+        m_document, &PointCloudDocument::undo);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::detectRequested, this, [this] { startPointCloudAnalysis(); });
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::cancelCadRequested,
             m_ui.cancelCadAction, &QAction::trigger);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::refitRequested,this,[this](int id) {
         if(!m_document->selection().region(id)) return;
-        m_document->lockTemplate(id); requestGuidedReconstruction();
+        m_document->lockTemplate(id);
+        reconstructCad();
     });
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::inferRequested, this, [this] {
         startRelationInference();
@@ -537,19 +489,74 @@ void PointCloudWorkspaceController::openPointCloud()
         return;
     }
 
-    loadPointCloudFromFile(filePath);
+    importPointCloudFromFile(filePath);
+}
+
+void PointCloudWorkspaceController::importPointCloudFromFile(const QString& filePath)
+{
+    const auto generation = ++m_importGeneration;
+    emit statusMessage(workspaceTr("正在载入点云：%1").arg(QFileInfo(filePath).fileName()), 0);
+    if (m_importThread) {
+        m_pendingImport = filePath;
+        return;
+    }
+
+    struct ImportResult {
+        PointCloudDocument::PreparedCloud cloud;
+        QString error;
+        bool loaded = false;
+    };
+    const auto result = std::make_shared<ImportResult>();
+    auto* thread = QThread::create([filePath, result] {
+        try {
+            result->loaded = PointCloudDocument::prepareLoad(filePath, result->cloud, result->error);
+        } catch (const std::exception& error) {
+            result->error = QString::fromUtf8(error.what());
+        }
+    });
+    m_importThread = thread;
+    thread->setParent(this);
+    updateCadActions();
+    connect(thread, &QThread::finished, this, [this, filePath, generation, result] {
+        m_importThread = nullptr;
+        const auto pending = std::exchange(m_pendingImport, {});
+        if (!pending.isEmpty()) {
+            importPointCloudFromFile(pending);
+            return;
+        }
+        updateCadActions();
+        if (generation != m_importGeneration) return;
+        if (!result->loaded) {
+            reportCloudLoadError(result->error);
+            return;
+        }
+        prepareProjectReplacement();
+        m_document->adoptCloud(std::move(result->cloud));
+        frameImportedCloud(filePath);
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
 }
 
 void PointCloudWorkspaceController::loadPointCloudFromFile(const QString& filePath)
 {
-
     QString error;
     if (!m_document->load(filePath, error)) {
-        emit logError(error);
-        QMessageBox::warning(m_dialogParent, workspaceTr("打开点云"), error);
+        reportCloudLoadError(error);
         return;
     }
+    frameImportedCloud(filePath);
+}
 
+void PointCloudWorkspaceController::reportCloudLoadError(const QString& error)
+{
+    emit logError(error);
+    emit statusMessage(error, 5000);
+    QMessageBox::warning(m_dialogParent, workspaceTr("打开点云"), error);
+}
+
+void PointCloudWorkspaceController::frameImportedCloud(const QString& filePath)
+{
     const QFileInfo info(filePath);
     const int pointCount = m_document->pointCount();
     // A cloud is now in the viewport, so the recognized-model entry becomes
@@ -566,6 +573,7 @@ void PointCloudWorkspaceController::loadPointCloudFromFile(const QString& filePa
                                     m_ui.viewer->cameraParameters().parallelProjection
                                         ? workspaceTr("正交投影") : workspaceTr("透视投影")));
     emit logInfo(workspaceTr("Point cloud loaded from %1: %2 points").arg(info.fileName()).arg(pointCount));
+    emit statusMessage({}, 0);
     m_ui.viewer->setFocus(Qt::OtherFocusReason);
 }
 
@@ -589,7 +597,7 @@ void PointCloudWorkspaceController::refreshDownsampleControls()
 void PointCloudWorkspaceController::applyDownsample(double voxelSizeMm)
 {
     ReconstructPanel* panel = m_ui.propertyPanel->reconstructPanel();
-    if (m_downsampleThread || m_analysisThread || m_cadTask->isRunning() || m_startingCad) return;
+    if (m_importThread || m_downsampleThread || m_analysisThread || m_cadTask->isRunning() || m_startingCad) return;
     const QString active = m_document->sourcePath();
     if (active.isEmpty() || !m_document->hasCloud()) {
         panel->setDownsampleStatus(workspaceTr("当前没有可降采样的点云。"));
@@ -650,9 +658,6 @@ void PointCloudWorkspaceController::applyDownsample(double voxelSizeMm)
             m_downsampleThread = nullptr;
             panel->setDownsampleBusy(false);
             updateCadActions();
-            const auto resume = qScopeGuard([this] {
-                if (m_guidedQueued) QTimer::singleShot(0, this, &PointCloudWorkspaceController::startQueuedReconstruction);
-            });
             if (result->cancelled || thread->isInterruptionRequested() || m_document->revision() != revision) {
                 panel->setDownsampleStatus(workspaceTr("点云已修改或任务已取消，本轮降采样未应用。"));
                 return;
@@ -837,7 +842,7 @@ void PointCloudWorkspaceController::startProjectionDebug(reconstruction::Project
 
 void PointCloudWorkspaceController::startCadReconstruction(bool projectionFallback)
 {
-    if (m_cadTask->isRunning() || m_startingCad || m_analysisThread || m_downsampleThread) return;
+    if (m_importThread || m_cadTask->isRunning() || m_startingCad || m_analysisThread || m_downsampleThread) return;
     if (m_document->sourcePath().isEmpty()) {
         emit logWarning(workspaceTr("Load a point cloud before reconstructing a model."));
         emit statusMessage(workspaceTr("尚未载入点云"), 3500);
@@ -915,50 +920,26 @@ void PointCloudWorkspaceController::startCadReconstruction(bool projectionFallba
         for(auto id:m_document->selection().regionPoints(relation.second)) if(pointIds.count(id)) hint.secondPoints.push_back(pointIds.at(id));
         relations.push_back(std::move(hint));
     }
-    m_cadSurfaceContext = presentationContext("cad_surface", m_ui.relationsPanel->surfaceTolerance());
-    m_cadAssemblyContext = presentationContext("assembly", 0, projectionFallback);
     m_cadTask->start(std::move(cloud), *sourceUnit, std::move(hints),
                      m_ui.relationsPanel->surfaceTolerance(), m_surfaceAnalysis,std::move(relations),projectionFallback);
     emit logInfo(workspaceTr("仅点云重建：使用观测坐标、法向、单位和用户模板，不读取源模型或面对应表。"));
-}
-
-void PointCloudWorkspaceController::requestGuidedReconstruction()
-{
-    m_analyseAfterCad = false;
-    if (m_cadTask->isRunning()) m_cadTask->cancel();
-    if (m_analysisThread) m_analysisThread->requestInterruption();
-    if (m_modelingController->hasProtectedReconstruction()) {
-        m_guidedQueued = false;
-        m_ui.relationsPanel->setStatus(workspaceTr("模板已保存；CAD 包含手动修改，自动重建已暂停。点击「重建 CAD」可明确替换。"));
-        return;
-    }
-    if (cloudUnit(*m_document) == reconstruction::LengthUnit::Arbitrary) {
-        m_guidedQueued = false;
-        m_ui.relationsPanel->setStatus(workspaceTr("模板已保存。点云尺度未知，请点击「重建 CAD」确认尺度后继续。"));
-        return;
-    }
-    m_guidedQueued = true;
-    startQueuedReconstruction();
-}
-
-void PointCloudWorkspaceController::startQueuedReconstruction()
-{
-    if (!m_guidedQueued || m_cadTask->isRunning() || m_analysisThread || m_downsampleThread || m_startingCad) return;
-    m_guidedQueued = false;
-    if (m_modelingController->hasProtectedReconstruction()) return;
-    if (m_document->hasCloud()) reconstructCad();
 }
 
 void PointCloudWorkspaceController::cancelCadReconstruction()
 {
     if (m_downsampleThread) m_downsampleThread->requestInterruption();
     if (m_analysisThread) m_analysisThread->requestInterruption();
-    m_guidedQueued = false;
     m_cadTask->cancel();
 }
 
 void PointCloudWorkspaceController::prepareProjectReplacement()
 {
+    m_ui.viewer->closeBoundaryInspection();
+    if (m_importThread) {
+        ++m_importGeneration;
+        m_pendingImport.clear();
+        emit statusMessage({}, 0);
+    }
     if (m_downsampleThread) m_downsampleThread->requestInterruption();
     m_analyseAfterCad = false;
     m_inferAfterCad = false;
@@ -1026,7 +1007,7 @@ void PointCloudWorkspaceController::startAnalysisExportTo(const QString& path)
 void PointCloudWorkspaceController::updateCadActions()
 {
     const bool running = m_cadTask->isRunning();
-    const bool busy = running || m_startingCad || m_analysisThread || m_downsampleThread;
+    const bool busy = running || m_startingCad || m_analysisThread || m_downsampleThread || m_importThread;
     m_ui.reconstructCadAction->setText(workspaceTr("重建 CAD"));
     m_ui.reconstructCadAction->setToolTip(workspaceTr("仅使用点云的位置、法向和用户模板拟合 CAD，不读取源模型或拓扑对应表。"));
     m_ui.reconstructCadAction->setEnabled(!busy && m_document->hasCloud()
@@ -1259,8 +1240,6 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
             if(!group.points.empty())groups.push_back(std::move(group));if(part.closed)++closed;
         }
         m_document->replacePartCandidates(groups,false);
-        m_presentationContext = m_cadAssemblyContext;
-        m_presentationAssembly = true;
         m_inferAfterCad = !groups.empty();
         std::map<size_t,int> regionIds;
         for(const auto& region:m_document->selection().regions())if(region.geometry=="part")
@@ -1279,9 +1258,6 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
         if (!result.sourceSurfacePreviewError.isEmpty()) emit logWarning(result.sourceSurfacePreviewError);
         if(!surfaces.empty()) {
             m_document->replacePartCandidates(surfaces,false);
-            // Use the validated source presentation for disk restoration.
-            m_presentationContext = result.sourceSurfacePreview ? m_cadSurfaceContext : QByteArray{};
-            m_presentationAssembly = false;
             m_inferAfterCad = true;
             if (result.sourceSurfacePreview) {
                 const auto report = [](const auto& r) {
@@ -1382,7 +1358,6 @@ void PointCloudWorkspaceController::startPointCloudAnalysis(int regionId, bool r
     if (cloud.positions.size() < 20) { m_ui.relationsPanel->setStatus(workspaceTr("至少需要 20 个有效点进行识别。")); return; }
     const quint64 revision = m_document->revision();
     const double tolerance = m_ui.relationsPanel->surfaceTolerance();
-    const auto context = regionId ? QByteArray{} : presentationContext("detect", tolerance);
     auto result = std::make_shared<PointCloudAnalysisResult>();
     m_ui.relationsPanel->setStatus(regionId ? workspaceTr("正在后台重拟合集合…") : workspaceTr("正在后台识别表面，并映射回原始点…"));
     const auto sourceUnit=cloudUnit(*m_document);
@@ -1394,7 +1369,7 @@ void PointCloudWorkspaceController::startPointCloudAnalysis(int regionId, bool r
     auto* thread = m_analysisThread;
     thread->setParent(this);
     updateCadActions();
-    connect(thread, &QThread::finished, this, [this, thread, result, revision, regionId, recordUndo, context, count = cloudCount] {
+    connect(thread, &QThread::finished, this, [this, thread, result, revision, regionId, recordUndo, count = cloudCount] {
         m_analysisThread = nullptr;
         bool continuing=false;
         const auto finishCommand=qScopeGuard([&] {
@@ -1402,7 +1377,6 @@ void PointCloudWorkspaceController::startPointCloudAnalysis(int regionId, bool r
                 result->error.isEmpty()?QStringLiteral("Surface analysis was cancelled, stale or unsupported"):result->error);
         });
         updateCadActions();
-        if(m_guidedQueued) { startQueuedReconstruction(); return; }
         if (thread->isInterruptionRequested()) {
             m_ui.relationsPanel->setStatus(workspaceTr("识别已取消。"));return;
         }
@@ -1413,8 +1387,6 @@ void PointCloudWorkspaceController::startPointCloudAnalysis(int regionId, bool r
         if (!regionId) m_surfaceAnalysis = result->analysis;
         if(!regionId) {
             m_document->addSurfaces(result->surfaces, recordUndo);
-            m_presentationContext = context;
-            m_presentationAssembly = false;
             const auto report=[](const auto& r){return QJsonDocument::fromJson(QByteArray::fromStdString(reconstruction::serializeSurfaceSupportReport(r))).object();};
             m_surfaceSupportReport={{"version",1},{"scope","detection_active_subset"},
                 {"before_ownership",report(result->sourceSupportValidation)},{"after_ownership",report(result->finalSupportValidation)}};
@@ -1469,7 +1441,6 @@ void PointCloudWorkspaceController::startRelationInference(bool recordUndo)
                 {{"surface_count",qint64(m_document->selection().regions().size())},
                  {"relation_count",qint64(m_document->selection().relations().size())}});
         });
-        if (m_guidedQueued) { startQueuedReconstruction();return; }
         if (thread->isInterruptionRequested() || m_document->revision()!=revision ||
             tolerance!=m_ui.relationsPanel->relationTolerance() || angle!=m_ui.relationsPanel->angleTolerance()) {
             m_ui.relationsPanel->setStatus(workspaceTr("点云或容差已修改，本轮自动关系未应用。"));return;
@@ -1478,7 +1449,6 @@ void PointCloudWorkspaceController::startRelationInference(bool recordUndo)
             m_ui.relationsPanel->setStatus(QString::fromStdString(result->error));return;
         }
         m_document->applyInferredRelations(result->relations, recordUndo);
-        saveCachedPresentation();
         applied=true;
         m_ui.relationsPanel->setStatus(workspaceTr("已按当前容差更新自动关系。手动关系与已删除的关系记录保持有效。"));
     });
@@ -1486,100 +1456,3 @@ void PointCloudWorkspaceController::startRelationInference(bool recordUndo)
     m_ui.relationsPanel->setStatus(workspaceTr("正在后台推断曲面关系…"));
     updateCadActions();thread->start();
 }
-
-void PointCloudWorkspaceController::restoreCachedPresentation()
-{
-    if (!m_document->hasCloud() || !m_document->selection().regions().empty() ||
-        m_analysisThread || m_downsampleThread || m_startingCad || m_cadTask->isRunning() ||
-        !ReconstructionCache().enabled()) return;
-    if (m_presentationThread) {
-        m_presentationPending = true;
-        return;
-    }
-    const auto revision = m_document->revision();
-    const auto unit = cloudUnit(*m_document);
-    const double tolerance = m_ui.relationsPanel->surfaceTolerance();
-    const std::array<std::pair<QByteArray, bool>, 4> contexts{{
-        {presentationContext("detect", tolerance), false},
-        {presentationContext("cad_surface", tolerance), false},
-        {presentationContext("assembly", 0, true), true},
-        {presentationContext("assembly", 0, false), true}
-    }};
-    struct Presentation {
-        QJsonObject data;
-        QByteArray context;
-        bool assembly = false;
-    };
-    auto restored = std::make_shared<Presentation>();
-    auto* thread = QThread::create([cloud = m_document->workingCloud(), unit, contexts, restored] {
-        const auto cancelled = [] { return QThread::currentThread()->isInterruptionRequested(); };
-        try {
-            ReconstructionCache cache(cancelled);
-            const auto source = PointCloudAdapter::toPointStore(cloud, unit);
-            for (const auto& [context, assembly] : contexts) {
-                if (cancelled()) return;
-                if (context.isEmpty()) continue;
-                const auto key = ReconstructionCache::presentationKey(source, context, assembly);
-                auto snapshot = QJsonDocument::fromJson(cache.readPresentation(key)).object();
-                if (snapshot["saved_at"].toInteger() > restored->data["saved_at"].toInteger() &&
-                    snapshot["annotations"].isObject())
-                    *restored = {std::move(snapshot), context, assembly};
-            }
-        } catch (const std::exception&) {
-            // The point cloud remains available if the cache cannot be read.
-        }
-    });
-    m_presentationThread = thread;
-    thread->setParent(this);
-    connect(thread, &QThread::finished, this, [this, thread, restored, revision, tolerance] {
-        m_presentationThread = nullptr;
-        const auto pending = qScopeGuard([this] {
-            if (std::exchange(m_presentationPending, false)) restoreCachedPresentation();
-        });
-        if (thread->isInterruptionRequested() || restored->data.isEmpty() ||
-            m_document->revision() != revision || m_ui.relationsPanel->surfaceTolerance() != tolerance ||
-            m_analysisThread || m_downsampleThread || m_cadTask->isRunning() || m_startingCad) return;
-        auto annotations = restored->data["annotations"].toObject();
-        const bool relationSettingsMatch =
-            restored->data["relation_tolerance"].toDouble(-1) == m_ui.relationsPanel->relationTolerance() &&
-            restored->data["angle_tolerance"].toDouble(-1) == m_ui.relationsPanel->angleTolerance();
-        if (!relationSettingsMatch) annotations["relations"] = QJsonArray{};
-        QString error;
-        if (!m_document->restoreAutomaticAnnotations(annotations, error)) return;
-        m_presentationContext = restored->context;
-        m_presentationAssembly = restored->assembly;
-        m_surfaceSupportReport = restored->data["support"].toObject();
-        if (!m_surfaceSupportReport.isEmpty()) m_surfaceSupportReportFingerprint = surfaceSupportFingerprint(*m_document);
-        emit logInfo(workspaceTr("Restored %1 point-cloud collections from cache")
-            .arg(m_document->selection().regions().size()));
-        m_ui.relationsPanel->setStatus(workspaceTr("已从缓存恢复点云集合和关系。"));
-        if (!relationSettingsMatch) startRelationInference(false);
-    });
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
-}
-
-void PointCloudWorkspaceController::saveCachedPresentation()
-{
-    if (m_presentationContext.isEmpty() || !ReconstructionCache().enabled()) return;
-    auto annotations = m_document->selection().automaticAnnotations();
-    if (annotations.isEmpty()) return;
-    const bool supportCurrent = !m_surfaceSupportReport.isEmpty() &&
-        m_surfaceSupportReportFingerprint == surfaceSupportFingerprint(*m_document);
-    QJsonObject snapshot{{"annotations", std::move(annotations)},
-        {"saved_at", QDateTime::currentMSecsSinceEpoch()},
-        {"relation_tolerance", m_ui.relationsPanel->relationTolerance()},
-        {"angle_tolerance", m_ui.relationsPanel->angleTolerance()}};
-    if (supportCurrent) snapshot["support"] = m_surfaceSupportReport;
-    QThreadPool::globalInstance()->start([cloud = m_document->workingCloud(), unit = cloudUnit(*m_document),
-        context = m_presentationContext, assembly = m_presentationAssembly, snapshot = std::move(snapshot)] {
-        try {
-            const auto source = PointCloudAdapter::toPointStore(cloud, unit);
-            const auto key = ReconstructionCache::presentationKey(source, context, assembly);
-            ReconstructionCache().writePresentation(key, QJsonDocument(snapshot).toJson(QJsonDocument::Compact));
-        } catch (const std::exception&) {
-            // Caching is optional for a result already published to the document.
-        }
-    });
-}
-

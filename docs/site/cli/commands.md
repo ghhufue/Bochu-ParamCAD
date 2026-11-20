@@ -67,7 +67,7 @@ pcad reconstruct cad --offline --in cloud.ply --unit mm --output outputs/cad-new
 
 Studio 和原生 pcad 共享本地应用缓存。报告的 `cache` 对象列出本次查询阶段及其命中、未命中或绕过情况。缓存键绑定实际观测和生效设置，包含阶段实现与数据格式版本。装配按提取分组、边界准备、闭合和投影保存，单独修改投影参数可以复用前面的结果。开放部件及其诊断也可以复用。
 
-测试时可在启动进程前设置 `PCAD_CACHE_DIR`，把缓存放到独立目录。设置 `PCAD_DISABLE_CACHE=1` 可绕过缓存进行对照。缓存不会替代 PCAD 工程保存，在线重开点云只恢复匹配的自动集合与关系。
+测试时可在启动进程前设置 `PCAD_CACHE_DIR`，把缓存放到独立目录。设置 `PCAD_DISABLE_CACHE=1` 可绕过缓存进行对照。打开 PLY 时只载入点云。主动执行表面识别或 CAD 重建时可复用匹配的计算缓存。保存并重开 PCAD 工程可恢复工程中的集合、关系和 CAD 模型。
 
 ## 图片重建
 

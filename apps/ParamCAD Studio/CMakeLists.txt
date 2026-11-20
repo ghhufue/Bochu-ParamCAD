@@ -239,6 +239,7 @@ qt_add_executable(CadPointCloudClient WIN32
     src/app/SketchWorkspaceController.cpp
     src/app/PointCloudWorkspaceController.h
     src/app/PointCloudWorkspaceController.cpp
+    src/app/PointCloudWorkspaceContour.cpp
     src/app/ProjectionDebugReport.cpp
     src/ui/HyperparameterSettings.cpp
     src/ui/panels/ProjectionSketchPanel.cpp
@@ -380,6 +381,7 @@ add_dependencies(CadPointCloudClient paramcad_build_info)
 target_link_directories(CadPointCloudClient PRIVATE ${OpenCASCADE_LIBRARY_DIR})
 target_link_libraries(CadPointCloudClient PRIVATE
     ParamCADSurfaceMeshing
+    ContourFitting::ContourFitting
     ParamCADCapture
     ParamCADReconstructionCache
     Qt6::Core
@@ -464,7 +466,8 @@ if(CAD_CLIENT_BUILD_CAPTURE_TESTS)
     add_executable(structured_light_client_test tests/structured_light_client_test.cpp ${CAPTURE_CLIENT_TEST_SOURCES})
     target_include_directories(structured_light_client_test PRIVATE src)
     target_link_directories(structured_light_client_test PRIVATE ${OpenCASCADE_LIBRARY_DIR})
-    target_link_libraries(structured_light_client_test PRIVATE ParamCADCapture Qt6::Core Qt6::Gui Qt6::Widgets
+    target_link_libraries(structured_light_client_test PRIVATE ParamCADCapture ParamCADSurfaceMeshing
+        ContourFitting::ContourFitting Qt6::Core Qt6::Gui Qt6::Widgets
         ${VTK_LIBRARIES} CadModelCore::CadModelCore GeometricReconstruction::GeometricReconstruction
         TKDE TKXSBase TKDESTEP TKMesh)
     vtk_module_autoinit(TARGETS structured_light_client_test MODULES ${VTK_LIBRARIES})
@@ -732,6 +735,7 @@ if(CAD_CLIENT_BUILD_TESTS)
         target_link_directories(${interaction_test} PRIVATE ${OpenCASCADE_LIBRARY_DIR})
         target_link_libraries(${interaction_test} PRIVATE
             ParamCADSurfaceMeshing
+            ContourFitting::ContourFitting
             ParamCADCapture ParamCADReconstructionCache Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network ${VTK_LIBRARIES}
             CadModelCore::CadModelCore GeometricReconstruction::GeometricReconstruction
             TKDE TKXSBase TKDESTEP TKMesh)

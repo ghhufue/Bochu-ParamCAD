@@ -10,7 +10,15 @@ class PointCloudDocument final : public QObject
 {
     Q_OBJECT
 public:
+    struct PreparedCloud {
+        PointCloudSelection selection;
+        QString path;
+        QString unit;
+    };
+
     explicit PointCloudDocument(QObject* parent = nullptr);
+    static bool prepareLoad(const QString& path, PreparedCloud& prepared, QString& error);
+    void adoptCloud(PreparedCloud&& prepared);
     bool load(const QString& path, QString& error);
     void clear();
     void adoptProject(PointCloudDocument&& prepared);

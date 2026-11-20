@@ -1,5 +1,9 @@
 function(add_reconstruction_boundary_tests)
     set(reconstruction_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/..")
+    add_executable(contour_parameterization_test
+        "${reconstruction_root}/src/contour_fitting/tests/ContourParameterizationTest.cpp")
+    target_link_libraries(contour_parameterization_test PRIVATE ContourFitting::ContourFitting)
+    add_test(NAME contour_parameterization_test COMMAND contour_parameterization_test)
     add_executable(surface_ownership_test "${reconstruction_root}/tests/surface/surface_ownership_test.cpp")
     target_link_libraries(surface_ownership_test PRIVATE GeometricReconstruction::Surfaces)
     set_target_properties(surface_ownership_test PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)

@@ -387,6 +387,28 @@ bool PartDocument::editSketchEntity(
         lastError_ = "Sketch entity " + std::to_string(entityId) + " was not found";
         return false;
     }
+    if (params->keepCoincidentEndpoints) {
+        const auto* oldLine = std::get_if<Line2D>(&iterator->geometry);
+        const auto* newLine = std::get_if<Line2D>(&geometry);
+        if (oldLine && newLine) {
+            const auto moveEndpoint = [&](double& x, double& y) {
+                if (x == oldLine->x1 && y == oldLine->y1) {
+                    x = newLine->x1;
+                    y = newLine->y1;
+                } else if (x == oldLine->x2 && y == oldLine->y2) {
+                    x = newLine->x2;
+                    y = newLine->y2;
+                }
+            };
+            for (auto& neighbor : params->entities) {
+                if (neighbor.id == entityId) continue;
+                if (auto* line = std::get_if<Line2D>(&neighbor.geometry)) {
+                    moveEndpoint(line->x1, line->y1);
+                    moveEndpoint(line->x2, line->y2);
+                }
+            }
+        }
+    }
     iterator->geometry = geometry;
     feature->valid = true;
     feature->errorText.clear();
