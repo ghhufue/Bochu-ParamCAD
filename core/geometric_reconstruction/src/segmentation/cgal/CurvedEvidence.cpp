@@ -17,39 +17,51 @@ bool makeSphereEvidence(
         return false;
     }
 
-    std::vector<std::size_t> support;
-    support.reserve(shape.indices_of_assigned_points().size());
-    for (const std::size_t index : shape.indices_of_assigned_points()) {
-        const modeling::Vec3 radial = math3::subtract(
-            toVec3(std::get<0>(input[index])), sphere.center);
-        const double distance = math3::length(radial);
-        if (distance <= 1.0e-12) {
-            continue;
+    const auto& assigned = shape.indices_of_assigned_points();
+    const auto inliers = [&](const SphereEquation& candidate) {
+        std::vector<std::size_t> support;
+        support.reserve(assigned.size());
+        for (auto index : assigned) {
+            const auto radial = math3::subtract(toVec3(std::get<0>(input[index])), candidate.center);
+            const double distance = math3::length(radial);
+            if (distance <= 1e-12 || std::abs(distance - candidate.radius) > options.distanceThreshold)
+                continue;
+            const auto normal = toVec3(std::get<1>(input[index]));
+            if (std::abs(math3::dot(normal, radial)) >= options.minimumNormalAlignment * distance)
+                support.push_back(index);
         }
-        const modeling::Vec3 radialDirection =
-            math3::scale(radial, 1.0 / distance);
-        const modeling::Vec3 normal = math3::normalized(
-            toVec3(std::get<1>(input[index])));
-        if (std::abs(distance - sphere.radius) <=
-                options.distanceThreshold &&
-            std::abs(math3::dot(normal, radialDirection)) >=
-                options.minimumNormalAlignment) {
-            support.push_back(index);
-        }
-    }
-    if (support.size() < options.minimumSupportPoints) {
-        return false;
-    }
+        return support;
+    };
+    auto support = inliers(sphere);
+    if (support.size() < options.minimumSupportPoints) return false;
 
-    double radiusSum = 0.0;
-    for (const std::size_t index : support) {
-        radiusSum += math3::length(math3::subtract(
-            toVec3(std::get<0>(input[index])), sphere.center));
-    }
-    sphere.radius = radiusSum / static_cast<double>(support.size());
-    if (sphere.radius < options.minimumRadius ||
-        sphere.radius > options.maximumRadius) {
-        return false;
+    // Refine the center as well as the radius using geometric residuals. A
+    // poorly conditioned patch keeps its RANSAC seed rather than drifting.
+    for (int iteration = 0; iteration < 5; ++iteration) {
+        Eigen::Matrix4d system = Eigen::Matrix4d::Zero();
+        Eigen::Vector4d rhs = Eigen::Vector4d::Zero();
+        for (auto index : support) {
+            const auto radial = math3::subtract(toVec3(std::get<0>(input[index])), sphere.center);
+            const double distance = math3::length(radial);
+            const double residual = distance - sphere.radius;
+            const Eigen::Vector4d row(radial.x / distance, radial.y / distance, radial.z / distance, 1);
+            const double weight = 1 / std::hypot(1., 2 * residual / options.distanceThreshold);
+            system.noalias() += weight * row * row.transpose();
+            rhs.noalias() += weight * residual * row;
+        }
+        const auto decomposition = system.fullPivLu();
+        if (decomposition.rcond() < 1e-10) break;
+        const Eigen::Vector4d step = decomposition.solve(rhs);
+        if (!step.allFinite() || step.norm() > sphere.radius * .25) break;
+        SphereEquation candidate{math3::add(sphere.center, {step.x(), step.y(), step.z()}),
+                                 sphere.radius + step.w()};
+        if (candidate.radius <= 1e-12 || candidate.radius < options.minimumRadius ||
+            candidate.radius > options.maximumRadius) break;
+        auto improved = inliers(candidate);
+        if (improved.size() < options.minimumSupportPoints || improved.size() < .95 * support.size()) break;
+        sphere = candidate;
+        support = std::move(improved);
+        if (step.norm() < options.distanceThreshold * 1e-4) break;
     }
 
     evidence = {};

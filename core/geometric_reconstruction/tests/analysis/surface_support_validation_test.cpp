@@ -1,4 +1,5 @@
 #include "reconstruction/surface/SurfaceSupportValidation.h"
+#include "reconstruction/surface/SurfaceOwnership.h"
 #include "reconstruction/settings/ModuleConfig.h"
 #include <cmath>
 #include <algorithm>
@@ -67,6 +68,57 @@ void spheres() {
     for(int i=0;i<20;++i){PointSample p;p.position={0,0,0};centers.add(p,invalid.supportPointIds);}centers.evidence.emplace_back(invalid);
     const auto degenerate=run(centers,accepted);
     require(accepted.empty() && !degenerate.decisions.empty(),"sphere-center observations are rejected without undefined radial normalization");
+}
+void recoversSphereFromPlaneFragments() {
+    Fixture fixture;
+    constexpr double radius = 15;
+    for (int xSign : {-1, 1}) for (int ySign : {-1, 1}) {
+        PlaneEvidence plane;
+        const double length = std::hypot(.18, .18, 1.);
+        plane.plane = {{xSign * .18 / length, ySign * .18 / length, 1 / length}, -radius};
+        for (int x = 0; x < 10; ++x) for (int y = 0; y < 10; ++y) {
+            const double u = xSign * (.018 + .036 * x), v = ySign * (.018 + .036 * y);
+            const double scale = 1 / std::hypot(u, v, 1.);
+            const modeling::Vec3 outward{u * scale, v * scale, scale};
+            PointSample point;
+            point.position = {radius * outward.x, radius * outward.y, radius * outward.z};
+            point.normal = (x + y) % 5 ? modeling::Vec3{-outward.x, -outward.y, -outward.z} : outward;
+            point.normalOrientationKnown = true;
+            fixture.add(point, plane.supportPointIds);
+        }
+        fixture.evidence.push_back(std::move(plane));
+    }
+    const PointStore points(fixture.points);
+    SurfaceAnalysisOptions options;
+    options.detection.plane.distanceThreshold = .55;
+    options.detection.sphere.distanceThreshold = .55;
+    options.detection.cone.distanceThreshold = .55;
+    options.detection.detectCylinders = options.detection.detectTori = false;
+    SurfaceAnalysisResult fixed, recovered;
+    std::string error;
+    require(indexSurfaceEvidence(points, fixture.evidence, options, fixed, error), error.c_str());
+    require(fixed.surfaces.size() == 4, "local recovery fixture contains four supported plane fragments");
+    require(indexDetectedSurfaceEvidence(points, fixture.evidence, options, recovered, error), error.c_str());
+    const auto sphere = std::find_if(recovered.surfaces.begin(), recovered.surfaces.end(), [](const auto& surface) {
+        return primitiveKind(surface) == PrimitiveKind::Sphere;
+    });
+    require(sphere != recovered.surfaces.end(), "adjacent fragments recover a sphere with mixed normal signs");
+    const auto& fit = std::get<SphereEvidence>(*sphere);
+    require(std::abs(fit.sphere.radius - radius) < 1e-6 &&
+        fit.supportPointIds.size() == points.size(), "one sphere recovers the original observations across all fragments");
+    for (std::size_t i = 0; i < points.size(); ++i)
+        require(points.points()[i].normal->z == fixture.points[i].normal->z, "recovery preserves source normal orientation");
+
+    // The working cloud can already have a partial sphere when the
+    // full-resolution recovery sees the same geometry again.
+    SphereEvidence partial = fit;
+    partial.supportPointIds.resize(300);
+    fixture.evidence.push_back(std::move(partial));
+    require(indexDetectedSurfaceEvidence(points, fixture.evidence, options, recovered, error), error.c_str());
+    SurfaceOwnershipResult ownership;
+    require(resolveSurfaceOwnership(points, recovered, {.55, 1.65, true}, ownership, error), error.c_str());
+    require(ownership.surfaces.size() == 1 && std::get<SphereEvidence>(ownership.surfaces.front()).supportPointIds.size() ==
+        points.size(), "working and full-resolution evidence produce one owned sphere");
 }
 void cones() {
     for (bool shallow:{false,true}) {
@@ -289,4 +341,4 @@ void parallelMatchesSerial() {
         "cancelled verification publishes no partial state");
 }
 }
-int main(){try{densityAndModes();cylinder(false);cylinder(true);spheres();cones();transactionAndSettings();heterogeneousReference();invalidRing();footprintsKeepHolesAndStrips();repeatedPlaneSamplingPreservesOpenings();irregularPlaneSamplingDoesNotInventSupport();revalidationRetainsFullResolutionSurfaceIndex();disconnectedDomainMembership();parallelMatchesSerial();std::cout<<"surface_support_validation_test passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{densityAndModes();cylinder(false);cylinder(true);spheres();recoversSphereFromPlaneFragments();cones();transactionAndSettings();heterogeneousReference();invalidRing();footprintsKeepHolesAndStrips();repeatedPlaneSamplingPreservesOpenings();irregularPlaneSamplingDoesNotInventSupport();revalidationRetainsFullResolutionSurfaceIndex();disconnectedDomainMembership();parallelMatchesSerial();std::cout<<"surface_support_validation_test passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

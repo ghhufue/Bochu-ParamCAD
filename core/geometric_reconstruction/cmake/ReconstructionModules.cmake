@@ -29,6 +29,7 @@ set(RECONSTRUCTION_SURFACES_SOURCES
     src/surface/AnalysisSnapshot.cpp
     src/surface/RepairSnapshot.cpp
     src/surface/LocalRecovery.cpp
+    src/surface/CurvedFragmentRecovery.cpp
     src/surface/RelationOptimization.cpp
     src/surface/SurfaceFootprint.cpp
     src/surface/SurfaceSupportValidation.cpp

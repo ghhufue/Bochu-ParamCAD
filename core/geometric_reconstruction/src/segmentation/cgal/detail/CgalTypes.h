@@ -9,12 +9,12 @@
 #include <CGAL/Shape_detection/Efficient_RANSAC/Efficient_RANSAC.h>
 #include <CGAL/Shape_detection/Efficient_RANSAC/Efficient_RANSAC_traits.h>
 #include <CGAL/Shape_detection/Efficient_RANSAC/Plane.h>
-#include <CGAL/Shape_detection/Efficient_RANSAC/Sphere.h>
 #include <CGAL/Shape_detection/Efficient_RANSAC/Torus.h>
 #include <CGAL/number_utils.h>
 #include <CGAL/property_map.h>
 #include <CGAL/Random.h>
 #include "StableCone.h"
+#include "StableSphere.h"
 
 #include <algorithm>
 #include <array>
@@ -42,7 +42,7 @@ using Traits = CGAL::Shape_detection::Efficient_RANSAC_traits<
 using Ransac = CGAL::Shape_detection::Efficient_RANSAC<Traits>;
 using CgalPlane = CGAL::Shape_detection::Plane<Traits>;
 using CgalCylinder = CGAL::Shape_detection::Cylinder<Traits>;
-using CgalSphere = CGAL::Shape_detection::Sphere<Traits>;
+using CgalSphere = StableSphere<Traits>;
 using CgalCone = StableCone<Traits>;
 using CgalTorus = CGAL::Shape_detection::Torus<Traits>;
 

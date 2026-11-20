@@ -168,7 +168,7 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
         result.error=QString::fromStdString(error);return result;
     }
     reconstruction::SurfaceAnalysisResult displayAnalysis;
-    if(!reconstruction::indexSurfaceEvidence(source,displayEvidence,analysisOptions,displayAnalysis,error,{},cancelled)) {
+    if(!reconstruction::indexDetectedSurfaceEvidence(source,displayEvidence,analysisOptions,displayAnalysis,error,{},cancelled)) {
         result.error=QString::fromStdString(error);return result;
     }
     result.sourceSupportValidation=displayAnalysis.supportValidation;

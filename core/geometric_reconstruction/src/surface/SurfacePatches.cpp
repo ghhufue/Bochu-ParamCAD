@@ -132,19 +132,44 @@ bool inferPatchRelations(const PointStore& points, const SurfaceAnalysisResult& 
     return inferIndexedRelations(points, index, output, error);
 }
 
-bool indexSurfaceEvidence(const PointStore& points, const std::vector<PrimitiveEvidence>& evidence,
+namespace {
+bool indexEvidence(const PointStore& points, const std::vector<PrimitiveEvidence>& evidence,
     const SurfaceAnalysisOptions& options, SurfaceAnalysisResult& output, std::string& error,
-    const std::vector<PointId>& protectedIds,const std::function<bool()>& cancelled,
-    const SurfaceSamplingReference* frozenReference) {
-    std::vector<PrimitiveEvidence> accepted;SurfaceSupportValidationReport report;
-    if(!validateSurfaceSupport(points,evidence,options,accepted,report,error,frozenReference,cancelled,protectedIds))return false;
-    std::vector<SurfaceId> origins;for(const auto& e:accepted)origins.push_back(std::visit([](const auto& s){return s.id;},e));
+    const std::vector<PointId>& protectedIds, const std::function<bool()>& cancelled,
+    const SurfaceSamplingReference* frozenReference, bool detected) {
+    std::vector<PrimitiveEvidence> accepted;
+    SurfaceSupportValidationReport report;
+    auto proposals = evidence;
+    const bool validated = detected ?
+        validateDetectedSurfaceSupport(points, proposals, options, accepted, report, error, protectedIds, cancelled) :
+        validateSurfaceSupport(points, proposals, options, accepted, report, error, frozenReference, cancelled, protectedIds);
+    if (!validated) return false;
+    std::vector<SurfaceId> origins;
+    for (const auto& e : accepted) origins.push_back(std::visit([](const auto& s) { return s.id; }, e));
     SurfaceAnalysisResult staged;
     if (!diagnostics::profileStage("surface.index_accepted", [&] {
         return indexSurfacePatches(points, accepted, options, staged, error);
     }) || !diagnostics::profileStage("surface.infer_relations", [&] {
         return inferIndexedRelations(points, staged, staged.relations, error);
     })) return false;
-    staged.supportProposals=evidence;staged.supportProposalIds=std::move(origins);staged.supportValidation=std::move(report);output=std::move(staged);return true;
+    staged.supportProposals = std::move(proposals);
+    staged.supportProposalIds = std::move(origins);
+    staged.supportValidation = std::move(report);
+    output = std::move(staged);
+    return true;
+}
+} // namespace
+
+bool indexSurfaceEvidence(const PointStore& points, const std::vector<PrimitiveEvidence>& evidence,
+    const SurfaceAnalysisOptions& options, SurfaceAnalysisResult& output, std::string& error,
+    const std::vector<PointId>& protectedIds, const std::function<bool()>& cancelled,
+    const SurfaceSamplingReference* frozenReference) {
+    return indexEvidence(points, evidence, options, output, error, protectedIds, cancelled, frozenReference, false);
+}
+
+bool indexDetectedSurfaceEvidence(const PointStore& points, const std::vector<PrimitiveEvidence>& evidence,
+    const SurfaceAnalysisOptions& options, SurfaceAnalysisResult& output, std::string& error,
+    const std::vector<PointId>& protectedIds, const std::function<bool()>& cancelled) {
+    return indexEvidence(points, evidence, options, output, error, protectedIds, cancelled, nullptr, true);
 }
 } // namespace reconstruction

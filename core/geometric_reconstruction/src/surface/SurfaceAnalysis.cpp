@@ -127,7 +127,7 @@ bool analyzeSurfaces(const PointStore& points, const SurfaceAnalysisOptions& opt
     std::vector<PointId> protectedIds;
     for(const auto& seed:seeds)protectedIds.insert(protectedIds.end(),ids(seed).begin(),ids(seed).end());
     if (!diagnostics::profileStage("surface.validate_and_index", [&] {
-        return indexSurfaceEvidence(points, collected.evidence, options, output, error, protectedIds, cancelled);
+        return indexDetectedSurfaceEvidence(points, collected.evidence, options, output, error, protectedIds, cancelled);
     })) return false;
     output.detectionPasses = collected.detectionPasses;
     return true;

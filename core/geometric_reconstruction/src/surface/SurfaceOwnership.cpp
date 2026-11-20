@@ -249,10 +249,16 @@ WorkResult resolve(const PointStore& source,const SurfaceAnalysisResult& display
     positionById.reserve(source.size());
     for (const auto& point : source.points()) positionById.emplace(point.id, &point);
     std::vector<std::unique_ptr<SupportIndex>> supports;
-    std::vector<std::unordered_set<reconstruction::PointId>> planeMembers(detection.evidence.size());
-    for(size_t j=0;j<detection.evidence.size();++j)
-        if(const auto* plane=std::get_if<reconstruction::PlaneEvidence>(&detection.evidence[j]))
-            planeMembers[j].insert(plane->supportPointIds.begin(),plane->supportPointIds.end());
+    std::vector<std::unordered_set<PointId>> planeMembers(detection.evidence.size());
+    std::vector<std::unordered_set<PointId>> sphereMembers(detection.evidence.size());
+    for (size_t j = 0; j < detection.evidence.size(); ++j) {
+        if (const auto* plane = std::get_if<PlaneEvidence>(&detection.evidence[j]))
+            planeMembers[j].insert(plane->supportPointIds.begin(), plane->supportPointIds.end());
+        if (analysisOptions.supportValidation.mode == SupportValidationMode::Enforce) {
+            if (const auto* sphere = std::get_if<SphereEvidence>(&detection.evidence[j]))
+                sphereMembers[j].insert(sphere->supportPointIds.begin(), sphere->supportPointIds.end());
+        }
+    }
     // Protect supported broad planes as regions before per-point residual competition.
     // A curved proposal spanning several faces cannot steal each face's interior.
     std::vector<bool> preferredPlane(detection.evidence.size());
@@ -356,7 +362,15 @@ WorkResult resolve(const PointStore& source,const SurfaceAnalysisResult& display
             const bool preferCurrent=chosen!=owners.size() && preferredPlane[chosen] && best<=distanceTolerance;
             const bool preferCandidate=preferredPlane[j] && distance<=distanceTolerance;
             if(preferCurrent && !preferCandidate)continue;
-            const bool replaceAlternative=preferCandidate && chosen!=owners.size() && !preferredPlane[chosen];
+            const bool another = chosen != owners.size();
+            // Validated spherical support stays coherent across tangent-plane
+            // approximations. Broad observed planes keep their existing priority.
+            const bool supportedSphere = distance <= distanceTolerance && sphereMembers[j].count(pointId);
+            const bool priorSphere = another && best <= distanceTolerance && sphereMembers[chosen].count(pointId);
+            if (isPlane && !preferCandidate && priorSphere) continue;
+            const bool replaceAlternative = another &&
+                ((preferCandidate && !preferredPlane[chosen]) ||
+                 (supportedSphere && !preferCurrent && !planeMembers[chosen].empty()));
             if ((distance > best && !replaceAlternative) || supports[j]->points.empty()) continue;
             // Near-identical candidates remain in the core pool, but a UI label
             // must not fragment a perfect plane into accidental curved patches.

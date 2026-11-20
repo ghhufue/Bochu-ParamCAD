@@ -159,6 +159,10 @@ bool indexSurfaceEvidence(const PointStore& points, const std::vector<PrimitiveE
                           const SurfaceAnalysisOptions& options, SurfaceAnalysisResult& output,
                           std::string& error, const std::vector<PointId>& protectedIds={},
                           const std::function<bool()>& cancelled={}, const SurfaceSamplingReference* frozenReference=nullptr);
+// Index automatic detection output, including validated local curved recovery.
+bool indexDetectedSurfaceEvidence(const PointStore& points, const std::vector<PrimitiveEvidence>& evidence,
+    const SurfaceAnalysisOptions& options, SurfaceAnalysisResult& output, std::string& error,
+    const std::vector<PointId>& protectedIds = {}, const std::function<bool()>& cancelled = {});
 // Transactional, observation-bounded optimization of a feasible relation subset.
 bool optimizeSurfaceRelations(const PointStore& points, SurfaceAnalysisResult& analysis,
     const std::vector<SurfaceRelation>& proposals, RelationOptimizationReport& report, std::string& error);

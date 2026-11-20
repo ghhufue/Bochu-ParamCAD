@@ -255,7 +255,7 @@ bool ReconstructionCache::analyze(const PointStore& working, const SurfaceAnalys
         if (!cancelled()) write(evidenceStage, proposalKey, encode(proposals));
     }
     if (!profileStage("surface.validate_and_index", [&] {
-        return indexSurfaceEvidence(working, proposals.evidence, options, analysis, error, {}, m_cancelled);
+        return indexDetectedSurfaceEvidence(working, proposals.evidence, options, analysis, error, {}, m_cancelled);
     })) return false;
     analysis.detectionPasses = proposals.detectionPasses;
     if (!cancelled()) write(stage, snapshotKey, encode(analysis));

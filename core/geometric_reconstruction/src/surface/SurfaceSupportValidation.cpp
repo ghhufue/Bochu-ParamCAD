@@ -605,7 +605,8 @@ bool revalidateSurfaceSupportOnSource(const PointStore& working,const PointStore
         if (!diagnostics::profileStage("source.expand_planes", [&] {
             return recoverPlaneSupport(source, analysis.options.detection.plane, proposals, error, {}, cancelled);
         }) || !diagnostics::profileStage("source.validate", [&] {
-            return validateSurfaceSupport(source, proposals, analysis.options, sourceAccepted, report, error, nullptr, cancelled);
+            return detail::analysis::validateDetectedSurfaceSupport(source, proposals, analysis.options,
+                sourceAccepted, report, error, {}, cancelled);
         })) return false;
     }
     if(analysis.options.supportValidation.mode==SupportValidationMode::Report){analysis.sourceSupportValidation=std::move(report);return true;}
