@@ -71,6 +71,28 @@ void testTopology()
     const Contour crossing{{{0,0},{5,5},{5,0},{0,5}}, {}};
     require(parameterizeContours({crossing}, {2, 256, true}).failure == FitFailure::InvalidBoundary,
             "self-intersection is rejected");
+    const Contour withVertexContact{{{0,0},{20,0},{20,20},{0,20},{0,10}},
+                                    {{{0,10},{5,13},{5,7}}}};
+    const Contour cornerIsland{{{20,20},{26,20},{26,26},{20,26}}, {}};
+    const auto separated = parameterizeContours({withVertexContact,cornerIsland}, {1, 256, false});
+    require(separated.failure == FitFailure::None && separated.separatedHoles == 1
+        && separated.contours.size() == 2 && separated.contours.front().holes.size() == 1,
+        "a single vertex touching the outer ring is separated without losing the hole or the island");
+    const auto& beveledHole = separated.contours.front().holes.front().polyline;
+    require(separated.maximumDeviation <= 1 && separated.p95Deviation <= separated.maximumDeviation
+        && std::all_of(beveledHole.begin(), beveledHole.end(), [](auto p) { return p.x > 0; }),
+        "the bevel creates a gap and counts toward the bidirectional fit error");
+    require(parameterizeContours({withVertexContact}, {0, 256, false}).failure == FitFailure::TouchingHole,
+        "an exact fit reports that the touching hole cannot be separated");
+    require(parameterizeContours({Contour{withVertexContact.outer, {}},cornerIsland}, {0, 256, false})
+        .contours.size() == 2, "independent outer rings sharing only a corner each form a sketch at zero tolerance");
+    const Contour sharedEdgeIsland{{{20,0},{26,0},{26,20},{20,20}}, {}};
+    require(parameterizeContours({withVertexContact,sharedEdgeIsland}, {1, 256, false}).failure == FitFailure::InvalidBoundary,
+        "shared edges are not treated as vertex contacts");
+    const Contour bridgingHole{{{0,0},{20,0},{20,10},{20,20},{0,20},{0,10}},
+                               {{{0,10},{10,12},{20,10},{10,8}}}};
+    require(parameterizeContours({bridgingHole}, {1, 256, false}).failure == FitFailure::InvalidBoundary,
+        "separating multiple contacts could reconnect material and is rejected");
     require(parameterizeContours({shell}, {2, 256, true}, [] { return true; }).failure == FitFailure::Cancelled,
             "the worker can cancel a superseded fit");
 }

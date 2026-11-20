@@ -34,8 +34,8 @@
 #include <QCoreApplication>
 
 namespace {
-enum Kind { Category = 0, Region = 1, Relation = 2, PointList = 3, Point = 4, More = 5 };
-constexpr int KindRole = Qt::UserRole, IdRole = Qt::UserRole + 1, OffsetRole = Qt::UserRole + 2;
+enum Kind { Category = 0, Region = 1, Relation = 2, PointList = 3, Point = 4, More = 5, DirectionGroup, MoreRelations };
+constexpr int KindRole = Qt::UserRole, IdRole = Qt::UserRole + 1, OffsetRole = Qt::UserRole + 2, GroupKeyRole = Qt::UserRole + 3;
 constexpr int PageSize = 200;
 // Built on first use so the names are translated after the UI language is
 // installed; a namespace-scope table would be fixed before main() runs.
@@ -70,6 +70,7 @@ QTreeWidgetItem* node(QTreeWidgetItem* parent, const QStringList& labels, int ki
 }
 QString itemKey(QTreeWidgetItem* item)
 {
+    if (item && item->data(0, KindRole).toInt() == DirectionGroup) return item->data(0, GroupKeyRole).toString();
     return item ? QStringLiteral("%1:%2:%3").arg(item->data(0, KindRole).toInt())
         .arg(item->data(0, IdRole).toLongLong()).arg(item->text(0)) : QString();
 }
@@ -161,11 +162,17 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
             const auto id = item->data(0, IdRole).toLongLong();
             if (kind == Region || kind == PointList) emit regionSelected(static_cast<int>(id));
             if (kind == Relation) emit relationSelected(static_cast<int>(id));
+            if (kind == DirectionGroup) {
+                m_pickedRegion = 0;
+                emit relationGroupSelected(m_relationGrouping.groups[static_cast<std::size_t>(id)].members);
+            }
             if (kind == Point) emit pointSelected(static_cast<vtkIdType>(id));
         });
-        connect(tree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item) {
+        connect(tree, &QTreeWidget::itemDoubleClicked, this, [this, tree](QTreeWidgetItem* item) {
             if (item->data(0, KindRole).toInt() == Region && item->data(0, IdRole).toInt() > 0) editRegion();
             else if (item->data(0, KindRole).toInt() == Relation) editRelation(false);
+            else if (tree == m_tree && item->data(0, KindRole).toInt() == DirectionGroup)
+                openRelationGroup(static_cast<std::size_t>(item->data(0, IdRole).toLongLong()));
         });
         return tree;
     };
@@ -190,8 +197,20 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
     relationTools->addWidget(add); relationTools->addWidget(m_infer);
     relationLayout->addLayout(relationTools);
     m_relationTree = makeTree(relations, "cloudRelationsTree");
+    m_relationTree->headerItem()->setText(2, tr("证据对数"));
+    connect(m_relationTree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
+        if (item->data(0, KindRole).toInt() == DirectionGroup && item->childCount() == 0)
+            loadRelationPage(item, 0, PageSize);
+    });
+    connect(m_relationTree, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem* item) {
+        if (item->data(0, KindRole).toInt() != MoreRelations) return;
+        auto* parent = item->parent();
+        const int offset = item->data(0, OffsetRole).toInt();
+        delete parent->takeChild(parent->indexOfChild(item));
+        loadRelationPage(parent, offset, PageSize);
+    });
     relationLayout->addWidget(m_relationTree, 1);
-    auto* note = new QLabel(tr("关系用于几何分析和标注，尚不驱动模型变形。右键关系可编辑或删除。"), relations);
+    auto* note = new QLabel(tr("平行集合按方向归组，垂直关系按两个方向汇总。展开可编辑或删除单条记录。"), relations);
     note->setWordWrap(true); relationLayout->addWidget(note);
     m_pages->addTab(relations, tr("关系"));
 
@@ -479,6 +498,18 @@ void PointCloudRelationsPanel::showContextMenu(QTreeWidget* tree, const QPoint& 
     QMenu menu(this); menu.setObjectName("cloudContextMenu");
     if (selectedRelation()) {
         menu.addAction(m_editRelation); menu.addAction(m_removeRelation);
+    } else if (item && tree == m_tree && item->data(0, KindRole).toInt() == DirectionGroup) {
+        auto* open = menu.addAction(tr("在关系页查看"));
+        const auto& groups = m_relationGrouping.groups;
+        const auto& group = groups[static_cast<std::size_t>(item->data(0, IdRole).toLongLong())];
+        connect(open, &QAction::triggered, this,
+                [this, first = group.firstDirection, second = group.secondDirection] {
+            const auto& updated = m_relationGrouping.groups;
+            const auto found = std::find_if(updated.begin(), updated.end(), [=](const auto& candidate) {
+                return candidate.firstDirection == first && candidate.secondDirection == second;
+            });
+            if (found != updated.end()) openRelationGroup(static_cast<std::size_t>(found - updated.begin()));
+        });
     } else if (selectedRegion() >= 0) {
         if (selectedRegion() > 0) {
             menu.addAction(m_showSurface); menu.addAction(m_showPoints);
@@ -533,30 +564,42 @@ void PointCloudRelationsPanel::setDocument(const PointCloudSelection& document, 
     std::set<QString> expanded;
     QTreeWidgetItemIterator before(m_tree);
     while (*before) { if ((*before)->isExpanded()) expanded.insert(itemKey(*before)); ++before; }
+    std::map<QString, int> expandedGroups;
+    for (QTreeWidgetItemIterator it(m_relationTree); *it; ++it) {
+        const auto* item = *it;
+        if (item->data(0, KindRole).toInt() == DirectionGroup && item->isExpanded())
+            expandedGroups.emplace(itemKey(*it), item->data(0, OffsetRole).toInt());
+    }
     const QSignalBlocker blocker(m_tree), relationBlocker(m_relationTree);
     m_displayNodes.clear();
     m_tree->clear(); m_relationTree->clear(); m_points.clear();
+    m_regionNames.clear();
+    m_directionNames.clear();
+    m_relationGroupItems.clear();
+    m_relationGrouping = groupPointCloudRelations(document.relations());
+    for (const auto& region : document.regions()) m_regionNames.emplace(region.id, region.name);
+    for (const auto& [direction, members] : m_relationGrouping.directions) {
+        auto& names = m_directionNames[direction];
+        for (const int member : members) names.append(m_regionNames.at(member));
+    }
+    std::map<int, std::vector<std::size_t>> groupsByRegion, pairsByRegion;
+    for (std::size_t i = 0; i < m_relationGrouping.groups.size(); ++i)
+        for (const int member : m_relationGrouping.groups[i].members) groupsByRegion[member].push_back(i);
+    for (const auto i : m_relationGrouping.individual) {
+        const auto& relation = document.relations()[i];
+        pairsByRegion[relation.first].push_back(i);
+        pairsByRegion[relation.second].push_back(i);
+    }
     for (size_t i = 0; i < document.memberships().size(); ++i) {
         if (document.active(static_cast<vtkIdType>(i))) m_points[document.memberships()[i]].push_back(static_cast<vtkIdType>(i));
     }
-    m_summary->setText(available ? tr("有效 %1 / 原始 %2 点 · 已删除 %3\n%4 个集合 · %5 条关系")
+    m_summary->setText(available ? tr("有效 %1 / 原始 %2 点 · 已删除 %3\n%4 个集合 · %5 个关系条目")
         .arg(document.activePointCount()).arg(document.memberships().size())
         .arg(document.memberships().size()-static_cast<size_t>(document.activePointCount()))
-        .arg(document.regions().size()).arg(document.relations().size()) : tr("请先打开点云"));
+        .arg(document.regions().size()).arg(m_relationGrouping.groups.size() + m_relationGrouping.individual.size()) : tr("请先打开点云"));
     auto* collections = new QTreeWidgetItem(m_tree, {tr("表面 / 点集合"), QString(), QString()});
     auto* relations = new QTreeWidgetItem(m_relationTree, {tr("关系列表"), QString(), QString()});
     collections->setData(0, IdRole, -1); relations->setData(0, IdRole, -2);
-    const auto relationNode = [&](QTreeWidgetItem* parent, const PointCloudRelation& relation) {
-        const auto* first = document.region(relation.first); const auto* second = document.region(relation.second);
-        if (!first || !second) return;
-        auto* item = node(parent, {QStringLiteral("%1 ↔ %2").arg(first->name, second->name),
-            label(relationTypes(), relation.type), QString()}, Relation, relation.id);
-        item->setToolTip(0, tr("%1 · 置信度 %2\n点击同时高亮两个集合")
-            .arg(relation.automatic ? tr("按容差自动推断") : tr("手动标注"))
-            .arg(relation.confidence, 0, 'f', 3));
-        node(item, {relation.automatic ? tr("来源：自动推断") : tr("来源：手动标注"),
-            tr("置信度 %1").arg(relation.confidence, 0, 'f', 3)}, Relation, relation.id);
-    };
     for (const auto& region : document.regions()) {
         auto* item = node(collections, {region.name, label(geometries(), region.geometry),
             QString::number(m_points[region.id].size())}, Region, region.id);
@@ -593,15 +636,23 @@ void PointCloudRelationsPanel::setDocument(const PointCloudSelection& document, 
         auto* points = node(item, {tr("所属点（点击展开，每页 200 点）"), QString(), QString::number(m_points[region.id].size())}, PointList, region.id);
         points->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
         auto* linked = node(item, {tr("与其他集合的关系")}, Category, region.id);
-        for (const auto& relation : document.relations()) {
-            if (relation.first == region.id || relation.second == region.id) relationNode(linked, relation);
-        }
+        for (const auto group : groupsByRegion[region.id]) appendRelationGroup(linked, group);
+        for (const auto pair : pairsByRegion[region.id]) appendRelationNode(linked, document.relations()[pair]);
     }
     auto* unassigned = node(collections, {tr("未归属点"), tr("尚无集合归属"), QString::number(m_points[0].size())}, Region, 0);
     if (previousRegion == 0) m_tree->setCurrentItem(unassigned);
     auto* unassignedPoints = node(unassigned, {tr("所属点（点击展开，每页 200 点）")}, PointList, 0);
     unassignedPoints->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
-    for (const auto& relation : document.relations()) relationNode(relations, relation);
+    for (std::size_t i = 0; i < m_relationGrouping.groups.size(); ++i) {
+        auto* item = appendRelationGroup(relations, i);
+        m_relationGroupItems.push_back(item);
+        const auto expandedGroup = expandedGroups.find(itemKey(item));
+        if (expandedGroup != expandedGroups.end()) {
+            loadRelationPage(item, 0, std::max(PageSize, expandedGroup->second));
+            item->setExpanded(true);
+        }
+    }
+    for (const auto i : m_relationGrouping.individual) appendRelationNode(relations, document.relations()[i]);
     collections->setExpanded(true); relations->setExpanded(true);
     // Restoring expansion is explicit because the tree's signals are blocked.
     QTreeWidgetItemIterator after(m_tree);
@@ -620,6 +671,71 @@ void PointCloudRelationsPanel::setDocument(const PointCloudSelection& document, 
         ++relationItems;
     }
     applyFilter(); updateSelection(); updateActions();
+}
+
+void PointCloudRelationsPanel::appendRelationNode(QTreeWidgetItem* parent, const PointCloudRelation& relation)
+{
+    const auto& first = m_regionNames.at(relation.first);
+    const auto& second = m_regionNames.at(relation.second);
+    auto* item = node(parent, {QStringLiteral("%1 ↔ %2").arg(first, second),
+        label(relationTypes(), relation.type), QString()}, Relation, relation.id);
+    item->setToolTip(0, tr("%1 · 置信度 %2\n点击同时高亮两个集合")
+        .arg(relation.automatic ? tr("按容差自动推断") : tr("手动标注"))
+        .arg(relation.confidence, 0, 'f', 3));
+    node(item, {relation.automatic ? tr("来源：自动推断") : tr("来源：手动标注"),
+        tr("置信度 %1").arg(relation.confidence, 0, 'f', 3)}, Relation, relation.id);
+}
+
+QTreeWidgetItem* PointCloudRelationsPanel::appendRelationGroup(QTreeWidgetItem* parent, std::size_t index)
+{
+    const auto& group = m_relationGrouping.groups[index];
+    const auto& first = m_directionNames.at(group.firstDirection);
+    const auto title = [this](const QStringList& names) {
+        return names.size() <= 3 ? names.join(QStringLiteral(", "))
+            : tr("%1 等 %2 个集合").arg(names.front()).arg(names.size());
+    };
+    const bool perpendicular = group.secondDirection != 0;
+    const auto second = perpendicular ? m_directionNames.at(group.secondDirection) : QStringList{};
+    auto* item = node(parent, {perpendicular ? QStringLiteral("%1 ↔ %2").arg(title(first), title(second)) : title(first),
+        perpendicular ? tr("垂直方向组") : tr("平行集合"), QString::number(group.records.size())},
+        DirectionGroup, static_cast<qint64>(index));
+    item->setData(0, GroupKeyRole, QStringLiteral("group:%1:%2:%3")
+        .arg(parent->data(0, IdRole).toInt()).arg(group.firstDirection).arg(group.secondDirection));
+    if (parent->treeWidget() == m_relationTree) {
+        const auto names = perpendicular
+            ? first.join(QStringLiteral(", ")) + QStringLiteral("\n↔ ") + second.join(QStringLiteral(", "))
+            : first.join(QStringLiteral(", "));
+        item->setToolTip(0, names + QStringLiteral("\n") + tr("点击高亮证据涉及的集合，展开查看已记录的关系对。"));
+        item->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
+    } else {
+        item->setToolTip(0, tr("双击在关系页查看。"));
+    }
+    return item;
+}
+
+void PointCloudRelationsPanel::loadRelationPage(QTreeWidgetItem* item, int offset, int count)
+{
+    const auto& records = m_relationGrouping.groups[static_cast<std::size_t>(item->data(0, IdRole).toLongLong())].records;
+    const int end = offset + std::min(count, static_cast<int>(records.size()) - offset);
+    for (int i = offset; i < end; ++i)
+        appendRelationNode(item, m_document->relations()[records[static_cast<std::size_t>(i)]]);
+    item->setData(0, OffsetRole, end);
+    if (static_cast<std::size_t>(end) < records.size()) {
+        auto* more = node(item, {tr("加载下一页…（还剩 %1 对）").arg(records.size() - static_cast<std::size_t>(end))},
+                          MoreRelations, 0);
+        more->setData(0, OffsetRole, end);
+    }
+}
+
+void PointCloudRelationsPanel::openRelationGroup(std::size_t index)
+{
+    if (index >= m_relationGroupItems.size()) return;
+    auto* item = m_relationGroupItems[index];
+    if (item->isHidden()) m_relationFilter->clear();
+    m_pages->setCurrentWidget(m_relationTree->parentWidget());
+    m_relationTree->setCurrentItem(item);
+    item->setExpanded(true);
+    m_relationTree->scrollToItem(item);
 }
 
 void PointCloudRelationsPanel::loadPointPage(QTreeWidgetItem* item, int offset)
@@ -645,7 +761,7 @@ int PointCloudRelationsPanel::selectedRegion() const
     while (item) {
         const int kind = item->data(0, KindRole).toInt();
         if (kind == Region || kind == PointList) return item->data(0, IdRole).toInt();
-        if (kind == Relation) return -1;
+        if (kind == Relation || kind == DirectionGroup || kind == MoreRelations) return -1;
         item = item->parent();
     }
     return -1;
@@ -725,7 +841,19 @@ void PointCloudRelationsPanel::applyFilter()
             auto* category = tree->topLevelItem(root);
             for (int child = 0; child < category->childCount(); ++child) {
                 auto* item = category->child(child);
-                item->setHidden(!filter.isEmpty() && !(item->text(0)+" "+item->text(1)).contains(filter, Qt::CaseInsensitive));
+                bool matches = filter.isEmpty() || (item->text(0)+" "+item->text(1)).contains(filter, Qt::CaseInsensitive);
+                if (!matches && item->data(0, KindRole).toInt() == DirectionGroup) {
+                    const auto& group = m_relationGrouping.groups[static_cast<std::size_t>(item->data(0, IdRole).toLongLong())];
+                    const auto matchesDirection = [&](int id) {
+                        if (!id) return false;
+                        const auto& names = m_directionNames.at(id);
+                        return std::any_of(names.begin(), names.end(), [&](const auto& name) {
+                            return name.contains(filter, Qt::CaseInsensitive);
+                        });
+                    };
+                    matches = matchesDirection(group.firstDirection) || matchesDirection(group.secondDirection);
+                }
+                item->setHidden(!matches);
             }
         }
     }

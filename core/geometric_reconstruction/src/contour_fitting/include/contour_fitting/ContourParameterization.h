@@ -27,13 +27,14 @@ struct ParameterizationOptions {
     bool recognizeCircles = true;
 };
 
-enum class FitFailure { None, InvalidBoundary, EdgeBudget, Cancelled };
+enum class FitFailure { None, InvalidBoundary, EdgeBudget, Cancelled, TouchingHole };
 
 struct ParameterizationResult {
     std::vector<FittedContour> contours;
     std::size_t edgeCount = 0;
     double maximumDeviation = 0; // Upper bound in both directions.
     double p95Deviation = 0;     // Sampled distances in both directions.
+    std::size_t separatedHoles = 0;
     FitFailure failure = FitFailure::None;
 };
 

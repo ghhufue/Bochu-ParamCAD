@@ -286,6 +286,8 @@ void PointCloudWorkspaceController::connectUi()
         else m_document->selectRegion(id);
     });
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::relationSelected, m_document, &PointCloudDocument::selectRelation);
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::relationGroupSelected,
+            m_document, &PointCloudDocument::selectRegions);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::showAllBoundariesChanged,
             m_ui.viewer, &VTKViewer::setShowAllAssemblyBoundaries);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::automaticSurfaceDisplayChanged,

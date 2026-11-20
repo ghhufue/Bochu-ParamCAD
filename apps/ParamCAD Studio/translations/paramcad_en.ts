@@ -1179,6 +1179,14 @@
         <translation>Contour fitting cancelled.</translation>
     </message>
     <message>
+        <source>内孔与外环在顶点处接触，当前拟合容差不足以分开它们。</source>
+        <translation>A hole touches its outer ring at a vertex. The current fitting tolerance is insufficient to separate them.</translation>
+    </message>
+    <message>
+        <source>已在拟合容差内分开 %1 个接触外环的内孔。</source>
+        <translation>Separated %1 holes from their outer rings within the fitting tolerance.</translation>
+    </message>
+    <message>
         <source>草图构面校验失败：%1</source>
         <translation>Sketch face validation failed: %1</translation>
     </message>
@@ -1991,6 +1999,38 @@ Middle-drag to orbit, right-drag to pan, scroll to zoom.</translation>
 <context>
     <name>PointCloudRelationsPanel</name>
     <message>
+        <source>证据对数</source>
+        <translation>Evidence Pairs</translation>
+    </message>
+    <message>
+        <source>平行集合</source>
+        <translation>Parallel Set</translation>
+    </message>
+    <message>
+        <source>垂直方向组</source>
+        <translation>Perpendicular Directions</translation>
+    </message>
+    <message>
+        <source>在关系页查看</source>
+        <translation>Show in Relations</translation>
+    </message>
+    <message>
+        <source>双击在关系页查看。</source>
+        <translation>Double-click to show in Relations.</translation>
+    </message>
+    <message>
+        <source>%1 等 %2 个集合</source>
+        <translation>%1 among %2 sets</translation>
+    </message>
+    <message>
+        <source>点击高亮证据涉及的集合，展开查看已记录的关系对。</source>
+        <translation>Click to highlight the sets with evidence. Expand to see the recorded pairs.</translation>
+    </message>
+    <message>
+        <source>加载下一页…（还剩 %1 对）</source>
+        <translation>Load next page… (%1 pairs remaining)</translation>
+    </message>
+    <message>
         <source>粗</source>
         <translation>Coarse</translation>
     </message>
@@ -2318,8 +2358,8 @@ Middle-drag to orbit, right-drag to pan, scroll to zoom.</translation>
     </message>
     <message>
         <location filename="../src/ui/panels/PointCloudRelationsPanel.cpp" line="181"/>
-        <source>关系用于几何分析和标注，尚不驱动模型变形。右键关系可编辑或删除。</source>
-        <translation>Relations support geometric analysis and annotation; they do not drive the model yet. Right-click a relation to edit or delete it.</translation>
+        <source>平行集合按方向归组，垂直关系按两个方向汇总。展开可编辑或删除单条记录。</source>
+        <translation>Parallel sets are grouped by direction and perpendicular evidence by pairs of directions. Expand a group to edit or delete individual records.</translation>
     </message>
     <message>
         <location filename="../src/ui/panels/PointCloudRelationsPanel.cpp" line="183"/>
@@ -2441,9 +2481,9 @@ Middle-drag to orbit, right-drag to pan, scroll to zoom.</translation>
     <message>
         <location filename="../src/ui/panels/PointCloudRelationsPanel.cpp" line="351"/>
         <source>有效 %1 / 原始 %2 点 · 已删除 %3
-%4 个集合 · %5 条关系</source>
+%4 个集合 · %5 个关系条目</source>
         <translation>Valid %1 / original %2 points · deleted %3
-%4 sets · %5 relations</translation>
+%4 sets · %5 relation entries</translation>
     </message>
     <message>
         <location filename="../src/ui/panels/PointCloudRelationsPanel.cpp" line="355"/>

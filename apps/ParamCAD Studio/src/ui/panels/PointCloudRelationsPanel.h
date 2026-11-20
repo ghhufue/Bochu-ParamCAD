@@ -1,5 +1,6 @@
 #pragma once
 #include "core/PointCloudSelection.h"
+#include <QStringList>
 #include <QWidget>
 #include <array>
 #include <map>
@@ -63,6 +64,7 @@ signals:
     void refitRequested(int id);
     void regionSelected(int id);
     void relationSelected(int id);
+    void relationGroupSelected(const std::vector<int>& ids);
     void pointSelected(vtkIdType id);
     void assignRequested(const QString& geometry, const QString& name, int id);
     void unassignRequested();
@@ -89,10 +91,18 @@ private:
     void editRelation(bool create);
     void showContextMenu(QTreeWidget* tree, const QPoint& position);
     void loadPointPage(QTreeWidgetItem* item, int offset);
+    void appendRelationNode(QTreeWidgetItem* parent, const PointCloudRelation& relation);
+    QTreeWidgetItem* appendRelationGroup(QTreeWidgetItem* parent, std::size_t index);
+    void loadRelationPage(QTreeWidgetItem* item, int offset, int count);
+    void openRelationGroup(std::size_t index);
     void applyFilter();
     const PointCloudSelection* m_document = nullptr;
     std::map<int, std::vector<vtkIdType>> m_points;
     std::map<int, QTreeWidgetItem*> m_displayNodes;
+    PointCloudRelationGrouping m_relationGrouping;
+    std::map<int, QString> m_regionNames;
+    std::map<int, QStringList> m_directionNames;
+    std::vector<QTreeWidgetItem*> m_relationGroupItems;
     std::set<int> m_availableSurfaces, m_displayedSurfaces;
     int m_pickedRegion = 0;
     bool m_busy = false;

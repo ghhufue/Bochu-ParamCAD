@@ -116,6 +116,11 @@ void PointCloudDocument::selectRegion(int id)
     m_selection.selectRegion(id);
     emit selectionChanged();
 }
+void PointCloudDocument::selectRegions(const std::vector<int>& ids)
+{
+    m_selection.selectRegions(ids);
+    emit selectionChanged();
+}
 void PointCloudDocument::selectUnassigned()
 {
     m_selection.selectUnassigned();

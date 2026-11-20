@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <set>
+#include <unordered_set>
 
 bool PointCloudSelection::active(vtkIdType id) const
 {
@@ -140,9 +141,15 @@ void PointCloudSelection::lockTemplate(int id)
 void PointCloudSelection::selectRelation(int id)
 {
     const auto* r = relation(id);
-    if (!r) return;
-    select(regionPoints(r->first));
-    select(regionPoints(r->second), true);
+    if (r) selectRegions({r->first, r->second});
+}
+
+void PointCloudSelection::selectRegions(const std::vector<int>& regionIds)
+{
+    const std::unordered_set<int> regions(regionIds.begin(), regionIds.end());
+    m_selected.clear();
+    for (const vtkIdType id : m_activeIds)
+        if (regions.count(m_memberships[static_cast<std::size_t>(id)])) m_selected.push_back(id);
 }
 
 void PointCloudSelection::deletePoints(const std::vector<vtkIdType>& ids)

@@ -8,13 +8,104 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <unordered_map>
 
 namespace {
 QString key(int first, int second, const QString& type)
 {
     return QStringLiteral("%1:%2:%3").arg(std::min(first, second)).arg(std::max(first, second)).arg(type);
 }
+
+class ParallelDirections
+{
+public:
+    int root(int id)
+    {
+        auto node = m_nodes.find(id);
+        if (node == m_nodes.end()) return id;
+        int root = id;
+        while (m_nodes.at(root).parent != root) root = m_nodes.at(root).parent;
+        while (node->second.parent != root) {
+            const auto parent = node->second.parent;
+            node->second.parent = root;
+            node = m_nodes.find(parent);
+        }
+        return root;
+    }
+
+    void add(int first, int second)
+    {
+        m_nodes.try_emplace(first, Node{first});
+        m_nodes.try_emplace(second, Node{second});
+        first = root(first);
+        second = root(second);
+        if (first == second) return;
+        if (m_nodes.at(first).size < m_nodes.at(second).size) std::swap(first, second);
+        m_nodes.at(second).parent = first;
+        m_nodes.at(first).size += m_nodes.at(second).size;
+    }
+
+private:
+    struct Node { int parent; std::size_t size = 1; };
+    std::unordered_map<int, Node> m_nodes;
+};
 } // namespace
+
+PointCloudRelationGrouping groupPointCloudRelations(const std::vector<PointCloudRelation>& relations)
+{
+    ParallelDirections directions;
+    QSet<int> directionalEndpoints;
+    for (const auto& relation : relations) {
+        if (relation.type == "parallel") directions.add(relation.first, relation.second);
+        if (relation.type == "parallel" || relation.type == "perpendicular") {
+            directionalEndpoints.insert(relation.first);
+            directionalEndpoints.insert(relation.second);
+        }
+    }
+    std::unordered_map<int, std::vector<int>> components;
+    for (const int id : directionalEndpoints) components[directions.root(id)].push_back(id);
+
+    PointCloudRelationGrouping result;
+    std::unordered_map<int, int> canonical;
+    for (auto& [root, members] : components) {
+        std::sort(members.begin(), members.end());
+        const int direction = members.front();
+        for (const int member : members) canonical.emplace(member, direction);
+        result.directions.emplace(direction, std::move(members));
+    }
+
+    struct Evidence {
+        QSet<int> members;
+        std::vector<std::size_t> records;
+    };
+    std::map<std::pair<int, int>, Evidence> grouped;
+    for (std::size_t i = 0; i < relations.size(); ++i) {
+        const auto& relation = relations[i];
+        if (relation.type != "parallel" && relation.type != "perpendicular") {
+            result.individual.push_back(i);
+            continue;
+        }
+        const int first = canonical.at(relation.first), second = canonical.at(relation.second);
+        if (relation.type == "perpendicular" &&
+            (first == second || (result.directions.at(first).size() == 1 &&
+                                result.directions.at(second).size() == 1))) {
+            result.individual.push_back(i);
+            continue;
+        }
+        const auto groupKey = relation.type == "parallel" ? std::pair{first, 0}
+            : std::pair{std::min(first, second), std::max(first, second)};
+        auto& evidence = grouped[groupKey];
+        evidence.members.insert(relation.first);
+        evidence.members.insert(relation.second);
+        evidence.records.push_back(i);
+    }
+    for (auto& [key, evidence] : grouped) {
+        std::vector<int> members(evidence.members.begin(), evidence.members.end());
+        std::sort(members.begin(), members.end());
+        result.groups.push_back({key.first, key.second, std::move(members), std::move(evidence.records)});
+    }
+    return result;
+}
 
 bool PointCloudSelection::validRelation(const QString& type)
 {
@@ -120,21 +211,23 @@ void PointCloudSelection::applyInferredRelations(const std::vector<reconstructio
     QSet<QString> knownKeys;
     knownKeys.reserve(static_cast<qsizetype>(m_relations.size() + inferred.size()));
     for (const auto& existing : m_relations) knownKeys.insert(key(existing.first, existing.second, existing.type));
-    const auto append = [&](const PointCloudRegion& a, const PointCloudRegion& b, const QString& type, double confidence) {
-        const auto relationKey = key(a.id, b.id, type);
+    QSet<int> regionIds;
+    regionIds.reserve(static_cast<qsizetype>(m_regions.size()));
+    for (const auto& region : m_regions) regionIds.insert(region.id);
+    const auto append = [&](int first, int second, const QString& type, double confidence) {
+        const auto relationKey = key(first, second, type);
         if (suppressedKeys.contains(relationKey) || knownKeys.contains(relationKey)) return;
         knownKeys.insert(relationKey);
         const auto previous = previousIds.find(relationKey);
         const int id = previous == previousIds.end() ? m_nextRelationId++ : previous->second;
-        m_relations.push_back({id, a.id, b.id, type, true, confidence});
+        m_relations.push_back({id, first, second, type, true, confidence});
     };
     for (const auto& r : inferred) {
         const QString type=QString::fromLatin1(reconstruction::surfaceRelationName(r.kind));
         // The UI preserves its existing vocabulary; axis-plane relations are
         // nevertheless available to semantic recognizers through core analysis.
         if (!validRelation(type)) continue;
-        const auto* a=region(static_cast<int>(r.first));
-        const auto* b=region(static_cast<int>(r.second));
-        if (a && b) append(*a,*b,type,r.confidence);
+        const int first = static_cast<int>(r.first), second = static_cast<int>(r.second);
+        if (regionIds.contains(first) && regionIds.contains(second)) append(first, second, type, r.confidence);
     }
 }

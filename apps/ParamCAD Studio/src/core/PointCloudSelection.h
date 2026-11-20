@@ -8,6 +8,7 @@
 #include <vtkSmartPointer.h>
 
 #include <set>
+#include <map>
 #include <vector>
 
 class vtkPlanes;
@@ -37,6 +38,23 @@ struct PointCloudRelation
     bool automatic = false;
     double confidence = 1.0;
 };
+
+struct PointCloudRelationGroup
+{
+    int firstDirection = 0;
+    int secondDirection = 0; // Zero for a parallel group.
+    std::vector<int> members; // Endpoints of the recorded evidence.
+    std::vector<std::size_t> records; // Indices into the original relation list.
+};
+
+struct PointCloudRelationGrouping
+{
+    std::map<int, std::vector<int>> directions;
+    std::vector<PointCloudRelationGroup> groups;
+    std::vector<std::size_t> individual;
+};
+
+PointCloudRelationGrouping groupPointCloudRelations(const std::vector<PointCloudRelation>& relations);
 
 struct DetectedPointCloudSurface
 {
@@ -69,6 +87,7 @@ public:
     void expand(double radius);
     int assign(const QString& geometry, const QString& name, int regionId = 0);
     void selectRegion(int regionId);
+    void selectRegions(const std::vector<int>& regionIds);
     void removeRegion(int regionId);
     void unassign();
     bool editRegion(int regionId, const QString& name, const QString& geometry);

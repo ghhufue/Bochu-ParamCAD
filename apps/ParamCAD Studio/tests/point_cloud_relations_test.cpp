@@ -21,6 +21,47 @@ bool hasRelation(const PointCloudSelection& document, int a, int b, const QStrin
     return false;
 }
 
+void testDirectionGrouping()
+{
+    const std::vector<PointCloudRelation> relations{
+        {1, 3, 2, "parallel", true}, {2, 1, 2, "parallel", false},
+        {3, 4, 5, "parallel", true}, {4, 3, 5, "perpendicular", true},
+        {5, 4, 1, "perpendicular", true}, {6, 5, 6, "perpendicular", false},
+        {7, 2, 3, "coplanar", true}, {8, 1, 3, "perpendicular", false}
+    };
+    const auto grouped = groupPointCloudRelations(relations);
+    require(grouped.directions.at(1) == std::vector<int>({1, 2, 3})
+        && grouped.directions.at(4) == std::vector<int>({4, 5})
+        && grouped.directions.at(6) == std::vector<int>({6}), "parallel chains share a stable direction");
+    require(grouped.groups.size() == 4 && grouped.groups[0].records == std::vector<std::size_t>({0, 1}),
+        "parallel groups contain exactly the recorded evidence regardless of annotation source");
+    const auto& perpendicular = grouped.groups[1];
+    require(perpendicular.firstDirection == 1 && perpendicular.secondDirection == 4
+        && perpendicular.records == std::vector<std::size_t>({3, 4})
+        && perpendicular.members == std::vector<int>({1, 3, 4, 5}), "perpendicular evidence is grouped between directions");
+    require(grouped.groups[3].firstDirection == 4 && grouped.groups[3].secondDirection == 6,
+        "two perpendicular links do not imply a third");
+    require(grouped.individual == std::vector<std::size_t>({6, 7}),
+        "coplanar and conflicting within-direction relations retain their own records");
+
+    constexpr int directionSize = 64;
+    std::vector<PointCloudRelation> dense;
+    const auto add = [&](int first, int second, const QString& type) {
+        dense.push_back({static_cast<int>(dense.size())+1, first, second, type, true});
+    };
+    for (int i = 1; i <= directionSize; ++i) {
+        for (int j = i+1; j <= directionSize; ++j) {
+            add(i, j, "parallel");
+            add(i+directionSize, j+directionSize, "parallel");
+        }
+        for (int j = 1; j <= directionSize; ++j) add(i, j+directionSize, "perpendicular");
+    }
+    const auto compact = groupPointCloudRelations(dense);
+    require(compact.groups.size() == 3 && compact.individual.empty()
+        && compact.groups[1].records.size() == directionSize*directionSize,
+        "thousands of dense directional pairs collapse to two parallel groups and one perpendicular link");
+}
+
 void testDenseSeparatedPatches()
 {
     PlyCloud cloud;
@@ -85,6 +126,7 @@ int main(int argc, char** argv)
 {
     QCoreApplication application(argc, argv);
     try {
+        testDirectionGrouping();
         testDenseSeparatedPatches();
         testAdjacencyToleranceBoundary();
         PlyCloud cloud;

@@ -42,6 +42,7 @@ public:
     void expandSelection(double radius);
     void clearSelection();
     void selectRegion(int id);
+    void selectRegions(const std::vector<int>& ids);
     void selectUnassigned();
     void selectPoint(vtkIdType id);
     void selectRelation(int id);

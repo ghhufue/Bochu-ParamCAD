@@ -21,6 +21,8 @@
 #include <TopoDS_Vertex.hxx>
 #include <TopoDS_Wire.hxx>
 #include <gp_Ax2.hxx>
+#include <gp_Ax3.hxx>
+#include <gp_Pln.hxx>
 #include <gp_Vec.hxx>
 
 #include <algorithm>
@@ -209,6 +211,7 @@ bool buildLineWires(
 
 bool buildFaceFromWires(
     const std::vector<TopoDS_Wire>& wires,
+    const PlaneFrame& frame,
     TopoDS_Face& output,
     std::string& error) {
     if (wires.empty()) {
@@ -220,8 +223,11 @@ bool buildFaceFromWires(
     std::vector<double> areas;
     candidateFaces.reserve(wires.size());
     areas.reserve(wires.size());
+    // Orient every wire against the same sketch plane. Independently inferred
+    // planes can have opposite normals for clockwise and counterclockwise loops.
+    const gp_Pln plane(gp_Ax3(frame.origin, frame.normal, frame.xDirection));
     for (const TopoDS_Wire& wire : wires) {
-        BRepBuilderAPI_MakeFace candidateBuilder(wire, true);
+        BRepBuilderAPI_MakeFace candidateBuilder(plane, wire, true);
         if (!candidateBuilder.IsDone()) {
             error = "Sketch wire is not a valid closed planar profile";
             return false;
@@ -237,7 +243,7 @@ bool buildFaceFromWires(
     const std::size_t outerIndex = static_cast<std::size_t>(
         std::distance(areas.begin(), outerIterator));
     const TopoDS_Wire outerWire = BRepTools::OuterWire(candidateFaces[outerIndex]);
-    BRepBuilderAPI_MakeFace faceBuilder(outerWire, true);
+    BRepBuilderAPI_MakeFace faceBuilder(plane, outerWire, true);
 
     for (std::size_t index = 0; index < candidateFaces.size(); ++index) {
         if (index == outerIndex) {
@@ -326,7 +332,7 @@ bool buildSketchFace(
         if (!buildLineWires(lineEntities, frame, wires, error)) {
             return false;
         }
-        return buildFaceFromWires(wires, output, error);
+        return buildFaceFromWires(wires, frame, output, error);
     } catch (const Standard_Failure& failure) {
         error = std::string("OpenCASCADE sketch failure: ") +
             failureMessage(failure);

@@ -93,19 +93,67 @@ bool touchesCircle(const Boundary& round, const Boundary& other)
     return false;
 }
 
-enum class Relation { Disjoint, Contains, Inside, Touching };
+enum class Relation { Disjoint, Contains, Inside, VertexContact, ContainsTouching, InsideTouching, Crossing };
 
-Relation relation(const Boundary& first, const Boundary& second)
+// A shared endpoint is a contact only when the two segments do not overlap.
+std::optional<Point> sharedEndpoint(const Segment& a, const Segment& b)
+{
+    for (const auto& end : {a.source(), a.target()}) {
+        if (end != b.source() && end != b.target()) continue;
+        const auto& otherA = end == a.source() ? a.target() : a.source();
+        const auto& otherB = end == b.source() ? b.target() : b.source();
+        if (!a.has_on(otherB) && !b.has_on(otherA)) return end;
+    }
+    return {};
+}
+
+std::optional<bool> insideAtContact(const Polygon& ring, const Polygon& other)
+{
+    std::optional<bool> inside;
+    const auto examine = [&](const Point& p) {
+        const auto side = other.bounded_side(p);
+        if (side == CGAL::ON_BOUNDARY) return true;
+        const bool contained = side == CGAL::ON_BOUNDED_SIDE;
+        if (inside && *inside != contained) return false;
+        inside = contained;
+        return true;
+    };
+    for (const auto& edge : ring.edges()) {
+        if (!examine(edge.source())) return {};
+        // An edge with two shared endpoints can lie on either side.
+        if (other.bounded_side(edge.source()) == CGAL::ON_BOUNDARY
+            && other.bounded_side(edge.target()) == CGAL::ON_BOUNDARY
+            && !examine(CGAL::midpoint(edge.source(), edge.target()))) return {};
+    }
+    return inside;
+}
+
+Relation relation(const Boundary& first, const Boundary& second, std::vector<Point>* contactVertices = nullptr)
 {
     if (!overlaps(first.bounds, second.bounds)) return Relation::Disjoint;
     if (first.circle || second.circle) {
-        if (first.circle ? touchesCircle(first, second) : touchesCircle(second, first)) return Relation::Touching;
+        if (first.circle ? touchesCircle(first, second) : touchesCircle(second, first)) return Relation::Crossing;
     } else {
+        bool contacts = false;
         for (std::size_t i = 0; i < first.edges.size(); ++i) {
             if (!overlaps(first.edgeBounds[i], second.bounds)) continue;
-            for (std::size_t j = 0; j < second.edges.size(); ++j)
-                if (overlaps(first.edgeBounds[i], second.edgeBounds[j])
-                    && CGAL::do_intersect(first.edges[i], second.edges[j])) return Relation::Touching;
+            for (std::size_t j = 0; j < second.edges.size(); ++j) {
+                const auto& a = first.edges[i];
+                const auto& b = second.edges[j];
+                if (!overlaps(first.edgeBounds[i], second.edgeBounds[j]) || !CGAL::do_intersect(a, b)) continue;
+                const auto common = sharedEndpoint(a, b);
+                if (!common) return Relation::Crossing;
+                contacts = true;
+                if (contactVertices) contactVertices->push_back(*common);
+            }
+        }
+        if (contacts) {
+            const auto firstInside = insideAtContact(first.polygon, second.polygon);
+            const auto secondInside = insideAtContact(second.polygon, first.polygon);
+            if (!firstInside || !secondInside || (*firstInside && *secondInside)) return Relation::Crossing;
+            if (*firstInside) return Relation::InsideTouching;
+            if (*secondInside) return Relation::ContainsTouching;
+            return Relation::VertexContact;
         }
     }
     if (first.contains(second.sample)) return Relation::Contains;
@@ -136,11 +184,21 @@ std::optional<Topology> topologyOf(const std::vector<Contour>& contours, const s
                                    const std::function<bool()>& cancelled)
 {
     Topology topology(rings.size(), std::vector<Relation>(rings.size(), Relation::Disjoint));
+    std::vector<std::size_t> outerOf(rings.size());
+    std::size_t nextOuter = 0;
+    for (const auto& contour : contours) {
+        std::fill_n(outerOf.begin() + nextOuter, 1 + contour.holes.size(), nextOuter);
+        nextOuter += 1 + contour.holes.size();
+    }
     for (std::size_t i = 0; i < rings.size(); ++i) {
         if (cancelled && cancelled()) return {};
         for (std::size_t j = i + 1; j < rings.size(); ++j) {
-            const auto type = relation(rings[i], rings[j]);
-            if (type == Relation::Touching) return {};
+            auto type = relation(rings[i], rings[j]);
+            // A hole touching only its own outer ring can be separated
+            // before fitting. Every candidate must then have strict containment.
+            if (type == Relation::ContainsTouching && outerOf[j] == i) type = Relation::Contains;
+            if (type == Relation::Crossing || type == Relation::ContainsTouching || type == Relation::InsideTouching
+                || (type == Relation::VertexContact && (outerOf[i] != i || outerOf[j] != j))) return {};
             topology[i][j] = type;
             topology[j][i] = type == Relation::Contains ? Relation::Inside
                 : type == Relation::Inside ? Relation::Contains : type;
@@ -169,15 +227,58 @@ std::optional<Topology> topologyOf(const std::vector<Contour>& contours, const s
 bool matches(const Boundary& candidate, std::size_t index,
              const std::vector<Boundary>& others, const Topology& topology)
 {
-    for (std::size_t j = 0; j < others.size(); ++j)
-        if (j != index && relation(candidate, others[j]) != topology[index][j]) return false;
+    for (std::size_t j = 0; j < others.size(); ++j) {
+        if (j == index) continue;
+        const auto actual = relation(candidate, others[j]);
+        const auto expected = topology[index][j];
+        if (actual != expected && !(expected == Relation::VertexContact && actual == Relation::Disjoint))
+            return false;
+    }
     return true;
+}
+
+double bevelContact(Ring& ring, const Point& contact, double budget)
+{
+    Ring trimmed;
+    trimmed.reserve(ring.size() + 1);
+    double bound = 0;
+    for (std::size_t i = 0; i < ring.size(); ++i) {
+        const auto vertex = ring[i];
+        if (point(vertex) != contact) {
+            trimmed.push_back(vertex);
+            continue;
+        }
+        // The changed path and the bevel both lie within this distance of the
+        // original corner. Limit the trim to the adjoining edge segments.
+        for (auto neighbor : {ring[(i + ring.size() - 1) % ring.size()], ring[(i+1) % ring.size()]}) {
+            const double length = distance(vertex, neighbor);
+            const double ratio = std::min(.25, budget / length);
+            const Point2D end{vertex.x + ratio*(neighbor.x-vertex.x), vertex.y + ratio*(neighbor.y-vertex.y)};
+            bound = std::max(bound, distance(vertex, end));
+            trimmed.push_back(end);
+        }
+    }
+    ring = std::move(trimmed);
+    return bound;
 }
 
 struct Deviation {
     double bound = 0;
     std::vector<double> samples;
 };
+
+void sampleAcrossRings(const Ring& first, const Ring& second, Deviation& deviation)
+{
+    for (std::size_t i = 0; i < first.size(); ++i) {
+        const auto a = first[i], b = first[(i+1) % first.size()];
+        for (const Point2D sample : {a, Point2D{a.x+(b.x-a.x)*.5, a.y+(b.y-a.y)*.5}}) {
+            double best = std::numeric_limits<double>::infinity();
+            for (std::size_t j = 0; j < second.size(); ++j)
+                best = std::min(best, segmentDistance(sample, second[j], second[(j+1) % second.size()]));
+            deviation.samples.push_back(std::min(best, deviation.bound));
+        }
+    }
+}
 
 std::optional<Deviation> measurePolyline(const Ring& source, const Ring& fitted)
 {
@@ -281,42 +382,72 @@ ParameterizationResult parameterizeContours(const std::vector<Contour>& contours
         for (auto& hole : contour.holes)
             if (!normalize(hole, false)) return failure(FitFailure::InvalidBoundary);
     }
-    const auto rings = flatten(source);
-    const auto original = boundaries(rings);
-    const auto topology = topologyOf(source, original, cancelled);
+    const auto originals = flatten(source);
+    const auto originalGeometry = boundaries(originals);
+    const auto topology = topologyOf(source, originalGeometry, cancelled);
     if (!topology) return failure(stopped() ? FitFailure::Cancelled : FitFailure::InvalidBoundary);
-
-    // The simplifier's local removal cost is not a global error bound.
-    // Retry with a stricter cost before falling back to the observed rings.
-    std::vector<FittedRing> fitted;
-    std::vector<Deviation> deviations;
-    std::vector<Boundary> geometry;
-    for (const double factor : {1., .5, .25, 0.}) {
+    auto prepared = source;
+    std::vector<double> bevelBounds;
+    std::size_t separatedHoles = 0;
+    for (auto& contour : prepared) {
         if (stopped()) return failure(FitFailure::Cancelled);
-        const auto candidate = simplifyContours(source, factor*options.tolerance);
+        bevelBounds.push_back(0);
+        const Boundary outer(contour.outer);
+        for (auto& hole : contour.holes) {
+            std::vector<Point> contacts;
+            double bound = 0;
+            if (relation(outer, Boundary(hole), &contacts) == Relation::ContainsTouching) {
+                if (std::any_of(contacts.begin(), contacts.end(), [&](const auto& contact) {
+                    return contact != contacts.front();
+                })) return failure(FitFailure::InvalidBoundary);
+                if (!options.tolerance) return failure(FitFailure::TouchingHole);
+                bound = bevelContact(hole, contacts.front(), options.tolerance*.25);
+                if (!bound || !normalize(hole, false) || relation(outer, Boundary(hole)) != Relation::Contains)
+                    return failure(FitFailure::TouchingHole);
+                ++separatedHoles;
+            }
+            bevelBounds.push_back(bound);
+        }
+    }
+    const auto rings = flatten(prepared);
+    auto geometry = boundaries(rings);
+    if (separatedHoles) for (std::size_t i = 0; i < rings.size(); ++i) {
+        if (stopped()) return failure(FitFailure::Cancelled);
+        if (!matches(geometry[i], i, geometry, *topology)) return failure(FitFailure::TouchingHole);
+    }
+
+    // Keep each valid ring while retrying the others with a stricter cost.
+    // A local simplification cost can understate the final geometric error.
+    std::vector<FittedRing> fitted(rings.size());
+    std::vector<Deviation> deviations(rings.size());
+    std::size_t remaining = rings.size();
+    for (const double factor : {1., .875, .75, .625, .5, .375, .25, 0.}) {
+        if (stopped()) return failure(FitFailure::Cancelled);
+        const auto candidate = simplifyContours(prepared, factor*options.tolerance);
         const auto reduced = flatten(candidate);
-        geometry = boundaries(reduced);
-        fitted.clear();
-        deviations.clear();
         for (std::size_t i = 0; i < rings.size(); ++i) {
             if (stopped()) return failure(FitFailure::Cancelled);
+            if (!fitted[i].polyline.empty()) continue;
             auto deviation = measurePolyline(*rings[i], *reduced[i]);
-            if (!deviation || deviation->bound > options.tolerance || !matches(geometry[i], i, geometry, *topology))
-                break;
-            fitted.push_back({*reduced[i], {}});
-            deviations.push_back(std::move(*deviation));
+            if (!deviation || deviation->bound + bevelBounds[i] > options.tolerance) continue;
+            Boundary outline(*reduced[i]);
+            if (!matches(outline, i, geometry, *topology)) continue;
+            geometry[i] = std::move(outline);
+            fitted[i].polyline = *reduced[i];
+            deviations[i] = std::move(*deviation);
+            --remaining;
         }
-        if (fitted.size() == rings.size()) break;
+        if (!remaining) break;
     }
-    if (fitted.size() != rings.size()) return failure(FitFailure::InvalidBoundary);
+    if (remaining) return failure(FitFailure::InvalidBoundary);
 
     if (options.recognizeCircles) for (std::size_t i = 0; i < rings.size(); ++i) {
         if (stopped()) return failure(FitFailure::Cancelled);
         const auto circle = fitCircle(*rings[i]);
-        if (!circle || !original[i].contains(circle->center)) continue;
+        if (!circle || !originalGeometry[i].contains(circle->center)) continue;
         Boundary candidate(*circle);
         if (!matches(candidate, i, geometry, *topology)) continue;
-        auto deviation = measureCircle(*rings[i], *circle);
+        auto deviation = measureCircle(*originals[i], *circle);
         if (deviation.bound > std::min(options.tolerance, .15*circle->radius)) continue;
         geometry[i] = std::move(candidate);
         fitted[i] = {{}, circle};
@@ -324,6 +455,15 @@ ParameterizationResult parameterizeContours(const std::vector<Contour>& contours
     }
 
     ParameterizationResult result;
+    result.separatedHoles = separatedHoles;
+    for (std::size_t i = 0; i < fitted.size(); ++i) {
+        if (!bevelBounds[i] || fitted[i].circle) continue;
+        auto& deviation = deviations[i];
+        deviation.bound += bevelBounds[i];
+        deviation.samples.clear();
+        sampleAcrossRings(*originals[i], fitted[i].polyline, deviation);
+        sampleAcrossRings(fitted[i].polyline, *originals[i], deviation);
+    }
     std::size_t index = 0;
     for (const auto& contour : source) {
         FittedContour next{std::move(fitted[index++]), {}};

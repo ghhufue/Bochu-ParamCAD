@@ -42,6 +42,8 @@ QString contourFailure(contour_fitting::FitFailure failure)
         return workspaceTr("当前容差下超出草图边数上限。请提高边数上限或调整容差。");
     case FitFailure::Cancelled:
         return workspaceTr("轮廓拟合已取消。");
+    case FitFailure::TouchingHole:
+        return workspaceTr("内孔与外环在顶点处接触，当前拟合容差不足以分开它们。");
     case FitFailure::None:
         return {};
     }
@@ -155,10 +157,13 @@ void PointCloudWorkspaceController::startContourFit(double tolerance, int maximu
         m_contourPreview = result;
         m_ui.viewer->setBoundaryContourPreview(*input, result->fit, 1./scale);
         const auto unit = m_contourUnitScale ? QStringLiteral("mm") : workspaceTr("源单位");
-        m_ui.relationsPanel->setContourFitState(false, true,
-            workspaceTr("青色为拟合轮廓。%1 张草图，%2 条边\n最大偏差 ≤ %3 %5，P95 偏差 %4 %5")
+        auto message = workspaceTr("青色为拟合轮廓。%1 张草图，%2 条边\n最大偏差 ≤ %3 %5，P95 偏差 %4 %5")
                 .arg(result->sketches.size()).arg(result->fit.edgeCount)
-                .arg(result->fit.maximumDeviation, 0, 'g', 5).arg(result->fit.p95Deviation, 0, 'g', 5).arg(unit));
+                .arg(result->fit.maximumDeviation, 0, 'g', 5).arg(result->fit.p95Deviation, 0, 'g', 5).arg(unit);
+        if (result->fit.separatedHoles)
+            message += QStringLiteral("\n") + workspaceTr("已在拟合容差内分开 %1 个接触外环的内孔。")
+                .arg(result->fit.separatedHoles);
+        m_ui.relationsPanel->setContourFitState(false, true, message);
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     m_ui.relationsPanel->setContourFitState(true, false, workspaceTr("正在后台拟合轮廓…"));

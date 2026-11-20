@@ -217,6 +217,13 @@ void verifyContourWorkflow(MainWindow& window, VTKViewer* viewer, QTreeWidget* t
     require(create->isEnabled(), qPrintable(fitStatus->text()));
     require(boundaryInspectionRenderer(viewer)->GetActors()->GetNumberOfItems() == 5 && fitStatus->text().contains("P95"),
             "fit overlays the original boundary and publishes diagnostics");
+    auto* circles = window.findChild<QCheckBox*>("cloudContourRecognizeCircles");
+    require(circles, "circle recognition control exists");
+    circles->setChecked(false);
+    fit->click();
+    waitForAnalysis(fitStatus);
+    require(create->isEnabled(), "sketch construction accepts a clockwise polygonal hole");
+    circles->setChecked(true);
     tolerance->setValue(1.2);
     require(!create->isEnabled() && boundaryInspectionRenderer(viewer)->GetActors()->GetNumberOfItems() == 4,
             "adjusted settings invalidate the previous candidate");
@@ -632,6 +639,31 @@ int main(int argc, char** argv)
         undo->trigger(); detect->click(); waitForAnalysis(status);
         require(viewer->pointCloudDocument()->selection().regions().size()==6 && !viewer->pointCloudDocument()->selection().relations().empty(),
             "background detection publishes fitted faces, original memberships and relationships to window");
+        auto* relationList = relationTree->topLevelItem(0);
+        int parallelGroups = 0, perpendicularGroups = 0;
+        QTreeWidgetItem* perpendicular = nullptr;
+        for (int i = 0; i < relationList->childCount(); ++i) {
+            auto* item = relationList->child(i);
+            if (item->text(1) == QStringLiteral("平行集合")) {
+                ++parallelGroups;
+                require(item->text(2) == "1" && item->childCount() == 0, "parallel evidence is collapsed");
+            } else if (item->text(1) == QStringLiteral("垂直方向组")) {
+                ++perpendicularGroups;
+                perpendicular = item;
+                require(item->text(2) == "4" && item->childCount() == 0, "four orthogonal pairs share one lazy row");
+            }
+        }
+        require(parallelGroups == 3 && perpendicularGroups == 3, "six box faces yield three directions and three perpendicular links");
+        relationTree->setCurrentItem(perpendicular);
+        require(document->selection().selected().size() == 400, "clicking a perpendicular group highlights its recorded endpoints");
+        perpendicular->setExpanded(true);
+        require(perpendicular->childCount() == 4, "expanding a group exposes the original evidence pairs");
+        auto* originalPair = perpendicular->child(0);
+        const int originalId = originalPair->data(0, Qt::UserRole + 1).toInt();
+        require(document->selection().relation(originalId), "expanded pairs retain their editable identities");
+        relationTree->setCurrentItem(originalPair);
+        require(document->selection().selected().size() == 200, "clicking a pair highlights only its own endpoints");
+        document->clearSelection();
         auto* autoSurfaces = window.findChild<QCheckBox*>("automaticCloudSurfaceDisplay");
         require(autoSurfaces && autoSurfaces->isChecked() && viewer->displayedPointCloudSurfaces().size()==6,
                 "point-cloud settings default to rendering detected faces");
