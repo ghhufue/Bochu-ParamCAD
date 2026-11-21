@@ -50,6 +50,19 @@ $$
 
 人工选择的小曲面片先以提案供全景补证，完整面通过验证后才能作为曲面发布。拒绝自动球面不会静默改变用户指定的模板类型，也不会把所有偏离点强塞给宿主平面。
 
+## 凹球面与曲面片段恢复
+
+有限支撑验证通过后，`validateDetectedSurfaceSupport()` 还会尝试补回被平面截断的球面和圆锥片段。入口是 `CurvedFragmentRecovery.cpp` 中的 `recoverCurvedFragments()`，只在 `enforce` 模式、启用平面检测且启用球或圆锥时运行。
+
+1. **构造平面碎片。** 只使用已接受、非人工保护且覆盖点不超过 4096 的平面面片。面积达到参考中位数 `plane_preference_min_reference_area_fraction` 且有效点数不少于参考最低点数的大平面，其覆盖点被排除，避免把宿主平面本身当成补证窗口。
+2. **建立邻接。** 两个面片的法向夹角必须大于重复平面角容差且小于 60°，包围盒在 `3 × max(平面容差, 参考间距)` 内，并至少有 3 个近邻接触；单个孤立接触点不足以建立邻域。
+3. **局部检测。** 对每个连通碎片组以及每个面片周围的 halo 窗口，只检测球和圆锥，每类最多 3 个候选，窗口不超过 8192 点。候选支持必须跨越至少两个面片，每个面片至少贡献 `min(2 × 最小成面点数, 一半面片点数)` 个共享点。
+4. **复验与选择。** 候选使用主分析相同的固定参考密度做有限支撑验证，通过后按区域残差和复杂度罚项选最低成本者。支持集重叠达到 50% 的重复候选合并；与已有球同球心（距离容差内）且支持重叠至少 25% 时，扩展现有球的支撑后重新验证。新接受的面片追加到原提案集，提案 ID 与面片 ID 顺延；若检测侧在原始分辨率扩展现有球，则用同一参考重新验证整批提案，否则只对新增候选追加验证。原参考本身不重建。
+
+因此，该恢复不会放宽主验证阈值，也不会覆盖人工模板。检测侧的球拟合同时支持内向和外向法向：`StableSphere` 用两条径向线给出初始球心，`CurvedEvidence` 再做最多 5 次阻尼联合精修，凹球面与凸球面共用同一球方程。
+
+凹球面恢复没有独立配置开关，受 `support_validation_mode`、五类检测开关和 `plane_preference_min_reference_area_fraction` 约束。
+
 ## 配置与诊断
 
 配置位于 `apps/ParamCAD Studio/config/analysis.conf`，可在客户端超参数界面调整。
@@ -100,4 +113,4 @@ $$
 
 用 `--resolve-ownership` 替换 `--detect` 可固定包内候选方程和原始观测，只回放支撑验收、补证及点归属。验收可按原始源点编号对照新导出包。
 
-算法测试目标为 `surface_support_validation_test`；还需检查 `surface_analysis_test`、`plane_support_recovery_test`、`point_cloud_analysis_test`、`cad_reconstruction_task_test`、`module_settings_test`、导出与查询测试。完整设计、Y373基线和验收口径见[修改方案](/development/surface-support-validation-plan)。
+算法测试目标为 `surface_support_validation_test`；该目标同时覆盖圆锥支撑、内孔补证和凹球面片段恢复。还需检查 `surface_analysis_test`、`plane_support_recovery_test`、`point_cloud_analysis_test`、`cad_reconstruction_task_test`、`module_settings_test`、导出与查询测试。完整设计、Y373基线和验收口径见[修改方案](/development/surface-support-validation-plan)。

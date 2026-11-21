@@ -3,6 +3,7 @@
 ## 会话、文档与导出
 
 ```powershell
+pcad --version
 pcad studio [--exe PATH] [--dry-run]
 pcad sessions
 pcad status
@@ -67,7 +68,7 @@ pcad reconstruct cad --offline --in cloud.ply --unit mm --output outputs/cad-new
 
 Studio 和原生 pcad 共享本地应用缓存。报告的 `cache` 对象列出本次查询阶段及其命中、未命中或绕过情况。缓存键绑定实际观测和生效设置，包含阶段实现与数据格式版本。装配按提取分组、边界准备、闭合和投影保存，单独修改投影参数可以复用前面的结果。开放部件及其诊断也可以复用。
 
-测试时可在启动进程前设置 `PCAD_CACHE_DIR`，把缓存放到独立目录。设置 `PCAD_DISABLE_CACHE=1` 可绕过缓存进行对照。打开 PLY 时只载入点云。主动执行表面识别或 CAD 重建时可复用匹配的计算缓存。保存并重开 PCAD 工程可恢复工程中的集合、关系和 CAD 模型。
+测试时可在启动进程前设置 `PCAD_CACHE_DIR`，把缓存放到独立目录。设置 `PCAD_DISABLE_CACHE=1` 可绕过缓存进行对照。Studio 的 **设置 → 清理点云缓存…** 可整体删除缓存；缓存的阶段、键和限制见[本地重建缓存](/modules/persistence#本地重建缓存)。打开 PLY 时只载入点云。主动执行表面识别或 CAD 重建时可复用匹配的计算缓存。保存并重开 PCAD 工程可恢复工程中的集合、关系和 CAD 模型。
 
 ## 图片重建
 
@@ -95,7 +96,7 @@ pcad inspect --bundle cloud.ply.pcad-analysis verify --full
 
 ## 输出与退出码
 
-普通命令输出 JSON，`--report` 将结果写入文件。配置打印与 help 是文本。模块报告带 schema/version/mode；在线响应另带请求 id、status、exit_code。计算日志可能写入 stderr。父目录需预先存在，CAD 输出目录必须新建。
+普通命令输出 JSON，`--report` 将结果写入文件。配置打印与 help 是文本。`pcad --version` 输出产品版本、构建配置、构建时间、Git 提交、工作区状态和改动指纹。模块报告带 schema/version/mode；在线响应另带请求 id、status、exit_code。计算日志可能写入 stderr。父目录需预先存在，CAD 输出目录必须新建。
 
 - 0：操作成功，或在线请求已 accepted（使用 --no-wait 时）。
 - 1：已执行但不支持、被取消、过期或结果未应用等业务失败。

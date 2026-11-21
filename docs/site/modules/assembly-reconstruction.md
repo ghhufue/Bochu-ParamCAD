@@ -99,6 +99,7 @@
 | 轮廓几何与拓扑 | `core/geometric_reconstruction/src/parts/assembly/BoundaryGeometry.cpp` |
 | 壳闭合与实体验证 | `core/geometric_reconstruction/src/parts/assembly/PartClosure.cpp` |
 | 解析轮廓闭合 | `core/geometric_reconstruction/src/parts/assembly/AnalyticProfileClosure.cpp` |
+| 平行轮廓与孔口匹配 | `core/geometric_reconstruction/src/parts/assembly/PlanarContourRecovery.cpp` |
 | 环形管与圆盘闭合 | `core/geometric_reconstruction/src/parts/assembly/AnnularTubeClosure.cpp`、`CircularSlabClosure.cpp` |
 | 默认装配参数 | `apps/ParamCAD Studio/config/assembly.conf` |
 

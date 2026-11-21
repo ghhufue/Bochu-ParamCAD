@@ -63,9 +63,11 @@
 
 **初步面片索引。** 每个基元的支持点先按 ID 去重，再由广度优先搜索拆成连通分量。连通半径取 `connectivityDistance`；为0时按包围范围和不同坐标位置数估计，重复位置不人为缩小连接尺度。每个面片记录质心、范围和平均法向；只有全部支持点都带已知定向法向时 `orientationKnown` 才为真。这一步仅拆片，最终面域还须通过下面的支撑验证。
 
-**有限支撑验证。** 默认使用 `enforce`。从高置信度大平面建立固定参考密度，按连通域检查面密度与内部占用；参考不足或不稳定时明确回退到局部支撑。球面另检查立体角与较小方向展开角，圆柱检查连续绕轴展开角，二者都要求弓高超过噪声且优于稳健平面替代。可靠点建立有限域后，域内全部有效观测计入覆盖，孔洞和域外线尾保留。具体阈值与面积口径统一放在[面密度与曲面展开验证](/algorithms/surface-support-validation)。
+**有限支撑验证。** 默认使用 `enforce`。从高置信度大平面建立固定参考密度，按连通域检查面密度与内部占用；参考不足或不稳定时明确回退到局部支撑。球面另检查立体角与较小方向展开角，圆柱检查连续绕轴展开角，圆锥按连续面片检查二维覆盖和弓高；三者都要求弓高超过噪声且优于稳健平面替代。可靠点建立有限域后，域内全部有效观测计入覆盖，孔洞和域外线尾保留。具体阈值与面积口径统一放在[面密度与曲面展开验证](/algorithms/surface-support-validation)。
 
-**原始点与最终归属。** 工作点、原始观测分别建立统计上下文，不能混用密度。核心 `resolveSurfaceOwnership()`在源点补证后处理独占归属；通过验证的大平面优先保留有限域和原容差内的点。归属后按冻结参考再验证，释放点最多重分配一轮并复验。该接口只使用源点ID和显式设置，检查快照及验证签名，取消或失败时保持输出不变。客户端只映射文档行和描述结果。未解释点保留，显示网格不能重新跨接拒绝域；用于识别的原分析仍可保留重叠证据。
+**凹球面片段恢复。** 主验证完成后，分析还会在相邻平面碎片包围的未解释区域局部重检球面和圆锥，用于补回被平面截断的凹球面或球冠。面积达到参考中位数一定比例的大平面和人工保护面片不参与区域构造；候选必须跨越至少两个面片，并再次通过同一固定参考的有限支撑验证。同一球心的候选按支持集重叠合并，必要时在原始分辨率继续扩展。该路径不放宽原距离和法向阈值，细节见[凹球面与曲面片段恢复](/algorithms/surface-support-validation#凹球面与曲面片段恢复)。
+
+**原始点与最终归属。** 工作点、原始观测分别建立统计上下文，不能混用密度。核心 `resolveSurfaceOwnership()`在源点补证后处理独占归属；通过验证的大平面优先保留有限域和原容差内的点。归属后按冻结参考再验证，释放点最多重分配一轮并复验。该接口只使用源点ID和显式设置，检查快照及验证签名，取消或失败时保持输出不变。客户端只映射文档行和描述结果。未解释点保留，显示网格不能重新跨接拒绝域；用于识别的原分析仍可保留重叠证据。CAD 任务未闭合时，客户端可用 `indexValidatedSourceSurfaces()` 把原始点上已验证的面片重新索引并显示，而不是退回未经归属的工作点结果。
 
 **关系推断。** 两个面片先做包围盒距离剪枝，再用网格邻域确认是否在距离容差内相邻。随后按基元类型追加关系：
 
@@ -97,6 +99,7 @@
 | 证据汇集与分析组合 | `core/geometric_reconstruction/src/surface/SurfaceAnalysis.cpp` |
 | 自动平面拓展 | `core/geometric_reconstruction/src/surface/expansion/PlaneSupportRecovery.cpp` |
 | 有限面域与支撑验证 | `core/geometric_reconstruction/src/surface/SurfaceFootprint.cpp`、`SurfaceSupportValidation.cpp` |
+| 凹球面与曲面片段恢复 | `core/geometric_reconstruction/src/surface/CurvedFragmentRecovery.cpp` |
 | 原始点集合归属与复验 | `core/geometric_reconstruction/src/surface/SurfaceOwnership.cpp` |
 | 客户端数据与结果适配 | `apps/ParamCAD Studio/src/io/PointCloudAnalysis.cpp` |
 | 面片索引与关系推断入口 | `core/geometric_reconstruction/src/surface/SurfacePatches.cpp` |
@@ -108,11 +111,12 @@
 
 ## 测试与诊断
 
-`plane_support_recovery_test` 验证平面拓展；`surface_support_validation_test` 覆盖密度参考、浅曲面、孔洞、窄条和分离域；`surface_analysis_test` 验证分析与修复；`point_cloud_analysis_test` 验证客户端集合发布。分析包的 `support-validation.json` 保存归属前后判定，见[分析结果导出与查询](/validation/analysis-export)。
+`plane_support_recovery_test` 验证平面拓展；`surface_support_validation_test` 覆盖密度参考、浅曲面、圆锥、孔洞、窄条、分离域和凹球面片段恢复；`surface_analysis_test` 验证分析与修复；`point_cloud_analysis_test` 验证客户端集合发布。分析包的 `support-validation.json` 保存归属前后判定，见[分析结果导出与查询](/validation/analysis-export)。
 
 ## 已知限制
 
 - 自动平面生长不等于所有解析曲面都有通用拓展器；球面、圆柱的展开验证也不等于孔或实体识别。
+- 凹球面片段恢复要求至少两个已通过验证的相邻平面碎片，并把局部窗口限制在 8192 点以内；没有平面邻域或孤立的小球冠仍可能漏检。
 - 关系只是几何假设，默认不强制模型满足；人工关系只能在已有自动关系中确认同类型、同端点项，冲突时直接报错。
 - 关系优化只覆盖平面、圆柱和圆锥，且只接受六类关系；球、圆环以及 `Tangent`、`Intersect` 等关系不会参与联合拟合。
 - 优化默认预算为 32 次尝试、12 个活跃曲面和 15 次迭代，超出预算的提议会被拒绝；预算可在 `analysis.conf` 调整，但结果不是全局最优保证。

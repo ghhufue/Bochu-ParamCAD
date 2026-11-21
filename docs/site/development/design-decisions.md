@@ -30,7 +30,7 @@
 | 语义特征优先于固定拓扑命名 | 长方体六个面、圆柱底面/顶面使用语义角色；草图可关联 `FeatureId + FaceRole`，而不是依赖布尔结果的面编号。任意布尔面与裁剪边界的稳定命名仍未实现。 | 根 `README.md` 第 2.4 节、`core/parametric_modeling/README.md` |
 | 配置外置 | 拍摄、预处理、检测、分析、识别、装配和投影参数放在 7 份 `.conf` 中，运行时可覆盖，算法代码只保留纯结构常量。 | `apps/ParamCAD Studio/config/*.conf`、配置加载与校验代码 |
 | VTK 只读显示 | B-Rep 是权威几何；VTK 只显示由 B-Rep 派生并三角化的网格，显示变换不改变模型尺寸。 | 根 `README.md`、`apps/ParamCAD Studio/README.md` |
-| 工程格式向后兼容 | 普通工程写 `version: 2`，带目标体布尔操作写 `version: 3`，读取接受 1、2、3；缺失字段按既定默认值恢复。 | `apps/ParamCAD Studio/src/io/ProjectStore.cpp`、持久化模块页 |
+| 工程格式向后兼容 | 普通工程写 `version: 2`，带目标体布尔操作写 `version: 3`，草图含圆弧写 `version: 4`，读取接受 1、2、3、4；缺失字段按既定默认值恢复。 | `apps/ParamCAD Studio/src/io/ProjectStore.cpp`、持久化模块页 |
 
 这些决策共同约束失败语义：任一阶段的证据、候选或补丁失败时，上游观测和当前 B-Rep 保持不变；后台结果还必须通过点云、模型和视口实体修订检查，过期结果不得覆盖新状态。单位规则同样明确：建模核心使用毫米，未知尺度必须由用户确认，不能被静默当作毫米。
 

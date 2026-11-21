@@ -15,6 +15,16 @@ python tools/pcad.py studio
 
 将 `tools` 加入 PATH 后可直接输入 `pcad`。正式离线包使用 `app/pcad.exe`，与 Studio、DLL 和 config 保持相对位置，无需另装 Python 来运行 C++ 命令。
 
+## 版本与构建身份
+
+```powershell
+pcad --version
+```
+
+输出 JSON 包含 `application_version`、`build_configuration`、`build_utc`、`git_commit`、`source_state` 和 `worktree_fingerprint`。产品版本统一来自 `apps/ParamCAD Studio/VERSION`；构建时 CMake 记录 Git 提交、工作区是 `clean` 还是 `dirty`，以及未提交改动的 SHA-256 指纹。同一构建目录的 Studio“帮助 → 关于”显示相同信息。
+
+排查“代码与运行结果不一致”时，应使用目标构建目录中的 `pcad`，核对其 `application_version` 和 `git_commit`；工作区为 `dirty` 时，指纹只说明构建时的未提交状态，不能与任意远端提交直接对应。
+
 ## 在线与离线
 
 在线：把请求发送给已经运行的 Studio，复用界面按钮对应的工作区控制器。进度、模板、关系、结果提交、集合、模型和视口沿用界面逻辑。可能出现与手动操作相同的尺度确认或覆盖确认。默认等待结果应用后返回。

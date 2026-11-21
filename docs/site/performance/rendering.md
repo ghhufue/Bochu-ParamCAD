@@ -9,6 +9,7 @@
 | 相机输入、渲染提交 | 主线程串行；绘制由 GPU 执行 | 同一事件队列中的重复请求合并 |
 | 阴影渲染、深度读回、CPU 打包 | 主线程串行 | 拖动时降低分辨率，结束后恢复 |
 | 点云基础颜色与选中高亮 | 主线程串行 | 按版本缓存基础颜色，选中点单独绘制 |
+| 点云面显示网格 | 主线程串行 | 按曲面修订缓存，切换集合显示或检查边界时复用 |
 | 点云降采样文件读取、融合和写盘 | 后台 QThread，内部串行 | 从 GUI 移走，并校验结果是否过期 |
 | 最终点云载入、VTK 上传和 CAD 显示准备 | 仍有主线程工作 | 本轮没有全部移走 |
 | 结构光 VTK 渲染和 PNG 保存 | 主线程逐帧串行 | 尚未新增并发编码/写盘队列 |
@@ -46,10 +47,18 @@
 
 完成时先检查任务是否取消、点云版本是否改变，符合条件才切换活动文件。期间发生集合编辑时，旧结果不覆盖当前点云；恢复原始点云、单位 sidecar 和已有降采样缓存保持原来的行为。最终载入结果和 VTK 连接/上传仍在 GUI 路径，因此不能宣称所有大点云操作都已经无阻塞。
 
+## 5. 复用点云面显示网格
+
+`meshPointCloudSurfaces()` 一次构建所有集合的三角面。`PointCloudActor` 只在曲面修订 `surfaceRevision` 变化时重建：选择点、改变视图或切换集合显示不会重新三角化；拟合、归属或集合编辑才会推进该修订。共面的多个集合先合并网格，再按各自归属拆成独立三角形，避免每个集合重复三角化同一平面。
+
+「交线与边界」和面片交线拟合直接读取这份缓存网格的三角形与顶点，因此检查看到的面域与视口显示一致，不会借用被拒绝的空白区域，也不会为预览再建一份显示网格。边界预览使用独立 renderer 和 actor，关闭后释放。
+
+这条优化减少的是重复 CPU 三角化和 VTK 上传，不是并行渲染。一次曲面编辑仍会使相关网格整体失效；大点云的首次网格构建仍在 GUI 路径执行。
+
 ## 验证与后续方向
 
 实际 Qt/VTK 测试覆盖相机输入、拾取编号、高亮、取消、过期结果拒绝和截图姿态。渲染基准还检查非空图像及恢复完整质量后的像素逐字节一致。
 
 GPU 内部直接传递阴影、异步像素读回、PNG 编码队列和显示 LOD 尚未实现。进一步优化前，应分别记录渲染、读回、CPU 打包、纹理更新和编码耗时，避免把 CPU/GPU 同步问题误判为缺少 CPU 线程。
 
-实现入口：`rendering/BodyActor.cpp`、`rendering/PointCloudActor.cpp`、`ui/viewport/VTKViewer.cpp`、`app/PointCloudWorkspaceController.cpp`；以上路径位于 `apps/ParamCAD Studio/src/`。
+实现入口：`rendering/BodyActor.cpp`、`rendering/PointCloudActor.cpp`、`rendering/PointCloudSurfaceMesh.cpp`、`ui/viewport/VTKViewer.cpp`、`ui/viewport/VTKViewerBoundary.cpp`、`app/PointCloudWorkspaceController.cpp`；以上路径位于 `apps/ParamCAD Studio/src/`。

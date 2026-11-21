@@ -55,6 +55,7 @@ CAD特征识别、部件闭合、引导复验和建模适配目前仍共同组�
 | 人工模板引导 | `pipeline/GuidedSolidRecognizer.h` | 指定类型仍须补证和边界复验 |
 | 修复时查询材料 | `recognition/CandidateMaterial.h` | 流程层通过公开谓词查询，避免包含混合识别的私有数据结构 |
 | 候选提交 | `modeling/ModelingAdapter.h` | 转为绑定修订的建模补丁，由建模核心原子应用 |
+| 拟合平面交线与边界 | `parts/PlanarSurfaceJunctions.h` | 输入有限平面网格，返回交线段和贴合边界的独立开放面；不修改观测、不提交模型 |
 
 原始点恢复、优先保留可靠大平面、候选竞争及归属后复验已从客户端移入 `SurfaceOwnership.cpp`。客户端 `PointCloudAnalysis.cpp`负责点云/选项适配、调用核心、源点ID到文档行的映射，以及中文名称和JSON摘要；几何归属规则由数值核心统一执行。
 

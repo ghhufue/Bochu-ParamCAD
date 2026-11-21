@@ -98,14 +98,14 @@ PCAD 是客户端的版本化工程文件（`apps/ParamCAD Studio/src/io/Project
 
 | 清单字段 | 内容 |
 | --- | --- |
-| `schema` / `version` | 固定为 `paramcad.project`，常规为版本 2；存在带 `targetBody` 的拉伸时写版本 3 |
+| `schema` / `version` | 固定为 `paramcad.project`，常规为版本 2；存在带 `targetBody` 的拉伸时写版本 3；草图包含圆弧时写版本 4 |
 | `features` | 完整特征历史的编码数组，保存前会在临时模型上先还原验证 |
 | `view` | 相机、背景、渲染尺寸、纹理投影等视图状态 |
 | `selection` | 当前选中的点 ID 列表 |
 | `cloudName` / `cloudUnit` | 点云文件名与源单位 |
 | `assets` | 按实际内容包含 `body.brep`、`cloud.ply`、`annotations.json`、`texture.png`，并记录名称、字节数与 SHA-256 |
 
-重开时逐项校验 schema、版本、资源白名单、文件长度与哈希，再还原特征历史并检查 `body.brep` 的 B-Rep 有效性。版本 1、2、3 都可读，保证旧工程不会因新增投影布尔目标体而失效。
+重开时逐项校验 schema、版本、资源白名单、文件长度与哈希，再还原特征历史并检查 `body.brep` 的 B-Rep 有效性。版本 1、2、3、4 都可读，保证旧工程不会因新增投影布尔目标体或圆弧草图而失效。
 
 STEP 导出由 `core/parametric_modeling/src/StepExporter.cpp` 调用 `STEPControl_Writer` 写出当前 B-Rep；验证入口还会回读并检查实体是否有效。客户端回读使用 `apps/ParamCAD Studio/src/io/StepModelLoader.cpp`，读入、传输根对象并校验非空形状，然后把形状平移到质心位于原点以便视口环绕（无封闭体积时改用包围盒中心）；距离与尺寸不变，原文件中的装配位置不被保留。
 

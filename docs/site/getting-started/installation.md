@@ -46,6 +46,8 @@ cmake --build --preset msvc-release
 
 `msvc-debug` 是唯一的配置预设，生成器为 Visual Studio 17 2022；`msvc-release` 构建预设在该目录下产出 Release 配置，可执行文件为 `apps/ParamCAD Studio/build/msvc-debug/Release/ParamCAD Studio.exe`。只有该目录会被打包和验证；怀疑缓存过期时删除整个 `build/` 重新配置，不要另建第二棵构建树。需要客户端测试时，用 `-DCAD_CLIENT_BUILD_TESTS=ON` 重新配置。
 
+产品版本统一记录在 `apps/ParamCAD Studio/VERSION`。构建时同时记录 Git 提交、工作区状态和未提交改动指纹；构建后可用同一目录中的 `pcad --version` 或 Studio 的“帮助 → 关于”核对，说明见 [CLI 使用指南](/cli/#版本与构建身份)。
+
 ### 核心库独立构建
 
 两个核心库都可脱离客户端单独配置和测试。参数化建模核心只需要 OpenCASCADE：
