@@ -18,7 +18,6 @@
 #include "ui/panels/ModelingPanel.h"
 #include "ui/panels/CameraPanel.h"
 #include "ui/panels/PropertyPanel.h"
-#include "ui/panels/PointCloudPanel.h"
 #include "ui/panels/PointCloudRelationsPanel.h"
 #include "ui/panels/ProjectionSketchPanel.h"
 #include "ui/panels/ReconstructPanel.h"
@@ -207,33 +206,11 @@ void PointCloudWorkspaceController::connectUi()
         updateCadActions();
         refreshDownsampleControls();
     });
-    PointCloudPanel* cloudPanel = m_ui.propertyPanel->pointCloudPanel();
-    const auto refreshCloudPanel = [this, cloudPanel] {
-        cloudPanel->refresh(m_document->selection(), m_document->hasCloud(),
-                            m_ui.viewer->pointCloudSelectionMode());
-    };
-    connect(m_ui.viewer, &VTKViewer::pointCloudSelectionChanged, this, refreshCloudPanel);
-    connect(m_ui.viewer, &VTKViewer::pointCloudLoaded, this, [this, cloudPanel, refreshCloudPanel] {
+    connect(m_ui.viewer, &VTKViewer::pointCloudLoaded, this, [this] {
         if (m_analysisThread) m_analysisThread->requestInterruption();
-        const double radius = m_ui.viewer->suggestedPointCloudRadius();
-        m_ui.relationsPanel->setDefaultTolerances(radius / 0.02);
-        m_ui.relationsPanel->setStatus(workspaceTr("可识别未归属点，或先在三维视图中手动建立集合。"));
-        cloudPanel->setDefaultRadius(radius);
-        refreshCloudPanel();
+        m_ui.relationsPanel->setDefaultTolerances(m_ui.viewer->pointCloudDiagonal());
+        m_ui.relationsPanel->setStatus(workspaceTr("识别未归属点以建立曲面集合。"));
         m_ui.propertyPanel->showPointCloudProperties();
-    });
-    connect(cloudPanel, &PointCloudPanel::modeChanged, m_ui.viewer, &VTKViewer::setPointCloudSelectionMode);
-    connect(cloudPanel, &PointCloudPanel::boxRequested, this, [this, cloudPanel] {
-        m_ui.viewer->selectPointCloudBox(cloudPanel->addBoxSelection());
-    });
-    connect(cloudPanel, &PointCloudPanel::resetBoxRequested, m_ui.viewer, &VTKViewer::resetPointCloudBox);
-    connect(cloudPanel, &PointCloudPanel::expandRequested, this, [this, cloudPanel] {
-        m_document->expandSelection(cloudPanel->radius());
-    });
-    connect(cloudPanel, &PointCloudPanel::clearRequested, m_document, &PointCloudDocument::clearSelection);
-    connect(cloudPanel, &PointCloudPanel::pointRequested, this, [this](qint64 id) {
-        if (m_document->selection().active(id)) m_document->selectPoint(id);
-        else m_ui.relationsPanel->setStatus(workspaceTr("该点 ID 不存在或已删除。"));
     });
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::assignRequested,
         m_document, &PointCloudDocument::assignRegion);
@@ -266,7 +243,6 @@ void PointCloudWorkspaceController::connectUi()
         }
         emit logInfo(workspaceTr("点云标注已载入：%1").arg(path));
     });
-    refreshCloudPanel();
     const auto refreshRelationships = [this] {
         m_ui.relationsPanel->setSourceInfo(m_document->sourcePath(), m_document->sourceUnit());
         m_ui.relationsPanel->setDocument(m_document->selection(), m_document->hasCloud());
@@ -313,7 +289,6 @@ void PointCloudWorkspaceController::connectUi()
                                                    m_ui.viewer->displayedPointCloudSurfaces());
     });
     m_ui.viewer->setAutomaticPointCloudSurfaces(m_ui.relationsPanel->automaticSurfaceDisplay());
-    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::pointSelected, m_document, &PointCloudDocument::selectPoint);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::editRegionRequested,
         m_document, &PointCloudDocument::editRegion);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::appendSelectionRequested, this, [this](int id) {
@@ -1218,7 +1193,8 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
     if (result.outcome == CadReconstructionResult::Outcome::Unsupported) {
         const double sourceScale = cloudUnit(*m_document) == reconstruction::LengthUnit::Meter ? 1000.0 : 1.0;
         const auto& preview = result.sourceSurfacePreview ? *result.sourceSurfacePreview : result.analysis;
-        surfaces = describeAnalysisPatches(preview, m_document->sourceCloud().positions.size(), sourceScale);
+        surfaces = describeAnalysisPatches(preview, m_document->sourceCloud().positions.size(),
+            sourceScale, result.sourceSurfacePreview.has_value());
     }
     if(result.assembly && !result.assembly->parts.empty() && surfaces.empty()) {
         std::vector<DetectedPointCloudSurface> groups;size_t closed=0;
@@ -1252,9 +1228,14 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
         m_ui.viewer->setAssemblyBoundaries(lines,closedLines,lineRegions);
         emit logInfo(workspaceTr("仅点云分离：%1 个候选，%2 个验证闭合，%3 个保留开放边界；候选不等同于原装配实例。")
             .arg(result.assembly->parts.size()).arg(closed).arg(result.assembly->parts.size()-closed));
-        if (!result.assembly->candidate.projectionPrograms.empty())
-            emit logInfo(workspaceTr("投影重建闭合了 %1 个候选。")
-                .arg(result.assembly->candidate.projectionPrograms.size()));
+        const auto projected = std::count_if(result.assembly->parts.begin(), result.assembly->parts.end(),
+            [](const auto& part) { return part.status == "closed_projection"; });
+        if (projected) emit logInfo(workspaceTr("投影重建闭合了 %1 个候选。").arg(projected));
+        const auto paired = std::count_if(result.assembly->parts.begin(), result.assembly->parts.end(),
+            [](const auto& part) {
+                return part.status == "closed_inferred_extrusion" || part.status == "closed_inferred_recess";
+            });
+        if (paired) emit logInfo(workspaceTr("平行轮廓配对闭合了 %1 个候选。").arg(paired));
     }
     if (result.outcome == CadReconstructionResult::Outcome::Unsupported) {
         if (!result.sourceSurfacePreviewError.isEmpty()) emit logWarning(result.sourceSurfacePreviewError);

@@ -26,4 +26,4 @@ PointCloudRegion describeTemplateFit(const reconstruction::TemplateFit& fit, dou
 // Display the retained analysis without rerunning detection after CAD failure.
 std::vector<DetectedPointCloudSurface> describeAnalysisPatches(
     const reconstruction::SurfaceAnalysisResult& analysis, std::size_t sourcePointCount,
-    double scaleToMillimeters);
+    double scaleToMillimeters, bool ownedPreview = false);

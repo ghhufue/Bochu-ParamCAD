@@ -135,7 +135,7 @@ QJsonObject viewJson(const ProjectViewState& v)
             {"parallelScale", v.parallelScale},
             {"cloudVisible", v.cloudVisible},
             {"pointSize", v.pointSize},
-            {"selectionMode", v.selectionMode},
+            {"selectionMode", 0},  // Required by older project readers.
             {"datumPlanes", v.datumPlanes},
             {"originLock", v.originLock},
             {"object", QJsonObject{{"position", array(v.object.position.data())},
@@ -168,7 +168,6 @@ ProjectViewState readView(const QJsonObject& j)
     v.parallelScale = number(j["parallelScale"], 1e-12, 1e15);
     v.cloudVisible = boolean(j["cloudVisible"]);
     v.pointSize = number(j["pointSize"], 1, 100);
-    v.selectionMode = integer(j["selectionMode"], 0, 2);
     v.datumPlanes = boolean(j["datumPlanes"]);
     v.originLock = boolean(j["originLock"]);
     double direction[3];

@@ -115,7 +115,6 @@ bool ProjectController::saveTo(const QString& path, QString& error)
     view.parallelScale = m_ui.viewer->parallelScale();
     view.cloudVisible = m_ui.viewer->pointCloudVisible();
     view.pointSize = m_ui.viewer->pointCloudPointSize();
-    view.selectionMode = m_ui.viewer->pointCloudSelectionMode();
     view.datumPlanes = m_ui.datumPlanesAction->isChecked();
     view.originLock = m_ui.properties->cameraPanel()->originLocked();
     view.object = m_ui.viewer->objectPresentation();
@@ -180,7 +179,6 @@ bool ProjectController::loadFrom(const QString& path, QString& error)
     m_ui.viewer->setBackgroundGradient(v.render.gradientBackground, v.render.background2);
     m_ui.viewer->setPointCloudVisible(v.cloudVisible);
     m_ui.viewer->setPointCloudPointSize(v.pointSize);
-    m_ui.viewer->setPointCloudSelectionMode(v.selectionMode);
     m_ui.datumPlanesAction->setChecked(v.datumPlanes);
     m_ui.viewer->setDatumPlanesVisible(v.datumPlanes);
     m_ui.properties->cameraPanel()->setOriginLock(v.originLock);

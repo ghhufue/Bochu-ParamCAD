@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <limits>
 #include <reconstruction/settings/ModuleConfig.h>
+#include <reconstruction/surface/SurfaceFootprint.h>
 
 namespace {
 void require(bool condition, const char* message) { if (!condition) throw std::runtime_error(message); }
@@ -142,6 +143,23 @@ int main(int argc, char** argv)
         reconstruction::settings::addOverride("analysis.minimum_surface_points=13");
         require(describeAnalysisPatches(retained,20,1000).empty(),"final CAD patch publication honours the configured minimum");
         reconstruction::settings::clearOverrides();
+        reconstruction::SphereEvidence sphere;
+        sphere.id = 1;
+        sphere.sphere = {{1000, 2000, 3000}, 200};
+        retained.surfaces[0] = sphere;
+        retained.supportProposalIds = {77};
+        reconstruction::SurfaceSupportDecision acceptedSphere;
+        acceptedSphere.kind = reconstruction::PrimitiveKind::Sphere;
+        acceptedSphere.proposalId = 77;
+        auto footprint = std::make_shared<reconstruction::SurfaceFootprint>();
+        footprint->sourcePointIds = {1, 3, 5, 999};
+        footprint->triangles = {{0, 1, 2}, {0, 1, 3}};
+        acceptedSphere.footprint = std::move(footprint);
+        retained.supportValidation.decisions = {acceptedSphere};
+        const auto ownedPreview = describeAnalysisPatches(retained, 20, 1000, true);
+        require(ownedPreview.size() == 1 && ownedPreview[0].surface.validatedSphereTriangles &&
+            *ownedPreview[0].surface.validatedSphereTriangles == SphereSourceTriangles{{0, 2, 4}},
+            "CAD preview remaps validated sphere triangles and excludes vertices outside its source patch");
         require(annotation.parameters["offset"].toDouble() == -3 && annotation.residual == 0.002,
                 "template plane equations and residuals return to source meter units");
         fit.surface.reset(); fit.box = reconstruction::BoxCandidate{};

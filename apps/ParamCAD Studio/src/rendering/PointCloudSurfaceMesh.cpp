@@ -59,6 +59,40 @@ using Kernel=CGAL::Exact_predicates_inexact_constructions_kernel;
 struct Info {vtkIdType index=0;double spacing2=0;};
 using Vertex=CGAL::Triangulation_vertex_base_with_info_2<Info,Kernel>;
 using DT=CGAL::Delaunay_triangulation_2<Kernel,CGAL::Triangulation_data_structure_2<Vertex>>;
+
+PointCloudSurfaceMesh meshValidatedSphere(const reconstruction::SphereEvidence& evidence,
+    const SphereSourceTriangles& triangles, const PlyCloud& cloud, const std::vector<vtkIdType>& members)
+{
+    PointCloudSurfaceMesh mesh;
+    const auto& sphere = evidence.sphere;
+    std::unordered_map<vtkIdType, vtkIdType> vertexBySource;
+    vertexBySource.reserve(members.size());
+    for (const auto row : members) {
+        if (row < 0 || static_cast<size_t>(row) >= cloud.positions.size()) continue;
+        const auto& point = cloud.positions[static_cast<size_t>(row)];
+        const auto ray = sub({point[0], point[1], point[2]}, sphere.center);
+        const double length = norm(ray);
+        if (!std::isfinite(length) || length <= 1e-12) continue;
+        if (!vertexBySource.emplace(row, static_cast<vtkIdType>(mesh.positions.size())).second) continue;
+        const auto onSphere = add(sphere.center, mul(ray, sphere.radius / length));
+        mesh.positions.push_back({onSphere.x, onSphere.y, onSphere.z});
+        mesh.sourcePointIds.push_back(row);
+    }
+    std::vector<bool> covered(mesh.positions.size());
+    mesh.triangles.reserve(triangles.size());
+    for (const auto& face : triangles) {
+        const auto a = vertexBySource.find(face[0]);
+        const auto b = vertexBySource.find(face[1]);
+        const auto c = vertexBySource.find(face[2]);
+        if (a == vertexBySource.end() || b == vertexBySource.end() || c == vertexBySource.end()) continue;
+        mesh.triangles.push_back({a->second, b->second, c->second});
+        for (const auto vertex : mesh.triangles.back()) covered[static_cast<size_t>(vertex)] = true;
+    }
+    if (mesh.triangles.empty()) return {};
+    for (size_t i = 0; i < covered.size(); ++i)
+        if (covered[i]) mesh.coveredPointIds.push_back(mesh.sourcePointIds[i]);
+    return mesh;
+}
 }
 
 std::optional<PointCloudPlanarBoundary> planarBoundaryOfMesh(
@@ -111,6 +145,9 @@ PointCloudSurfaceMesh meshPointCloudSurface(const PointCloudRegion& region,
     if(members.size()<std::max<size_t>(3,settings.minimumSurfacePoints))return mesh;
     const auto evidence=regionEvidence(region);
     if(!evidence)return mesh;
+    if (const auto* sphere = std::get_if<reconstruction::SphereEvidence>(&*evidence);
+        sphere && region.validatedSphereTriangles)
+        return meshValidatedSphere(*sphere, *region.validatedSphereTriangles, cloud, members);
     Chart chart;chart.kind=region.geometry;
     std::visit([&](const auto& e) {
         using T=std::decay_t<decltype(e)>;

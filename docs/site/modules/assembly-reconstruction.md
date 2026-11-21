@@ -6,9 +6,9 @@
 
 本模块在常规实体识别无法给出单一可信候选时，把同一份观测分解为有限面片、连接关系、部件分组和闭合实体。它只读取观测快照，不接受源模型、文件路径或参考标签；分解出的部件也不被断言为原始装配实例。
 
-唯一入口是 `reconstructAssembly(points, options, output, error, cancelled)`，要求输入为毫米制 `PointStore`。生产任务在满足以下条件时调用它：没有模板、没有人工关系，并且常规识别失败、候选实体数大于一，或“单箱体但表面覆盖低于 0.99”需要拆分细化。细化模式下若分离结果只有一个解析轮廓体，并且其通孔数不少于原候选，任务会采用分离结果；否则保留原候选并丢弃装配结果。未启用投影回退或处于细化模式时，生产任务把 `maximumProjectionParts` 置零。
+唯一入口是 `reconstructAssembly(points, options, output, error, cancelled)`，要求输入为毫米制 `PointStore`。生产任务在满足以下条件时调用它：没有模板、没有人工关系，并且常规识别失败、候选实体数大于一，或“单箱体但表面覆盖低于 0.99”需要拆分细化。细化时，任务可采用通孔数不少于原候选的单一解析轮廓体，或在原候选无通孔时采用由孔口和孔底确定的单一盲孔实体。未启用投影回退或处于细化模式时，生产任务把 `maximumProjectionParts` 置零。
 
-装配内部固定按 `extractPatches → groupPatches → recoverBoundaries → assignSourceObservations → closeParts → 专用闭合 → recoverLocalProfiles → fitOpenParts` 执行。边界恢复使用工作点，全量回填在其后发生；这一顺序决定了两种点归属的语义。
+装配内部固定按 `extractPatches → groupPatches → recoverBoundaries → assignSourceObservations → closeParts → 专用闭合 → recoverLocalProfiles → recoverPlanarContours → fitOpenParts` 执行。边界恢复使用工作点，全量回填在其后发生；这一顺序决定了两种点归属的语义。
 
 ## 输入与输出
 
@@ -84,6 +84,9 @@
 - 环形管闭合要求内外壁与两个观测端面同时成立，状态为 `closed_annular_tube`。
 - 圆盘闭合要求带符号端面、弦边和圆弧壁；推断接触时状态为 `closed_circular_slab_inferred_contact`。
 - 局部轮廓恢复另用 8–64 个平面、父子分割点数门槛、保留比例 0.98 和父支持比例 0.90 等预算，用于拆分过大的开放组。
+- 平行轮廓规则从开放部件中寻找近距离、投影轮廓匹配且配对唯一的相对端面，使用面间距生成可编辑的草图拉伸，状态为 `closed_inferred_extrusion`。端面间距上限取较小轮廓面积平方根的 0.5 倍。
+- 单个孔口的内环可与宿主内侧的平面外环匹配。宿主反侧端面通过配对时，生成宿主拉伸和定深切除，状态为 `closed_inferred_recess`。仅匹配到孔口和孔底时，`open_matched_recess` 保留配对诊断。
+- 两条规则均验证 B-Rep，并检查观测是否与推断材料冲突。重建报告将含推断壁的结果标为部分重建。
 - 开放部件若至少 2 个面片、至少 60 个全量点，按点数从大到小最多试拟合 6 个；成功后状态为 `closed_projection`，置信度取投影内点率。
 
 ## 源码位置

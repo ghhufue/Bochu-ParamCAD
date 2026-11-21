@@ -18,7 +18,8 @@ class ModelingPanel final : public QWidget
     Q_OBJECT
 
 public:
-    explicit ModelingPanel(QWidget* parent = nullptr);
+    enum class Commands { SketchAndDelete, None };
+    explicit ModelingPanel(QWidget* parent = nullptr, Commands commands = Commands::SketchAndDelete);
 
     void setStatusText(const QString& text);
 

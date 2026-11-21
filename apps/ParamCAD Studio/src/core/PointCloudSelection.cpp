@@ -207,11 +207,18 @@ QJsonObject PointCloudSelection::annotations(const QString& sourcePath) const
     }
     QJsonArray regions;
     for (const auto& region : m_regions) {
-        regions.append(QJsonObject{{"id", region.id}, {"name", region.name},
+        QJsonObject saved{{"id", region.id}, {"name", region.name},
             {"geometry", region.geometry}, {"pointIndices", pointsByRegion[region.id]}, {"parameters", region.parameters},
             {"supportValidation",region.supportValidation},
             {"source", region.source}, {"residual", region.residual}, {"confidence", region.confidence},
-            {"fitStale", region.fitStale}, {"templateLocked", region.templateLocked}});
+            {"fitStale", region.fitStale}, {"templateLocked", region.templateLocked}};
+        if (region.validatedSphereTriangles) {
+            QJsonArray indices;
+            for (const auto& triangle : *region.validatedSphereTriangles)
+                for (const auto index : triangle) indices.append(static_cast<qint64>(index));
+            saved["validatedSphereTriangles"] = indices;
+        }
+        regions.append(saved);
     }
     QJsonArray deleted, relations, suppressed;
     for (size_t i = 0; i < m_deleted.size(); ++i) if (m_deleted[i]) deleted.append(static_cast<qint64>(i));
@@ -369,7 +376,29 @@ bool PointCloudSelection::loadAnnotations(const QJsonObject& root, QString& erro
                 if (!valid) { error = QCoreApplication::translate("PointCloudSelection", "无效的表面参数。"); return false; }
             }
         }
-        regions.push_back(surface);
+        const auto topology = region["validatedSphereTriangles"];
+        if (version == 2 && topology.isArray() && surface.geometry == "sphere" &&
+            !surface.fitStale && !surface.parameters.isEmpty()) {
+            const auto indices = topology.toArray();
+            if (indices.size() % 3 == 0) {
+                auto triangles = std::make_shared<SphereSourceTriangles>();
+                triangles->reserve(static_cast<size_t>(indices.size() / 3));
+                for (qsizetype i = 0; i < indices.size(); i += 3) {
+                    const std::array<qint64, 3> triangle{indices[i].toInteger(-1),
+                        indices[i + 1].toInteger(-1), indices[i + 2].toInteger(-1)};
+                    if (triangle[0] == triangle[1] || triangle[1] == triangle[2] || triangle[2] == triangle[0] ||
+                        !std::all_of(triangle.begin(), triangle.end(), [&](auto index) {
+                            return index >= 0 && index < static_cast<qint64>(memberships.size()) &&
+                                memberships[static_cast<size_t>(index)] == id;
+                        })) break;
+                    triangles->push_back({static_cast<vtkIdType>(triangle[0]),
+                        static_cast<vtkIdType>(triangle[1]), static_cast<vtkIdType>(triangle[2])});
+                }
+                if (triangles->size() == static_cast<size_t>(indices.size() / 3))
+                    surface.validatedSphereTriangles = std::move(triangles);
+            }
+        }
+        regions.push_back(std::move(surface));
         nextId = std::max(nextId, id + 1);
     }
     std::vector<PointCloudRelation> relations;

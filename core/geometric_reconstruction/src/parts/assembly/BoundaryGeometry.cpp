@@ -92,10 +92,22 @@ double boundaryArea(const BoundaryLoop& loop) {
     }
     return result*.5;
 }
+double boundaryDistance(const BoundaryLoop& loop, P point) {
+    double distance = INFINITY;
+    for (std::size_t i = 0; i < loop.size(); ++i)
+        distance = std::min(distance, segmentDistance(point, loop[i], loop[(i + 1) % loop.size()]));
+    return distance;
+}
+
 bool simpleBoundary(const BoundaryLoop& loop) {
     if(loop.size()<3)return false;
     for(auto p:loop)if(!std::isfinite(p.x)||!std::isfinite(p.y))return false;
     return polygon(loop).is_simple() && boundaryArea(loop)!=0;
+}
+bool boundaryContainsLoop(const BoundaryLoop& outer, const BoundaryLoop& inner) {
+    const auto first = inner.front();
+    return !contact(outer, inner).touching &&
+        polygon(outer).bounded_side({first.x, first.y}) == CGAL::ON_BOUNDED_SIDE;
 }
 std::vector<BoundaryLoop> splitBoundaryCycles(const BoundaryLoop& walk) {
     std::vector<BoundaryLoop> cycles;
@@ -134,9 +146,18 @@ BoundaryLoop snapBoundary(const BoundaryLoop& loop,const std::vector<BoundaryLin
     for(size_t i=0;i<loop.size();++i) {
         const auto a=loop[i],b=loop[(i+1)%loop.size()];const double length=distance(a,b);
         if(length<=0)continue;
-        BoundaryLine selected{(a.y-b.y)/length,(b.x-a.x)/length,0,-int(i)-1,a};
+        BoundaryLine selected{(a.y-b.y)/length,(b.x-a.x)/length,0,-int(i)-1,a,{}};
         selected.c=-selected.a*a.x-selected.b*a.y;double best=reach;
         for(const auto& line:constraints) {
+            if (line.extent) {
+                const auto start = (*line.extent)[0], end = (*line.extent)[1];
+                const auto dx = end.x - start.x, dy = end.y - start.y;
+                const auto span = std::hypot(dx, dy);
+                if (span <= 0) continue;
+                const auto station = [&](P p) { return ((p.x - start.x) * dx + (p.y - start.y) * dy) / span; };
+                const auto first = station(a), last = station(b);
+                if (std::min(first, last) < -reach || std::max(first, last) > span + reach) continue;
+            }
             // Even short edges must agree with the proposed intersection. A
             // midpoint near a plane is insufficient evidence for rotating it.
             const double angle=std::abs(line.a*(b.x-a.x)+line.b*(b.y-a.y))/length;

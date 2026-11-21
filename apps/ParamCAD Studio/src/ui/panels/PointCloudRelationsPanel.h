@@ -11,10 +11,10 @@ class QCheckBox;
 class QDoubleSpinBox;
 class QLabel;
 class QLineEdit;
-class QMenu;
 class QPushButton;
 class QComboBox;
 class QSpinBox;
+class QStackedWidget;
 class QTabWidget;
 class QToolButton;
 class QTreeWidget;
@@ -25,8 +25,8 @@ class PointCloudRelationsPanel final : public QWidget
     Q_OBJECT
 public:
     explicit PointCloudRelationsPanel(QWidget* parent = nullptr);
-    void insertSelectionPage(QWidget* page);
-    QMenu* createSelectionMenu(QWidget* parent);
+    void setJunctionPanel(QWidget* panel);
+    void showJunctionPage();
     void setSourceInfo(const QString& path, const QString& unit);
     void setDocument(const PointCloudSelection& document, bool available);
     void updateSelection();
@@ -65,7 +65,6 @@ signals:
     void regionSelected(int id);
     void relationSelected(int id);
     void relationGroupSelected(const std::vector<int>& ids);
-    void pointSelected(vtkIdType id);
     void assignRequested(const QString& geometry, const QString& name, int id);
     void unassignRequested();
     void editRegionRequested(int id, const QString& name, const QString& geometry);
@@ -86,6 +85,7 @@ private:
     int selectedRegion() const;
     int selectedRelation() const;
     void updateActions();
+    void setCloudAvailable(bool available);
     void createRegion();
     void editRegion();
     void editRelation(bool create);
@@ -109,7 +109,10 @@ private:
     bool m_analysisExportBusy = false;
     bool m_boundaryActive = false;
     QTabWidget* m_pages;
-    QWidget* m_boundaryPage;
+    QStackedWidget* m_boundaryPage;
+    QWidget* m_boundaryInspection;
+    QWidget* m_junctionPanel = nullptr;
+    QWidget* m_cloudActions;
     QLabel* m_boundarySummary;
     QPushButton* m_closeBoundary;
     std::array<QCheckBox*, 4> m_boundaryLayers;

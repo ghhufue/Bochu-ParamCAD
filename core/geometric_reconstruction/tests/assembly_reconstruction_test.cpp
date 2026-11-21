@@ -1,4 +1,5 @@
 #include <reconstruction/parts/AssemblyReconstruction.h>
+#include <reconstruction/parts/PlanarSurfaceJunctions.h>
 #include <reconstruction/modeling/ModelingAdapter.h>
 #include <BRepGProp.hxx>
 #include <BRepCheck_Analyzer.hxx>
@@ -35,6 +36,168 @@ double volume(const reconstruction::CompoundCandidate& candidate) {
     require(!core.bodyShape().IsNull()&&BRepCheck_Analyzer(core.bodyShape()).IsValid(),"assembly creates valid CAD");GProp_GProps props;BRepGProp::VolumeProperties(core.bodyShape(),props,1e-9);return props.Mass();
 }
 size_t closed(const reconstruction::AssemblyReconstructionResult& result){return std::count_if(result.parts.begin(),result.parts.end(),[](const auto& p){return p.closed;});}
+void openPlanarJunctions()
+{
+    using reconstruction::PlanarJunctionKind;
+    using reconstruction::PlanarSurfaceInput;
+    const auto quad = [](int id, reconstruction::PlaneEquation plane, std::vector<Vec3> points) {
+        return PlanarSurfaceInput{id, plane, 0, std::move(points), {{0, 1, 2}, {0, 2, 3}}};
+    };
+    auto floor = quad(4, {{0, 0, 1}, 0}, {{-4, 0, 0}, {-.1, 0, 0}, {-.1, 4, 0}, {-4, 4, 0}});
+    auto wall = quad(59, {{1, 0, 0}, 0}, {{0, 0, .1}, {0, 4, .1}, {0, 4, 4}, {0, 0, 4}});
+    auto remote = wall;
+    remote.id = 186;
+    for (auto& point : remote.vertices) point.y += 10;
+    auto parallel = floor;
+    parallel.id = 65;
+    parallel.plane.offset = -8;
+    for (auto& point : parallel.vertices) point.z += 8;
+
+    const auto result = reconstruction::fitPlanarSurfaceJunctions({floor, wall, remote, parallel});
+    require(result.surfaces.size() == 4 && result.junctions.size() == 6,
+        "all fitted planes remain available without forming a shell");
+    const auto& junction = result.junctions.front();
+    require(junction.kind == PlanarJunctionKind::Intersecting && junction.segments.size() == 1,
+        "a small edge gap is reconciled into a finite intersection");
+    const auto& [a, b] = junction.segments.front();
+    require(std::abs(a.x) < 1e-9 && std::abs(b.x) < 1e-9 && std::abs(a.z) < 1e-9 &&
+        std::abs(b.z) < 1e-9 && std::abs(std::abs(a.y - b.y) - 4) < 1e-9,
+        "both endpoints lie on both fitted planes and respect the shared coverage");
+    for (const auto* surface : {&result.surfaces[0], &result.surfaces[1]}) {
+        require(surface->boundaryAdjusted && !surface->triangles.empty() && surface->boundaries.size() == 1,
+            "the intersecting face is retriangulated within its fitted boundary");
+        require(std::count_if(surface->boundaries.front().vertices.begin(), surface->boundaries.front().vertices.end(),
+            [](Vec3 point) { return std::abs(point.x) < 1e-9 && std::abs(point.z) < 1e-9; }) == 2,
+            "both returned face contours share the exact junction edge");
+    }
+    require(result.junctions[1].kind == PlanarJunctionKind::Disjoint &&
+        result.junctions[2].kind == PlanarJunctionKind::NearlyParallel,
+        "only nearby finite overlaps produce segments");
+
+    auto span = wall;
+    span.vertices[1].y = span.vertices[2].y = 14;
+    auto split = floor;
+    for (auto point : floor.vertices) {
+        point.y += 10;
+        split.vertices.push_back(point);
+    }
+    split.triangles.insert(split.triangles.end(), {{4, 5, 6}, {4, 6, 7}});
+    const auto separated = reconstruction::fitPlanarSurfaceJunctions({split, span});
+    require(separated.junctions.front().segments.size() == 2 && separated.surfaces.front().boundaries.size() == 2,
+        "unobserved gaps between two support islands remain separate");
+
+    auto holed = floor;
+    holed.vertices.clear();
+    holed.triangles.clear();
+    for (const double y : {0., 1., 3., 4.})
+        for (const double x : {-4., -3., -1., -.1}) holed.vertices.push_back({x, y, 0});
+    for (std::size_t y = 0; y < 3; ++y) for (std::size_t x = 0; x < 3; ++x) {
+        if (x == 1 && y == 1) continue;
+        const auto a = 4 * y + x;
+        holed.triangles.insert(holed.triangles.end(), {{a, a + 1, a + 5}, {a, a + 5, a + 4}});
+    }
+    const auto withHole = reconstruction::fitPlanarSurfaceJunctions({holed, wall});
+    const auto& fitted = withHole.surfaces.front();
+    require(fitted.boundaryAdjusted && fitted.boundaries.size() == 2 && fitted.boundaries.back().hole,
+        "snapping an outer edge preserves the existing inner hole");
+    for (const auto& triangle : fitted.triangles) {
+        const auto a = fitted.vertices[triangle[0]], b = fitted.vertices[triangle[1]], c = fitted.vertices[triangle[2]];
+        const auto x = (a.x + b.x + c.x) / 3, y = (a.y + b.y + c.y) / 3;
+        require(x <= -3 || x >= -1 || y <= 1 || y >= 3, "the fitted mesh leaves the hole unfilled");
+    }
+}
+
+
+enum class CapShape { Rectangle, Opening, Floor };
+
+void appendCap(std::vector<PointSample>& cloud, double z, double outward, CapShape shape,
+               double shift = 0) {
+    for (int i = -20; i <= 20; ++i) for (int j = -16; j <= 16; ++j) {
+        const double x = i * .25, y = j * .25;
+        const bool aperture = std::hypot(x, y) < 2;
+        if ((shape == CapShape::Opening && aperture) || (shape == CapShape::Floor && !aperture))
+            continue;
+        cloud.push_back({cloud.size() + 1, {x + shift, y, z}, Vec3{0, 0, outward}});
+    }
+}
+
+void inferredPlanarContours() {
+    std::vector<PointSample> caps;
+    appendCap(caps, 0, -1, CapShape::Rectangle);
+    appendCap(caps, 2, 1, CapShape::Rectangle);
+    const auto plate = run(caps);
+    require(plate.parts.size() == 1 && plate.parts.front().status == "closed_inferred_extrusion" &&
+        plate.parts.front().patchIds.size() == 2 && plate.candidate.projectionPrograms.size() == 1 &&
+        plate.candidate.surfaceCoverage > .99, "only the two observed caps recover an editable extrusion");
+    require(std::abs(volume(plate.candidate) - 160) < 1e-6, "paired rectangles reproduce the full plate volume");
+
+    auto tilted = caps;
+    const auto turn = [](Vec3 p) {
+        return Vec3{.8 * p.x + .6 * p.z, p.y, -.6 * p.x + .8 * p.z};
+    };
+    for (auto& point : tilted) {
+        point.position = reconstruction::math3::add(turn(point.position), {10, 25, -8});
+        point.normal = turn(*point.normal);
+    }
+    std::reverse(tilted.begin(), tilted.end());
+    const auto rotated = run(tilted);
+    require(closed(rotated) == 1 && std::abs(volume(rotated.candidate) - 160) < 1e-6,
+        "contour matching is invariant to rigid motion and point order");
+
+    std::vector<PointSample> first(caps.begin(), caps.begin() + caps.size() / 2);
+    for (const auto& [height, normal, shift] : {std::array<double, 3>{2, 1, 1},
+                                               std::array<double, 3>{6, 1, 0},
+                                               std::array<double, 3>{2, -1, 0}}) {
+        auto rejected = first;
+        appendCap(rejected, height, normal, CapShape::Rectangle, shift);
+        require(closed(run(rejected)) == 0, "reject translated, distant and same-facing contours");
+    }
+    auto ambiguous = caps;
+    appendCap(ambiguous, 3, 1, CapShape::Rectangle);
+    require(closed(run(ambiguous)) == 0, "a cap shared by multiple plausible solids is ambiguous");
+    auto obstructed = caps;
+    for (int i = 0; i < 10; ++i)
+        obstructed.push_back({obstructed.size() + 1, {.1 * i, 0, 1}, Vec3{0, 0, 1}});
+    require(closed(run(obstructed)) == 0, "interior observations veto an otherwise plausible extrusion");
+
+    std::vector<PointSample> recess;
+    appendCap(recess, 0, -1, CapShape::Opening);
+    appendCap(recess, 2, -1, CapShape::Floor);
+    const auto open = run(recess);
+    require(open.parts.size() == 2 && closed(open) == 0 &&
+        std::all_of(open.parts.begin(), open.parts.end(),
+            [](const auto& part) { return part.status == "open_matched_recess"; }),
+        "a hole and floor match without fabricating the opposite side of the host");
+
+    appendCap(recess, 3, 1, CapShape::Rectangle);
+    const auto recovered = run(recess);
+    require(recovered.parts.size() == 1 && recovered.parts.front().status == "closed_inferred_recess" &&
+        recovered.parts.front().patchIds.size() == 3 && recovered.candidate.projectionPrograms.size() == 1,
+        "the matched floor and opposing host cap close the recess");
+    const auto& program = recovered.candidate.projectionPrograms.front();
+    require(program.size() == 2 && program.back().operation == modeling::ExtrudeOperation::Cut &&
+        std::abs(program.back().depth - 2) < 1e-6 &&
+        std::abs(volume(recovered.candidate) - (240 - 8 * std::acos(-1.0))) < 3,
+        "the reconstructed recess is a bounded cut with the observed depth and radius");
+
+    modeling::ModelingCore model;
+    const auto committed = reconstruction::commitCompoundCandidate(recovered.candidate, model);
+    require(committed.success && model.features().size() == 4, "the recess retains its editable feature history");
+    const auto& cut = model.features().back();
+    auto updated = std::get<modeling::ExtrudeFeatureParams>(cut.params);
+    updated.depth = 1.5;
+    modeling::ModelPatch patch;
+    patch.commands.emplace_back(modeling::EditFeatureCommand{cut.id, updated, true, {}});
+    require(model.apply(patch).success, "editing inferred cut depth rebuilds the body");
+
+    std::vector<PointSample> mismatched;
+    appendCap(mismatched, 0, -1, CapShape::Opening);
+    appendCap(mismatched, 2, -1, CapShape::Floor, 1);
+    appendCap(mismatched, 3, 1, CapShape::Rectangle);
+    require(closed(run(mismatched)) == 0, "a shifted floor cannot close the recess");
+}
+
+
 void separatedAndRotated() {
     std::vector<PointSample> points;box(points,{-12,0,0},{6,8,5});box(points,{12,4,2},{3,5,9},.37);
     const auto result=run(points);std::cout<<"separated: patches="<<result.patches.size()<<" parts="<<result.parts.size()<<" closed="<<closed(result)<<'\n';
@@ -637,5 +800,5 @@ void safeBoundaryRecovery() {
     require(sameBoundaryTopology({outer,hole},{outer,hole}),"unchanged inner holes retain their topology");
 }
 }
-int main(){try{safeBoundaryRecovery();separatedAndRotated();stagedAssembly();missingFaceAndPartial();finiteConcavityAndHole();noiseAndGaps();curvedParts();nonorthogonalFaces();drilledProfiles();profileCutouts();countersunkProfile();steppedProfile();annularTube();drilledCircularSlab();circularSlabContact();roundedProfile();invalidAndCancel();mergeCoplanarFragmentsWithoutJoiningWalls();std::cout<<"Assembly reconstruction tests passed\n";return 0;}
+int main(){try{safeBoundaryRecovery();openPlanarJunctions();inferredPlanarContours();separatedAndRotated();stagedAssembly();missingFaceAndPartial();finiteConcavityAndHole();noiseAndGaps();curvedParts();nonorthogonalFaces();drilledProfiles();profileCutouts();countersunkProfile();steppedProfile();annularTube();drilledCircularSlab();circularSlabContact();roundedProfile();invalidAndCancel();mergeCoplanarFragmentsWithoutJoiningWalls();std::cout<<"Assembly reconstruction tests passed\n";return 0;}
 catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

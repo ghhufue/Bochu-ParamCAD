@@ -17,11 +17,6 @@
 #include <vtkPolyData.h>
 #include <vtkPolyDataMapper.h>
 #include <vtkUnsignedCharArray.h>
-#include <vtkBoxWidget2.h>
-#include <vtkBoxRepresentation.h>
-#include <vtkWidgetEventTranslator.h>
-#include <vtkPlanes.h>
-#include <vtkPointPicker.h>
 #include <vtkProperty.h>
 #include <vtkAxesActor.h>
 #include <vtkCallbackCommand.h>
@@ -32,6 +27,7 @@
 #include <vtkImageResize.h>
 #include <vtkMatrix4x4.h>
 #include <vtkNew.h>
+#include <vtkObjectFactory.h>
 #include <vtkOrientationMarkerWidget.h>
 #include <vtkPNGWriter.h>
 #include <vtkRenderWindowInteractor.h>
@@ -89,6 +85,24 @@ capture::Geometry VTKViewer::captureGeometry() const
 
 namespace {
 
+// Gate the window as well as our timer, since the Qt adapter and VTK
+// interactor can request a frame without calling VTKViewer::renderNow().
+class ViewportRenderWindow final : public vtkGenericOpenGLRenderWindow
+{
+public:
+    static ViewportRenderWindow* New();
+    vtkTypeMacro(ViewportRenderWindow, vtkGenericOpenGLRenderWindow);
+
+    void setActive(bool active) { m_active = active; }
+    bool active() const { return m_active; }
+    void Render() override { if (m_active) Superclass::Render(); }
+
+private:
+    bool m_active = true;
+};
+
+vtkStandardNewMacro(ViewportRenderWindow);
+
 constexpr double kPiOver180 = 3.14159265358979323846 / 180.0;
 constexpr int kCameraPanelIntervalMs = 50;
 
@@ -130,13 +144,14 @@ bool normalize(double v[3])
 
 }  // namespace
 
-VTKViewer::VTKViewer(QWidget* parent, PointCloudDocument* document)
+VTKViewer::VTKViewer(QWidget* parent, PointCloudDocument* document, bool renderingActive)
     : QVTKOpenGLNativeWidget(parent)
-    , m_renderWindow(vtkSmartPointer<vtkGenericOpenGLRenderWindow>::New())
+    , m_renderWindow(vtkSmartPointer<ViewportRenderWindow>::New())
     , m_renderer(vtkSmartPointer<vtkRenderer>::New())
     , m_referenceRenderer(vtkSmartPointer<vtkRenderer>::New())
     , m_pointCloudDocument(document ? document : new PointCloudDocument(this))
 {
+    static_cast<ViewportRenderWindow*>(m_renderWindow.GetPointer())->setActive(renderingActive);
     setObjectName(QStringLiteral("vtkViewport"));
     setMinimumSize(480, 320);
     setFocusPolicy(Qt::StrongFocus);
@@ -175,21 +190,6 @@ VTKViewer::VTKViewer(QWidget* parent, PointCloudDocument* document)
         onKeyPressed(keySym);
     };
     m_renderWindow->GetInteractor()->SetInteractorStyle(m_interactorStyle);
-    m_pointBox = vtkSmartPointer<vtkBoxWidget2>::New();
-    m_pointBoxRepresentation = vtkSmartPointer<vtkBoxRepresentation>::New();
-    m_pointBox->SetRepresentation(m_pointBoxRepresentation);
-    m_pointBox->SetInteractor(m_renderWindow->GetInteractor());
-    m_pointBox->SetDefaultRenderer(m_renderer);
-    m_pointBox->KeyPressActivationOff();
-    // Preserve the client's middle-orbit / right-pan camera bindings while
-    // the box is active. Box manipulation uses left-button gestures only.
-    for (unsigned long event : {vtkCommand::MiddleButtonPressEvent, vtkCommand::MiddleButtonReleaseEvent,
-                                vtkCommand::RightButtonPressEvent, vtkCommand::RightButtonReleaseEvent}) {
-        m_pointBox->GetEventTranslator()->RemoveTranslation(event);
-    }
-    m_pointBoxRepresentation->SetPlaceFactor(0.5);
-    m_pointBoxRepresentation->GetOutlineProperty()->SetColor(1.0, 0.65, 0.15);
-    m_pointBoxRepresentation->GetSelectedOutlineProperty()->SetColor(1.0, 0.85, 0.35);
 
     m_renderer->AddActor(m_bodyActor.surfaceActor());
     m_renderer->AddActor(m_bodyActor.edgeActor());
@@ -240,8 +240,6 @@ VTKViewer::VTKViewer(QWidget* parent, PointCloudDocument* document)
 }
 VTKViewer::~VTKViewer()
 {
-    m_pointBox->SetEnabled(0);
-    m_pointBox->SetInteractor(nullptr);
     if (m_renderer && m_renderer->GetActiveCamera() && m_cameraObserverTag != 0) {
         m_renderer->GetActiveCamera()->RemoveObserver(m_cameraObserverTag);
     }
@@ -322,7 +320,6 @@ bool VTKViewer::beginBoxReferenceSelection(const modeling::BoxPrimitiveParams& b
     m_sketchActor.draftActor()->SetUserMatrix(m_bodyActor.surfaceActor()->GetMatrix());
     m_referenceSelection=true;
     m_datumPlanes.setVisible(false);
-    m_pointBox->SetEnabled(0);
     renderNow();
     return true;
 }
@@ -333,7 +330,6 @@ void VTKViewer::endBoxReferenceSelection()
     m_referenceSelection=false;
     m_boxReferenceActor.setVisible(false);
     m_datumPlanes.setVisible(m_datumPlanesVisible);
-    m_pointBox->SetEnabled(m_pointSelectionMode==2 && hasPointCloud() ? 1 : 0);
     renderNow();
 }
 
@@ -342,9 +338,28 @@ void VTKViewer::renderNow()
     renderFrame(m_cameraInteracting);
 }
 
+bool VTKViewer::renderingActive() const noexcept
+{
+    return static_cast<const ViewportRenderWindow*>(m_renderWindow.GetPointer())->active();
+}
+
+void VTKViewer::setRenderingActive(bool active)
+{
+    auto* window = static_cast<ViewportRenderWindow*>(m_renderWindow.GetPointer());
+    if (window->active() == active) return;
+    window->setActive(active);
+    if (active) {
+        requestRender();
+    } else {
+        m_renderTimer.stop();
+        endCameraInteraction();
+    }
+}
+
 void VTKViewer::renderFrame(bool interacting)
 {
     m_renderTimer.stop();
+    if (!renderingActive()) return;
     // The preview light rides on the camera, so its pose and shadow map are
     // refreshed from the pose the frame is about to be drawn with.
     if (!m_boundaryInspectionRenderer)
@@ -355,7 +370,7 @@ void VTKViewer::renderFrame(bool interacting)
 
 void VTKViewer::requestRender()
 {
-    if (m_renderTimer.isActive()) return;
+    if (!renderingActive() || m_renderTimer.isActive()) return;
     // Merge requests already in the Qt event queue, without imposing a frame
     // interval. Qt/OpenGL presentation can then use the monitor's full refresh
     // rate instead of being held below it by a 17 ms software timer.
@@ -427,7 +442,6 @@ void VTKViewer::setSketchInteractionEnabled(bool enabled)
 {
     if (enabled) closeBoundaryInspection();
     if (enabled) endBoxReferenceSelection();
-    if (enabled) setPointCloudSelectionMode(0);
     m_sketchInteraction = enabled;
     emit sketchInteractionChanged(enabled);
     if (!enabled) {
@@ -810,43 +824,6 @@ void VTKViewer::onLeftButtonPressed(int x, int y)
         if (anchor>=0) { endBoxReferenceSelection(); emit boxReferencePicked(anchor); }
         return;
     }
-    if (!m_sketchInteraction && m_pointSelectionMode != 0) {
-        if (m_pointSelectionMode == 1 && hasPointCloud() && m_pointCloudVisible) {
-            const bool add = m_renderWindow->GetInteractor()->GetControlKey()
-                || m_renderWindow->GetInteractor()->GetShiftKey();
-            const int region = pickPointCloudRegionAt(x, y);
-            if (region > 0) {
-                const auto ids = pointCloudSelection().regionPoints(region);
-                if (add) {
-                    auto selected = pointCloudSelection().selected();
-                    const std::set<vtkIdType> current(selected.begin(), selected.end());
-                    const bool remove = std::all_of(ids.begin(), ids.end(), [&](auto id) { return current.count(id) != 0; });
-                    // Deselecting the face clears its name; adding keeps the new one.
-                    emit pointCloudFacePicked(remove ? 0 : region);
-                    if (remove) {
-                        const std::set<vtkIdType> members(ids.begin(), ids.end());
-                        selected.erase(std::remove_if(selected.begin(), selected.end(), [&](auto id) { return members.count(id) != 0; }), selected.end());
-                        m_pointCloudDocument->select(selected);
-                    } else m_pointCloudDocument->select(ids, true);
-                } else {
-                    emit pointCloudFacePicked(region);
-                    m_pointCloudDocument->selectRegion(region);
-                }
-                return;
-            }
-            emit pointCloudFacePicked(0);
-            vtkNew<vtkPointPicker> picker;
-            picker->UseCellsOn(); // Deleted observations have no render cells.
-            picker->PickFromListOn();
-            picker->AddPickList(m_pointCloudActor.actor());
-            picker->SetTolerance(0.008);
-            picker->Pick(x, y, 0.0, m_renderer);
-            const vtkIdType id = picker->GetPointId();
-            if (add) m_pointCloudDocument->toggle(id);
-            else m_pointCloudDocument->select(id >= 0 ? std::vector<vtkIdType>{id} : std::vector<vtkIdType>{});
-        }
-        return;
-    }
     if (m_sketchInteraction) {
         if (m_tool == ViewportTool::Select) {
             modeling::SketchEntityId entityId = modeling::kInvalidSketchEntityId;
@@ -868,9 +845,8 @@ void VTKViewer::onLeftButtonPressed(int x, int y)
         return;
     }
 
-    // Model interaction still reports which recognised point-cloud surface lies
-    // under the click, so its name stays visible without stealing the body pick.
-    emit pointCloudFacePicked(pickPointCloudRegionAt(x, y));
+    const int region = pickPointCloudRegionAt(x, y);
+    emit pointCloudFacePicked(region);
     int faceId = -1;
     bool planar = false;
     sketchapp::PlaneFrame plane;
@@ -879,14 +855,37 @@ void VTKViewer::onLeftButtonPressed(int x, int y)
         return;
     }
 
-    // The modeled body wins over the datum planes, which run through it: only a
-    // click that misses the body can mean "sketch on this reference plane".
+    auto* interactor = m_renderWindow->GetInteractor();
+    const bool extendSelection = interactor->GetControlKey() || interactor->GetShiftKey();
+    if (region > 0) {
+        if (!extendSelection) {
+            m_pointCloudDocument->selectRegion(region);
+            return;
+        }
+        const auto ids = pointCloudSelection().regionPoints(region);
+        auto selected = pointCloudSelection().selected();
+        const std::set<vtkIdType> current(selected.begin(), selected.end());
+        if (std::all_of(ids.begin(), ids.end(), [&](auto id) { return current.count(id) != 0; })) {
+            const std::set<vtkIdType> members(ids.begin(), ids.end());
+            selected.erase(std::remove_if(selected.begin(), selected.end(), [&](auto id) {
+                return members.count(id) != 0;
+            }), selected.end());
+            emit pointCloudFacePicked(0);
+            m_pointCloudDocument->select(selected);
+        } else {
+            m_pointCloudDocument->select(ids, true);
+        }
+        return;
+    }
+
+    // Datum planes can cross a model or a fitted cloud surface.
     modeling::DatumPlane datumPlane = modeling::DatumPlane::XY;
     if (pickDatumPlaneAt(x, y, datumPlane)) {
         emit datumPlanePicked(datumPlane);
         return;
     }
-
+    if (hasPointCloud() && m_pointCloudVisible && !extendSelection && !pointCloudSelection().selected().empty())
+        m_pointCloudDocument->clearSelection();
     emit emptyPicked();
 }
 
@@ -930,10 +929,6 @@ void VTKViewer::onCancelRequested()
     if (m_referenceSelection) {
         endBoxReferenceSelection(); emit boxReferenceSelectionCancelled(); return;
     }
-    if (m_pointSelectionMode != 0) {
-        setPointCloudSelectionMode(0);
-        return;
-    }
     clearSketchDraft();
     renderNow();
     emit sketchCancelled();
@@ -948,10 +943,6 @@ void VTKViewer::onKeyPressed(const std::string& keySym)
     if (m_referenceSelection && keySym=="Escape") {
         endBoxReferenceSelection(); emit boxReferenceSelectionCancelled(); return;
     }
-    if (m_pointSelectionMode != 0 && keySym == "Escape") {
-        setPointCloudSelectionMode(0);
-        return;
-    }
     // Outside a sketch the Delete key means nothing here, so it stays unclaimed
     // for whatever widget owns the focus.
     if (!m_sketchInteraction) {
@@ -964,7 +955,7 @@ void VTKViewer::onKeyPressed(const std::string& keySym)
 
 bool VTKViewer::captureImage(const QString& filePath, int width, int height)
 {
-    if (filePath.isEmpty() || width <= 0 || height <= 0) {
+    if (!renderingActive() || filePath.isEmpty() || width <= 0 || height <= 0) {
         return false;
     }
     closeBoundaryInspection();
@@ -975,10 +966,8 @@ bool VTKViewer::captureImage(const QString& filePath, int width, int height)
     // usable as reconstruction input whatever the editor was showing.
     const bool datumPlanesWereVisible = m_datumPlanesVisible;
     const int highlightedFace = m_highlightedFace;
-    const bool boxWasVisible = m_pointBox->GetEnabled() != 0;
     const bool boundariesWereVisible=m_assemblyBoundaryActor->GetVisibility()!=0;m_assemblyBoundaryActor->SetVisibility(false);
     m_referenceRenderer->DrawOff();
-    m_pointBox->SetEnabled(0);
     m_pointCloudActor.setAnnotations(nullptr);
     m_datumPlanes.setVisible(false);
     m_bodyActor.clearHighlight();
@@ -1010,7 +999,6 @@ bool VTKViewer::captureImage(const QString& filePath, int width, int height)
 
     m_datumPlanes.setVisible(datumPlanesWereVisible && !m_referenceSelection);
     m_referenceRenderer->DrawOn();
-    m_pointBox->SetEnabled(boxWasVisible ? 1 : 0);
     m_pointCloudActor.setAnnotations(&pointCloudSelection());
     m_assemblyBoundaryActor->SetVisibility(boundariesWereVisible);
     if (highlightedFace >= 0) {
@@ -1026,7 +1014,7 @@ bool VTKViewer::captureImage(const QString& filePath, int width, int height)
 
 bool VTKViewer::captureViewport(const QString& filePath)
 {
-    if (filePath.isEmpty()) {
+    if (!renderingActive() || filePath.isEmpty()) {
         return false;
     }
 
@@ -1068,11 +1056,8 @@ void VTKViewer::syncPointCloud()
         m_pointCloudVisible = true;
         m_pointCloudActor.setVisible(true);
         emit pointCloudVisibilityChanged(true);
-        resetPointCloudBox();
-        setPointCloudSelectionMode(m_sketchInteraction ? 0 : 1);
         emit pointCloudLoaded();
     } else {
-        setPointCloudSelectionMode(0);
         m_pointCloudActor.clear();
         m_pointCloudVisible = false;
         emit pointCloudVisibilityChanged(false);
@@ -1147,7 +1132,6 @@ int VTKViewer::textureProjection() const noexcept
 void VTKViewer::setPointCloudVisible(bool visible)
 {
     m_pointCloudVisible = visible;
-    if (!visible) setPointCloudSelectionMode(0);
     m_pointCloudActor.setVisible(visible);
     m_assemblyBoundaryActor->SetVisibility(visible && m_boundaryPointCount==m_pointCloudDocument->pointCount() && m_assemblyBoundaryActor->GetMapper()!=nullptr);
     emit pointCloudVisibilityChanged(visible);
@@ -1209,46 +1193,11 @@ void VTKViewer::refreshAssemblyBoundaries()
     m_assemblyBoundaryActor->SetMapper(mapper);m_assemblyBoundarySegments=unique.size();m_assemblyBoundaryActor->SetVisibility(m_pointCloudVisible&&!unique.empty());renderNow();
 }
 
-void VTKViewer::setPointCloudSelectionMode(int mode)
-{
-    m_pointSelectionMode = hasPointCloud() && m_pointCloudVisible && !m_sketchInteraction
-        ? std::clamp(mode, 0, 2) : 0;
-    m_pointBox->SetEnabled(m_pointSelectionMode == 2 && !m_boundaryInspectionRenderer);
-    emit pointCloudSelectionChanged();
-    requestRender();
-}
-
-double VTKViewer::suggestedPointCloudRadius() const
+double VTKViewer::pointCloudDiagonal() const
 {
     double bounds[6];
     m_pointCloudActor.bounds(bounds);
-    return std::max(0.000001, std::hypot(std::hypot(bounds[1] - bounds[0],
-        bounds[3] - bounds[2]), bounds[5] - bounds[4]) * 0.02);
-}
-
-void VTKViewer::resetPointCloudBox()
-{
-    if (!hasPointCloud()) return;
-    double bounds[6];
-    m_pointCloudActor.bounds(bounds);
-    const double span = std::max({bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4], 1.0e-6});
-    // Planar and single-point clouds still need non-degenerate box handles.
-    for (int axis = 0; axis < 3; ++axis) {
-        if (bounds[axis * 2 + 1] - bounds[axis * 2] < span * 0.01) {
-            bounds[axis * 2] -= span * 0.01;
-            bounds[axis * 2 + 1] += span * 0.01;
-        }
-    }
-    m_pointBoxRepresentation->PlaceWidget(bounds);
-    requestRender();
-}
-
-void VTKViewer::selectPointCloudBox(bool add)
-{
-    if (m_pointSelectionMode != 2) return;
-    vtkNew<vtkPlanes> planes;
-    m_pointBoxRepresentation->GetPlanes(planes);
-    m_pointCloudDocument->selectBox(planes, add);
+    return std::hypot(bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4]);
 }
 
 void VTKViewer::refreshPointCloudSelection()
@@ -1256,7 +1205,6 @@ void VTKViewer::refreshPointCloudSelection()
     m_pointCloudActor.setAnnotations(&pointCloudSelection());
     emit pointCloudSurfaceDisplayChanged();
     if(!m_assemblyBoundaryLines.empty())refreshAssemblyBoundaries();
-    emit pointCloudSelectionChanged();
     requestRender();
 }
 

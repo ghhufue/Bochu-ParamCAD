@@ -1,4 +1,4 @@
-#include "AnalysisBundleReader.h"
+#include "io/AnalysisBundleReader.h"
 #include <QCryptographicHash>
 #include <QDataStream>
 #include <QDir>
@@ -92,19 +92,37 @@ public:
             for(auto x:p.p)check(std::isfinite(x),"Non-finite active observation");f(p);}}
     static QJsonArray vector(const std::array<double,3>& p){return{p[0],p[1],p[2]};}
     static double distance(const std::array<double,3>& a,const std::array<double,3>& b){return std::hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);}
-    QJsonValue mesh(const QJsonObject& s)const{
-        if(!s.contains("render_mesh"))return QJsonValue::Null;
+    struct MeshVertex { std::array<double,3> p; quint64 id; };
+    struct Mesh {
+        std::vector<MeshVertex> vertices;
+        std::vector<reconstruction::PlanarSurfaceTriangle> triangles;
+    };
+    Mesh readMesh(const QJsonObject& s)const{
+        if(!s.contains("render_mesh"))return {};
         QFile file;binary(file,"meshes.bin","PCADMSH1",0);const auto m=s["render_mesh"].toObject();
         const auto vr=range(m["vertices"].toObject(),32,file.size()),tr=range(m["triangles"].toObject(),24,file.size());
         QDataStream stream(&file);stream.setByteOrder(QDataStream::LittleEndian);stream.setFloatingPointPrecision(QDataStream::DoublePrecision);
-        struct Vertex{std::array<double,3> p;quint64 id;};std::vector<Vertex> vertices;vertices.reserve(size_t(vr.count));
+        Mesh mesh;
+        mesh.vertices.reserve(size_t(vr.count));
+        mesh.triangles.reserve(size_t(tr.count));
+        const auto count = quint64(integer(manifest["source"].toObject()["point_count"]));
+        file.seek(vr.offset);for(qint64 i=0;i<vr.count;++i){MeshVertex v{};for(auto& x:v.p){stream>>x;check(std::isfinite(x),"Non-finite mesh vertex");}stream>>v.id;
+            check(v.id<count,"Invalid mesh source index");mesh.vertices.push_back(v);}
+        file.seek(tr.offset);for(qint64 i=0;i<tr.count;++i){quint64 a=0,b=0,c=0;stream>>a>>b>>c;
+            check(a<mesh.vertices.size()&&b<mesh.vertices.size()&&c<mesh.vertices.size(),"Invalid triangle vertex index");
+            mesh.triangles.push_back({size_t(a),size_t(b),size_t(c)});}
+        check(stream.status()==QDataStream::Ok,"Truncated mesh");
+        return mesh;
+    }
+    QJsonValue mesh(const QJsonObject& s)const{
+        if(!s.contains("render_mesh"))return QJsonValue::Null;
+        const auto data=readMesh(s);
+        const auto& vertices=data.vertices;
         const auto ids=indices(s);std::set<quint64> members(ids.begin(),ids.end());qint64 foreignVertices=0,foreignTriangles=0;
-        file.seek(vr.offset);for(qint64 i=0;i<vr.count;++i){Vertex v{};for(auto& x:v.p){stream>>x;check(std::isfinite(x),"Non-finite mesh vertex");}stream>>v.id;
-            check(v.id<quint64(integer(manifest["source"].toObject()["point_count"])),"Invalid mesh source index");foreignVertices+=!members.count(v.id);vertices.push_back(v);}
+        for(const auto& vertex:vertices)foreignVertices+=!members.count(vertex.id);
         double area=0,foreignArea=0,longest=0;std::vector<QJsonObject> largest;
-        file.seek(tr.offset);for(qint64 i=0;i<tr.count;++i){quint64 a,b,c;stream>>a>>b>>c;
-            check(a<vertices.size()&&b<vertices.size()&&c<vertices.size(),"Invalid triangle vertex index");
-            const auto& A=vertices[size_t(a)];const auto& B=vertices[size_t(b)];const auto& C=vertices[size_t(c)];
+        for(const auto& [a,b,c]:data.triangles){
+            const auto& A=vertices[a];const auto& B=vertices[b];const auto& C=vertices[c];
             std::array<double,3> u{},v{},cross{};for(int j=0;j<3;++j){u[j]=B.p[j]-A.p[j];v[j]=C.p[j]-A.p[j];}
             cross={u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]};
             const auto ar=std::hypot(cross[0],cross[1],cross[2])*.5;area+=ar;
@@ -112,8 +130,8 @@ public:
             if(foreign){++foreignTriangles;foreignArea+=ar;}longest=std::max({longest,distance(A.p,B.p),distance(B.p,C.p),distance(C.p,A.p)});
             largest.push_back({{"area",ar},{"source_indices",QJsonArray{qint64(A.id),qint64(B.id),qint64(C.id)}},{"uses_other_collection",foreign}});
             std::stable_sort(largest.begin(),largest.end(),[](auto a,auto b){return a["area"].toDouble()>b["area"].toDouble();});if(largest.size()>3)largest.pop_back();}
-        check(stream.status()==QDataStream::Ok,"Truncated mesh");QJsonArray top;for(const auto& value:largest)top.append(value);
-        return QJsonObject{{"area",area},{"triangle_count",tr.count},{"maximum_edge",longest},{"foreign_source_vertices",foreignVertices},
+        QJsonArray top;for(const auto& value:largest)top.append(value);
+        return QJsonObject{{"area",area},{"triangle_count",qint64(data.triangles.size())},{"maximum_edge",longest},{"foreign_source_vertices",foreignVertices},
             {"foreign_triangles",foreignTriangles},{"foreign_triangle_area",foreignArea},{"largest_triangles",top}};}
     QJsonObject analyze(const QJsonObject& s)const{
         qint64 count=0,normals=0;std::array<double,3> low{INFINITY,INFINITY,INFINITY},high{-INFINITY,-INFINITY,-INFINITY},sum{};
@@ -133,6 +151,48 @@ public:
         return result;}
 };
 }
+
+std::vector<AnalysisBundlePlaneEntry> listAnalysisBundlePlanes(const QString& directory)
+{
+    const Bundle bundle(directory);
+    std::vector<AnalysisBundlePlaneEntry> result;
+    for (const auto& entry : bundle.index) {
+        const auto row = entry.toObject();
+        if (row["geometry"] == "plane") result.push_back({row["id"].toInt(), row["name"].toString()});
+    }
+    return result;
+}
+
+std::vector<AnalysisBundlePlane> loadAnalysisBundlePlanes(const QString& directory, const std::vector<int>& ids)
+{
+    const Bundle bundle(directory);
+    std::vector<AnalysisBundlePlane> result;
+    result.reserve(ids.size());
+    for (const auto id : ids) {
+        const auto it = std::find_if(bundle.index.begin(), bundle.index.end(), [id](const auto& value) {
+            return value.toObject()["id"].toInt() == id;
+        });
+        check(it != bundle.index.end(), "Requested surface ID is missing from the bundle");
+        const auto surface = bundle.surface((*it).toObject());
+        check(surface["geometry"] == "plane" && !surface["fit_stale"].toBool(), "Surface has no current fitted plane");
+        const auto params = surface["parameters"].toObject();
+        const auto normal = params["normal"].toArray();
+        check(normal.size() == 3 && normal[0].isDouble() && normal[1].isDouble() && normal[2].isDouble()
+            && params["offset"].isDouble(), "Invalid plane equation in bundle");
+        auto& plane = result.emplace_back();
+        plane.surface.id = id;
+        plane.surface.plane = {{normal[0].toDouble(), normal[1].toDouble(), normal[2].toDouble()}, params["offset"].toDouble()};
+        plane.surface.residual = surface["fit_residual"].toDouble();
+        auto mesh = bundle.readMesh(surface);
+        for (const auto& vertex : mesh.vertices) plane.surface.vertices.push_back({vertex.p[0], vertex.p[1], vertex.p[2]});
+        plane.surface.triangles = std::move(mesh.triangles);
+        if (plane.surface.triangles.empty()) bundle.points(surface, [&](const Bundle::Point& point) {
+            plane.observations.push_back({point.p[0], point.p[1], point.p[2]});
+        });
+    }
+    return result;
+}
+
 QJsonObject inspectAnalysisBundle(const QStringList& arguments){
     QMap<QString,QString> options;QString command;bool group=false,full=false;
     const QStringList values{"--bundle","--id","--name","--filter","--kind","--limit","--offset"};

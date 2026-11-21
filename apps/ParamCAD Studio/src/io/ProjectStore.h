@@ -12,7 +12,6 @@ struct ProjectViewState
     CameraParameters camera;
     double parallelScale = 1, pointSize = 2;
     bool cloudVisible = true, datumPlanes = true, originLock = true;
-    int selectionMode = 0;
     ObjectPresentation object;
     RenderPresentation render;
 };

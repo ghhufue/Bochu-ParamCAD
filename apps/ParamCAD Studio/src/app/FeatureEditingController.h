@@ -4,7 +4,7 @@
 #include <optional>
 class ModelingController;
 class ModelingPanel;
-class PropertyPanel;
+class FeatureDetailsPanel;
 class VTKViewer;
 class QAction;
 class FeatureEditorPanel;
@@ -13,9 +13,10 @@ class TextParameterPanel;
 struct FeatureEditingUi {
     VTKViewer* viewer;
     ModelingPanel* features;
-    PropertyPanel* properties;
+    FeatureDetailsPanel* details;
     QAction* undo;
     QAction* redo;
+    VTKViewer* documentViewer = nullptr;
 };
 
 class FeatureEditingController final : public WorkspaceController
@@ -28,12 +29,13 @@ public:
 private:
     void refresh();
     void updateHistoryActions();
+    bool modelDisplayed() const;
     bool editable() const;
     ModelingController* const m_model;
     const FeatureEditingUi m_ui;
+    VTKViewer* const m_documentViewer;
     FeatureEditorPanel* m_editor;
     TextParameterPanel* m_textEditor;
     std::optional<textcad::PrimitiveEdit> m_textProposal;
     void invalidateTextPreview();
-    bool m_modelDisplayed = true;
 };

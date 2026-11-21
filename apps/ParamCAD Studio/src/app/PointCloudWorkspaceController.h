@@ -62,6 +62,7 @@ public:
     void cancelCadReconstruction();
     void prepareProjectReplacement();
     bool commandBusy() const;
+    bool reconstructionCacheInUse() const;
     bool dispatchCliOperation(const QString& command,const QStringList& arguments,QString& error);
 signals:
     // Emitted only after the ordinary UI result handlers apply/reject the result.

@@ -4,19 +4,25 @@
 #include "ui/panels/FeatureEditorPanel.h"
 #include "ui/panels/TextParameterPanel.h"
 #include "ui/panels/ModelingPanel.h"
-#include "ui/panels/PropertyPanel.h"
 #include "ui/viewport/VTKViewer.h"
 #include <QAction>
 
 FeatureEditingController::FeatureEditingController(ModelingController* model,
     const FeatureEditingUi& ui, QWidget* dialogParent, QObject* parent)
     : WorkspaceController(dialogParent,parent), m_model(model), m_ui(ui),
-      m_editor(ui.properties->featureDetailsPanel()->editor()),
-      m_textEditor(ui.properties->featureDetailsPanel()->textEditor()) {}
+      m_documentViewer(ui.documentViewer ? ui.documentViewer : ui.viewer),
+      m_editor(ui.details->editor()), m_textEditor(ui.details->textEditor()) {}
+
+bool FeatureEditingController::modelDisplayed() const
+{
+    const auto& shape = m_documentViewer->displayedBody();
+    const auto& body = m_model->bodyShape();
+    return shape.IsNull() ? body.IsNull() : !body.IsNull() && shape.IsSame(body);
+}
 
 bool FeatureEditingController::editable() const
 {
-    return m_modelDisplayed && !m_ui.viewer->sketchInteractionEnabled();
+    return modelDisplayed() && !m_documentViewer->sketchInteractionEnabled();
 }
 
 void FeatureEditingController::connectUi()
@@ -24,16 +30,10 @@ void FeatureEditingController::connectUi()
     connect(m_ui.features,&ModelingPanel::featureSelected,this,[this] { refresh(); });
     connect(m_model,&ModelingController::modelRebuilt,this,&FeatureEditingController::refresh);
     connect(m_model,&ModelingController::historyChanged,this,&FeatureEditingController::updateHistoryActions);
-    connect(m_ui.viewer,&VTKViewer::sketchInteractionChanged,this,[this] {
-        invalidateTextPreview(); m_textEditor->setEditingAllowed(editable());
-        m_editor->setEditingAllowed(editable()); updateHistoryActions();
-    });
-    connect(m_ui.viewer,&VTKViewer::bodyShapeChanged,this,[this](const TopoDS_Shape& shape) {
-        const auto& body=m_model->bodyShape();
-        m_modelDisplayed=shape.IsNull() ? body.IsNull() : !body.IsNull() && shape.IsSame(body);
-        if (!m_modelDisplayed) m_model->clearHistory();
-        invalidateTextPreview(); m_textEditor->setEditingAllowed(editable());
-        m_editor->setEditingAllowed(editable()); updateHistoryActions();
+    connect(m_documentViewer,&VTKViewer::sketchInteractionChanged,this,&FeatureEditingController::refresh);
+    connect(m_documentViewer,&VTKViewer::bodyShapeChanged,this,[this] {
+        if (m_ui.viewer == m_documentViewer && !modelDisplayed()) m_model->clearHistory();
+        refresh();
     });
     connect(m_editor,&FeatureEditorPanel::applyRequested,this,
         [this](modeling::FeatureId id,double a,double b,double c,modeling::ResizeAnchor anchor,quint64 revision) {

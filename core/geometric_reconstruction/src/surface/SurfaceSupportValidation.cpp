@@ -494,7 +494,7 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
                 results[index] = std::move(e);
             }
         }
-        if(d.kind==PrimitiveKind::Plane && d.verdict==SupportVerdict::Accepted)
+        if(d.verdict==SupportVerdict::Accepted && (d.kind==PrimitiveKind::Plane || d.kind==PrimitiveKind::Sphere))
             d.footprint=std::make_shared<SurfaceFootprint>(std::move(m.domain));
     })) {
         error = "Cancelled";

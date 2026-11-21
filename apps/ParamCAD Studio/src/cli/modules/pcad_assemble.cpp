@@ -69,6 +69,7 @@ int run_assemble(const QStringList& commandArguments)
             entry["id"] = static_cast<qint64>(part.id);
             entry["closed"] = part.closed;
             entry["status"] = QString::fromStdString(part.status);
+            entry["reason"] = QString::fromStdString(part.reason);
             entry["points"] = static_cast<qint64>(part.pointIds.size());
             entry["working_points"] = static_cast<qint64>(part.workingPointIds.size());
             entry["patches"] = static_cast<qint64>(part.patchIds.size());

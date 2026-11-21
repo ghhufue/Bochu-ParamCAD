@@ -34,8 +34,6 @@ class vtkObject;
 class vtkOrientationMarkerWidget;
 class vtkRenderer;
 class vtkActor;
-class vtkBoxWidget2;
-class vtkBoxRepresentation;
 struct PointCloudContourInput;
 namespace contour_fitting { struct ParameterizationResult; }
 
@@ -49,7 +47,8 @@ public:
     };
 
     // An injected document must outlive this view; standalone views create one.
-    explicit VTKViewer(QWidget* parent = nullptr, PointCloudDocument* document = nullptr);
+    explicit VTKViewer(QWidget* parent = nullptr, PointCloudDocument* document = nullptr,
+                       bool renderingActive = true);
     ~VTKViewer() override;
 
     CameraParameters cameraParameters() const;
@@ -60,6 +59,7 @@ public:
     std::set<int> availablePointCloudSurfaces() const { return m_pointCloudActor.availableSurfaceRegions(); }
     std::set<int> displayedPointCloudSurfaces() const { return m_pointCloudActor.displayedSurfaceRegions(); }
     PointCloudSurfaceDisplay pointCloudSurfaceDisplaySnapshot() const { return m_pointCloudActor.surfaceDisplaySnapshot(); }
+    const PointCloudSurfaceMesh* pointCloudSurfaceMesh(int region) const { return m_pointCloudActor.surfaceMesh(region); }
     void setAutomaticPointCloudSurfaces(bool enabled);
     void setPointCloudRegionSurface(int region, bool enabled);
     void refreshPointCloudSurfaceSettings();
@@ -100,6 +100,8 @@ public:
     // Imported/replaced bodies may change without a feature-history command.
     quint64 bodyRevision() const noexcept { return m_bodyRevision; }
     void renderNow();
+    void setRenderingActive(bool active);
+    bool renderingActive() const noexcept;
     // Presentation-only finite boundary overlay in the source cloud frame.
     void setAssemblyBoundaries(const std::vector<std::array<double,6>>& lines,const std::vector<bool>& closed,
                                const std::vector<int>& regions = {});
@@ -124,11 +126,7 @@ public:
     PointCloudDocument* pointCloudDocument() const noexcept { return m_pointCloudDocument; }
     bool hasPointCloud() const noexcept;
     void resetCameraToPointCloud();
-    int pointCloudSelectionMode() const { return m_pointSelectionMode; }
-    double suggestedPointCloudRadius() const;
-    void setPointCloudSelectionMode(int mode);
-    void resetPointCloudBox();
-    void selectPointCloudBox(bool add);
+    double pointCloudDiagonal() const;
 
     // Texture projection. The image is cast onto the body from one direction
     // instead of being unwrapped onto it, so any picture lands on any model
@@ -221,7 +219,6 @@ signals:
     void pointCloudVisibilityChanged(bool visible);
     // Native geometry publication; consumers retain their own OCCT handle.
     void bodyShapeChanged(const TopoDS_Shape& shape);
-    void pointCloudSelectionChanged();
     void pointCloudSurfaceDisplayChanged();
     void boundaryInspectionClosed();
     // Region of the fitted surface clicked in the viewport; 0 when the click did
@@ -319,9 +316,6 @@ private:
     bool m_showAllAssemblyBoundaries=false;
     quint64 m_boundaryRevision=0;
     PointCloudDocument* const m_pointCloudDocument;
-    vtkSmartPointer<vtkBoxWidget2> m_pointBox;
-    vtkSmartPointer<vtkBoxRepresentation> m_pointBoxRepresentation;
-    int m_pointSelectionMode = 0;
     bool m_pointCloudVisible = true;
     SketchActor m_sketchActor;
     DatumPlaneActor m_datumPlanes;

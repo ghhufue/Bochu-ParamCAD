@@ -13,9 +13,15 @@
 #include <utility>
 
 bool PointCloudWorkspaceController::commandBusy()const {
-    return m_startingCad||m_cadTask->isRunning()||m_analysisThread||m_downsampleThread
+    return reconstructionCacheInUse()||m_downsampleThread
         ||m_exportThread||m_importThread||m_reconstructionController->isRunning()||!m_cliOperation.isEmpty();
 }
+
+bool PointCloudWorkspaceController::reconstructionCacheInUse() const
+{
+    return m_startingCad || m_cadTask->isRunning() || m_analysisThread;
+}
+
 void PointCloudWorkspaceController::finishCliOperation(bool success,const QString& error,QJsonObject details) {
     if(m_cliOperation.isEmpty())return;
     auto result=pcad::response(success?"complete":"failed",error,success?0:1);

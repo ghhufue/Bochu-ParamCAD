@@ -497,6 +497,7 @@ bool closePreparedAssembly(const PointStore& source, const AssemblyOptions& opti
                     profileStage("assembly.close_circular_slab", [&] { closeCircularSlab(source, work, output, cancelled); });
             }
             profileStage("assembly.recover_local_profiles", [&] { recoverLocalProfiles(source, work, options, output, cancelled); });
+            profileStage("assembly.recover_planar_contours", [&] { recoverPlanarContours(work, options, output, cancelled); });
         }
         result = std::move(output);
         return true;

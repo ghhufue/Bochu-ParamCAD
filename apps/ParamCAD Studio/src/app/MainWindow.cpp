@@ -6,6 +6,8 @@
 #include "app/CaptureWorkspaceController.h"
 #include "app/ModelingController.h"
 #include "app/ModelViewController.h"
+#include "app/ParametricModelingTab.h"
+#include "app/PlanarJunctionPanel.h"
 #include "app/ProjectController.h"
 #include "app/PointCloudWorkspaceController.h"
 #include "app/ReconstructionController.h"
@@ -15,6 +17,7 @@
 #include "app/FeatureEditingController.h"
 #include "core/CameraController.h"
 #include "core/PointCloudDocument.h"
+#include "io/ReconstructionCache.h"
 #include "ui/HyperparameterSettings.h"
 #include "ui/panels/CameraPanel.h"
 #include "ui/panels/CapturePanel.h"
@@ -56,6 +59,7 @@
 #include <QComboBox>
 #include <QStatusBar>
 #include <QStyle>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QToolBar>
 #include <QToolButton>
@@ -88,6 +92,13 @@ bool consumesArrowKeys(QWidget* widget)
             || qobject_cast<QAbstractSlider*>(current)) return true;
     }
     return false;
+}
+
+VTKViewer* viewportOf(QWidget* page)
+{
+    if (!page) return nullptr;
+    if (auto* viewer = qobject_cast<VTKViewer*>(page)) return viewer;
+    return page->findChild<VTKViewer*>();
 }
 }
 
@@ -128,6 +139,9 @@ MainWindow::MainWindow(QWidget* parent)
 MainWindow::~MainWindow()
 {
     qApp->removeEventFilter(this);
+    disconnect(m_viewportTabs, nullptr, this, nullptr);
+    delete m_planarJunctionPanel;
+    for (auto* tab : m_viewportTabs->findChildren<ParametricModelingTab*>()) delete tab;
     // Workspaces borrow widgets: destroy them (and join analysis) before Qt tears
     // down the window's child widgets and command controllers.
     delete m_pointCloudWorkspace;
@@ -185,7 +199,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
                                    : key->key() == Qt::Key_Right ? -m_rotationStepDegrees : 0.0;
                 const double pitch = key->key() == Qt::Key_Up ? m_rotationStepDegrees
                                      : key->key() == Qt::Key_Down ? -m_rotationStepDegrees : 0.0;
-                m_viewer->rotateCamera(yaw, pitch);
+                activeViewport()->rotateCamera(yaw, pitch);
             }
             return true;
         }
@@ -214,6 +228,7 @@ void MainWindow::dropEvent(QDropEvent* event)
     }
     event->setDropAction(Qt::CopyAction);
     event->accept();
+    showDocumentViewport();
     if (QFileInfo(path).suffix().compare("ply", Qt::CaseInsensitive) == 0)
         m_pointCloudWorkspace->importPointCloudFromFile(path);
     else
@@ -230,6 +245,7 @@ bool MainWindow::runPerformanceCapture(const QString& modelPath,
                                       const QString& texturePath,
                                       QString& errorMessage)
 {
+    showDocumentViewport();
     return m_modelViewController->runPerformanceCapture(
         modelPath, outputDirectory, texturePath, errorMessage);
 }
@@ -237,6 +253,7 @@ bool MainWindow::runPerformanceCapture(const QString& modelPath,
 bool MainWindow::runStructuredCapture(const QString& modelPath,const QString& outputDirectory,
     const capture::ScanOptions& options,bool reconstruct,QString& cloudPath,QString& error)
 {
+    showDocumentViewport();
     const QVariant previousBatch=property("paramcadBatchCapture");
     setProperty("paramcadBatchCapture",true);
     const auto restoreBatch=qScopeGuard([&]{setProperty("paramcadBatchCapture",previousBatch);});
@@ -304,6 +321,15 @@ void MainWindow::createWorkspaceControllers()
         {m_viewer, m_modelingPanel, m_relationsPanel, m_scenePanel,
           m_propertyPanel, m_reconstructCadAction, m_cancelCadAction, m_reconstructToolAction,
           m_projectionDebugAction}, this, this);
+    m_planarJunctionPanel = new PlanarJunctionPanel(m_pointCloudDocument, m_viewer, m_relationsPanel);
+    m_relationsPanel->setJunctionPanel(m_planarJunctionPanel);
+    connect(m_planarJunctionPanel, &PlanarJunctionPanel::boundaryInspectionRequested,
+            m_relationsPanel, &PointCloudRelationsPanel::boundaryInspectionRequested);
+    connect(m_planarJunctionPanel, &PlanarJunctionPanel::viewportRequested, this, [this](VTKViewer* viewer) {
+        showViewportTab(viewer, tr("面片交线与边界"));
+    });
+    connect(m_pointCloudWorkspace, &PointCloudWorkspaceController::contourSketchCreated,
+            this, &MainWindow::showDocumentViewport);
     connect(m_pointCloudWorkspace, &PointCloudWorkspaceController::contourSketchCreated,
             m_sketchWorkspace, &SketchWorkspaceController::openSketch);
     connect(m_pointCloudWorkspace,&PointCloudWorkspaceController::cliOperationFinished,this,[this](QJsonObject result) {
@@ -313,7 +339,8 @@ void MainWindow::createWorkspaceControllers()
     m_modelViewController = new ModelViewController(capture,
         {m_viewer, m_propertyPanel, m_scenePanel, m_exportStepAction}, this, this);
     m_featureEditing = new FeatureEditingController(modeling,
-        {m_viewer,m_modelingPanel,m_propertyPanel,m_undoCadAction,m_redoCadAction},this,this);
+        {m_viewer, m_modelingPanel, m_propertyPanel->featureDetailsPanel(), m_undoCadAction, m_redoCadAction},
+        this, this);
     connect(m_textEditAction, &QAction::triggered, this, [this] {
         m_propertyPanel->showFeatureDetails();
         if (auto* dock = qobject_cast<QDockWidget*>(m_propertyPanel->parentWidget())) { dock->show(); dock->raise(); }
@@ -334,11 +361,17 @@ void MainWindow::createWorkspaceControllers()
             m_sketchWorkspace, &SketchWorkspaceController::resetForProject);
     connect(m_projectController, &ProjectController::projectAboutToReplace,
             m_pointCloudWorkspace, &PointCloudWorkspaceController::prepareProjectReplacement);
+    connect(m_projectController, &ProjectController::projectAboutToReplace,
+            this, &MainWindow::showDocumentViewport);
     connect(m_projectController, &ProjectController::projectPathChanged, this, [this](const QString& path) {
         setWindowTitle(tr("CAD 与点云工作台 — %1").arg(QFileInfo(path).fileName()));
     });
     connect(capture, &CaptureController::batchStateChanged, m_projectController, &ProjectController::setCaptureBusy);
-    connect(capture,&CaptureController::batchStateChanged,this,[this](bool busy){m_captureBusy=busy;});
+    connect(capture, &CaptureController::batchStateChanged, this, [this](bool busy) {
+        m_captureBusy = busy;
+        if (busy) showDocumentViewport();
+        m_viewportTabs->tabBar()->setEnabled(!busy);
+    });
     connect(m_captureWorkspace,&CaptureWorkspaceController::captureBusyChanged,this,[this](bool busy){m_captureBusy=busy;});
     connect(m_captureWorkspace,&CaptureWorkspaceController::captureBusyChanged,m_projectController,&ProjectController::setCaptureBusy);
 
@@ -389,6 +422,10 @@ void MainWindow::createActions()
     m_reconstructCadAction->setToolTip(
         tr("识别已载入点云中的几何并重建参数化 CAD 模型"));
     m_reconstructCadAction->setEnabled(false);
+    m_openModelingTabAction = new QAction(tr("参数化建模"), this);
+    m_openModelingTabAction->setObjectName(QStringLiteral("openModelingTabAction"));
+    m_openModelingTabAction->setToolTip(tr("在新标签页中查看当前实体并调整特征参数"));
+    m_openModelingTabAction->setEnabled(false);
     m_cadWithoutProjectionAction = new QAction(tr("重建 CAD（不使用投影回退）"), this);
     m_cadWithoutProjectionAction->setObjectName(QStringLiteral("cadWithoutProjectionAction"));
     m_cadWithoutProjectionAction->setEnabled(false);
@@ -525,6 +562,9 @@ void MainWindow::createMenus()
     connect(hyperparameters,&QAction::triggered,this,[this] {
         showHyperparameterSettings(this,[this] {m_viewer->refreshPointCloudSurfaceSettings();});
     });
+    auto* clearCache = settingsMenu->addAction(tr("清理点云缓存…"));
+    clearCache->setObjectName(QStringLiteral("clearReconstructionCacheAction"));
+    connect(clearCache, &QAction::triggered, this, &MainWindow::clearReconstructionCache);
 
     auto* debugMenu = menuBar()->addMenu(tr("调试(&D)"));
     debugMenu->setObjectName(QStringLiteral("debugMenu"));
@@ -547,6 +587,8 @@ void MainWindow::createMenus()
     toolsMenu->addAction(m_reconstructCadAction);
     toolsMenu->addAction(m_cadWithoutProjectionAction);
     toolsMenu->addAction(m_cancelCadAction);
+    toolsMenu->addSeparator();
+    toolsMenu->addAction(m_openModelingTabAction);
 
     QMenu* helpMenu = menuBar()->addMenu(tr("帮助(&H)"));
     QAction* aboutAction = helpMenu->addAction(tr("关于"));
@@ -577,6 +619,7 @@ void MainWindow::createToolBar()
     reconstructCadButton->setDefaultAction(m_reconstructCadAction);
     reconstructCadButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
     toolBar->addWidget(reconstructCadButton);
+    toolBar->addAction(m_openModelingTabAction);
 
     auto* textEditButton = new QToolButton(toolBar);
     textEditButton->setObjectName("textParameterEditButton");
@@ -598,13 +641,86 @@ void MainWindow::createCentralArea()
     // datum planes drawn in the viewport itself.
     m_toolPalette->setVisible(false);
 
-    auto* central = new QWidget(this);
-    auto* layout = new QHBoxLayout(central);
+    m_viewportTabs = new QTabWidget(this);
+    m_viewportTabs->setObjectName(QStringLiteral("viewportTabs"));
+    m_viewportTabs->setDocumentMode(true);
+    m_viewportTabs->setTabsClosable(true);
+    m_viewportTabs->setMovable(true);
+    m_viewportTabs->tabBar()->setExpanding(false);
+    m_documentViewport = new QWidget(m_viewportTabs);
+    auto* layout = new QHBoxLayout(m_documentViewport);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addWidget(m_toolPalette);
     layout->addWidget(m_viewer, 1);
-    setCentralWidget(central);
+    const auto index = m_viewportTabs->addTab(m_documentViewport, tr("主视图"));
+    for (const auto side : {QTabBar::LeftSide, QTabBar::RightSide}) {
+        auto* button = m_viewportTabs->tabBar()->tabButton(index, side);
+        m_viewportTabs->tabBar()->setTabButton(index, side, nullptr);
+        if (button) button->deleteLater();
+    }
+    setCentralWidget(m_viewportTabs);
+    connect(m_viewportTabs, &QTabWidget::currentChanged, this, &MainWindow::updateActiveViewport);
+    connect(m_viewportTabs, &QTabWidget::tabCloseRequested, this, [this](int tab) {
+        auto* page = m_viewportTabs->widget(tab);
+        if (!page || page == m_documentViewport) return;
+        if (auto* viewer = viewportOf(page)) viewer->setRenderingActive(false);
+        m_viewportTabs->removeTab(tab);
+        page->hide();
+        if (!m_planarJunctionPanel || page != m_planarJunctionPanel->viewport()) page->deleteLater();
+    });
+}
+
+VTKViewer* MainWindow::activeViewport() const
+{
+    auto* viewer = viewportOf(m_viewportTabs->currentWidget());
+    return viewer ? viewer : m_viewer;
+}
+
+void MainWindow::showDocumentViewport()
+{
+    m_viewportTabs->setCurrentWidget(m_documentViewport);
+}
+
+void MainWindow::showViewportTab(QWidget* page, const QString& title)
+{
+    if (auto* viewer = viewportOf(page)) {
+        connect(viewer, &VTKViewer::cameraChanged, this, &MainWindow::updateViewportCamera, Qt::UniqueConnection);
+        connect(viewer, &VTKViewer::cameraPanned, this, &MainWindow::releaseViewportOriginLock, Qt::UniqueConnection);
+    }
+    if (m_viewportTabs->indexOf(page) < 0) m_viewportTabs->addTab(page, title);
+    if (m_viewportTabs->tabBar()->isEnabled()) m_viewportTabs->setCurrentWidget(page);
+}
+
+void MainWindow::updateActiveViewport()
+{
+    auto* current = activeViewport();
+    for (int i = 0; i < m_viewportTabs->count(); ++i) {
+        if (auto* viewer = viewportOf(m_viewportTabs->widget(i)); viewer && viewer != current)
+            viewer->setRenderingActive(false);
+    }
+    current->setRenderingActive(true);
+    auto* cameraPanel = m_propertyPanel->cameraPanel();
+    cameraPanel->releaseOriginLock();
+    const auto parameters = current->cameraParameters();
+    cameraPanel->setParameters(parameters);
+    updateCameraStatus(parameters.parallelProjection);
+    if (m_planarJunctionPanel && current == m_planarJunctionPanel->viewport()) {
+        m_propertyPanel->showPointCloudProperties();
+        m_relationsPanel->showJunctionPage();
+    }
+}
+
+void MainWindow::updateViewportCamera(const CameraParameters& parameters)
+{
+    if (sender() != activeViewport()) return;
+    m_propertyPanel->cameraPanel()->setParameters(parameters);
+    updateCameraStatus(parameters.parallelProjection);
+}
+
+void MainWindow::releaseViewportOriginLock()
+{
+    if (sender() == activeViewport()) m_propertyPanel->cameraPanel()->releaseOriginLock();
 }
 
 void MainWindow::createDockPanels()
@@ -680,18 +796,32 @@ void MainWindow::createStatusBar()
 void MainWindow::connectUi()
 {
     m_featureEditing->connectUi();
+    connect(m_openAction, &QAction::triggered, this, &MainWindow::showDocumentViewport);
     connect(m_openAction, &QAction::triggered, m_modelViewController, &ModelViewController::openModel);
+    connect(m_openPointCloudAction, &QAction::triggered, this, &MainWindow::showDocumentViewport);
     connect(m_openPointCloudAction, &QAction::triggered, m_pointCloudWorkspace, &PointCloudWorkspaceController::openPointCloud);
     connect(m_reconstructCadAction, &QAction::triggered, m_pointCloudWorkspace, &PointCloudWorkspaceController::reconstructCad);
+    connect(m_viewer, &VTKViewer::bodyShapeChanged, this, [this](const TopoDS_Shape& shape) {
+        m_openModelingTabAction->setEnabled(!shape.IsNull() && shape.IsSame(m_modelingController->bodyShape()));
+    });
+    connect(m_openModelingTabAction, &QAction::triggered, this, [this] {
+        auto* tab = new ParametricModelingTab(m_modelingController, m_viewer, m_viewportTabs);
+        showViewportTab(tab, tr("参数化建模"));
+    });
     connect(m_cadWithoutProjectionAction,&QAction::triggered,m_pointCloudWorkspace,
             &PointCloudWorkspaceController::reconstructCadWithoutProjection);
+    connect(m_projectionDebugAction, &QAction::triggered, this, &MainWindow::showDocumentViewport);
     connect(m_projectionDebugAction, &QAction::triggered, m_pointCloudWorkspace,
             &PointCloudWorkspaceController::runProjectionDebug);
     connect(m_cancelCadAction, &QAction::triggered,
             m_pointCloudWorkspace, &PointCloudWorkspaceController::cancelCadReconstruction);
     connect(m_textureAction, &QAction::triggered, m_modelViewController, &ModelViewController::chooseTexture);
     connect(m_captureAction, &QAction::triggered, m_captureWorkspace, &CaptureWorkspaceController::captureImage);
-    connect(m_screenshotAction, &QAction::triggered, m_captureWorkspace, &CaptureWorkspaceController::captureViewport);
+    connect(m_screenshotAction, &QAction::triggered, this, [this] {
+        m_captureWorkspace->captureViewport(activeViewport());
+    });
+    connect(m_captureWorkspace, &CaptureWorkspaceController::documentViewportRequested,
+            this, &MainWindow::showDocumentViewport);
     connect(m_closeAction, &QAction::triggered, m_modelViewController, &ModelViewController::closeModel);
     connect(m_closeAction, &QAction::triggered,
             m_pointCloudWorkspace, &PointCloudWorkspaceController::cancelCadReconstruction);
@@ -699,34 +829,35 @@ void MainWindow::connectUi()
     connect(m_exitAction, &QAction::triggered, qApp, &QApplication::closeAllWindows);
 
     connect(m_resetCameraAction, &QAction::triggered, this, [this]() {
-        m_viewer->resetCamera();
+        auto* viewer = activeViewport();
+        viewer->resetCamera();
         // Reset Camera is the framing the user has just chosen, so the orbit
         // distance follows it instead of keeping whatever it held before.
-        m_captureWorkspace->syncCaptureDistance();
+        if (viewer == m_viewer) m_captureWorkspace->syncCaptureDistance();
         logInfo(tr("Camera reset"));
     });
     connect(m_frontViewAction, &QAction::triggered, this, [this]() {
-        m_viewer->setStandardView(CameraController::StandardView::Front);
+        activeViewport()->setStandardView(CameraController::StandardView::Front);
         logInfo(tr("Front view selected"));
     });
     connect(m_backViewAction, &QAction::triggered, this, [this]() {
-        m_viewer->setStandardView(CameraController::StandardView::Back);
+        activeViewport()->setStandardView(CameraController::StandardView::Back);
         logInfo(tr("Back view selected"));
     });
     connect(m_leftViewAction, &QAction::triggered, this, [this]() {
-        m_viewer->setStandardView(CameraController::StandardView::Left);
+        activeViewport()->setStandardView(CameraController::StandardView::Left);
         logInfo(tr("Left view selected"));
     });
     connect(m_rightViewAction, &QAction::triggered, this, [this]() {
-        m_viewer->setStandardView(CameraController::StandardView::Right);
+        activeViewport()->setStandardView(CameraController::StandardView::Right);
         logInfo(tr("Right view selected"));
     });
     connect(m_topViewAction, &QAction::triggered, this, [this]() {
-        m_viewer->setStandardView(CameraController::StandardView::Top);
+        activeViewport()->setStandardView(CameraController::StandardView::Top);
         logInfo(tr("Top view selected"));
     });
     connect(m_bottomViewAction, &QAction::triggered, this, [this]() {
-        m_viewer->setStandardView(CameraController::StandardView::Bottom);
+        activeViewport()->setStandardView(CameraController::StandardView::Bottom);
         logInfo(tr("Bottom view selected"));
     });
     connect(m_datumPlanesAction, &QAction::toggled, this, [this](bool visible) {
@@ -734,20 +865,23 @@ void MainWindow::connectUi()
         m_viewer->renderNow();
         logInfo(visible ? tr("Datum planes shown") : tr("Datum planes hidden"));
     });
+    connect(m_newSketchAction, &QAction::triggered, this, &MainWindow::showDocumentViewport);
+    connect(m_modelingPanel, &ModelingPanel::editSketchRequested, this, &MainWindow::showDocumentViewport);
     m_sketchWorkspace->connectUi();
 
     connect(m_scenePanel, &ScenePanel::nodeSelected, this, [this](SceneNodeType type) {
+        showDocumentViewport();
         if (type == SceneNodeType::Model) {
-            m_viewer->setPointCloudSelectionMode(0);
             m_propertyPanel->showObjectProperties();
         } else if (type == SceneNodeType::Camera) {
             m_propertyPanel->showCameraProperties();
         } else if (type == SceneNodeType::PointCloud) {
             m_propertyPanel->showPointCloudProperties();
-            m_viewer->setPointCloudSelectionMode(1);
         }
     });
 
+    connect(m_relationsPanel, &PointCloudRelationsPanel::boundaryInspectionRequested,
+            this, &MainWindow::showDocumentViewport);
     m_pointCloudWorkspace->connectUi();
 
     connect(m_propertyPanel, &PropertyPanel::objectTransformChanged,
@@ -768,15 +902,14 @@ void MainWindow::connectUi()
             m_viewer, &VTKViewer::setObjectMaterialPreview);
 
     CameraPanel* cameraPanel = m_propertyPanel->cameraPanel();
-    connect(cameraPanel, &CameraPanel::applyRequested, m_viewer, &VTKViewer::applyCamera);
-    connect(cameraPanel, &CameraPanel::resetRequested, m_resetCameraAction, &QAction::trigger);
-    connect(m_viewer, &VTKViewer::cameraChanged, this, [this, cameraPanel](const CameraParameters& parameters) {
-        cameraPanel->setParameters(parameters);
-        updateCameraStatus(parameters.parallelProjection);
+    connect(cameraPanel, &CameraPanel::applyRequested, this, [this](const CameraParameters& parameters) {
+        activeViewport()->applyCamera(parameters);
     });
+    connect(cameraPanel, &CameraPanel::resetRequested, m_resetCameraAction, &QAction::trigger);
+    connect(m_viewer, &VTKViewer::cameraChanged, this, &MainWindow::updateViewportCamera);
     // A pan has to be allowed to leave the origin behind, so the panel drops its
     // "look at origin" pin rather than pulling the camera back onto it.
-    connect(m_viewer, &VTKViewer::cameraPanned, cameraPanel, &CameraPanel::releaseOriginLock);
+    connect(m_viewer, &VTKViewer::cameraPanned, this, &MainWindow::releaseViewportOriginLock);
 
     RenderPanel* renderPanel = m_propertyPanel->renderPanel();
     connect(renderPanel, &RenderPanel::backgroundColorChanged,
@@ -806,6 +939,25 @@ void MainWindow::openShortcutSettings()
     const bool accepted = shortcuts::showShortcutSettings(this, reserved);
     m_screenshotAction->setEnabled(wasEnabled);
     if (accepted) m_screenshotAction->setShortcut(shortcuts::screenshotSequence());
+}
+
+void MainWindow::clearReconstructionCache()
+{
+    const QString title = tr("清理点云缓存");
+    const auto answer = QMessageBox::question(this, title,
+        tr("要删除点云识别和 CAD 重建的磁盘缓存吗？下次需要时会重新计算。"),
+        QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+    if (answer != QMessageBox::Yes) return;
+
+    if (m_pointCloudWorkspace->reconstructionCacheInUse()) {
+        QMessageBox::warning(this, title, tr("正在识别或重建点云，请等待任务结束后重试。"));
+        return;
+    }
+    if (!ReconstructionCache::clearDiskEntries()) {
+        QMessageBox::warning(this, title, tr("未能清理全部点云缓存。请检查缓存目录权限或关闭正在使用缓存的进程，然后重试。"));
+        return;
+    }
+    statusBar()->showMessage(tr("点云缓存已清理。"), 6000);
 }
 
 void MainWindow::showAbout()

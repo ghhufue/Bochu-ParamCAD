@@ -25,12 +25,13 @@ public:
                                QWidget* dialogParent, QObject* parent = nullptr);
     void connectUi();
     void captureImage();
-    void captureViewport();
+    void captureViewport(VTKViewer* viewer);
     void syncCaptureDistance();
     bool startStructuredScan(bool multipleStations,const QString& outputDirectory={});
     bool structuredScanRunning() const;
     void cancelStructuredScan();
 signals:
+    void documentViewportRequested();
     void captureBusyChanged(bool busy);
     void structuredCaptureCompleted(const QString& directory);
     void structuredCaptureFailed(const QString& error);

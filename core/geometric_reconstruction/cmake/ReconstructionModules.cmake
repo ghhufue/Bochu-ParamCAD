@@ -63,6 +63,8 @@ set(RECONSTRUCTION_WORKFLOW_SOURCES
     src/parts/assembly/CircularSlabClosure.cpp
     src/parts/assembly/FiniteBoundaries.cpp
     src/parts/assembly/PartClosure.cpp
+    src/parts/assembly/PlanarContourRecovery.cpp
+    src/parts/assembly/PlanarSurfaceJunctions.cpp
     src/recognition/ThroughHoleRecognizer.cpp
     src/recognition/compound/BoundaryValidation.cpp
     src/recognition/compound/BoxCover.cpp

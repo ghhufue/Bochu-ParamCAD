@@ -51,6 +51,30 @@ PointCloudRegion describe(const reconstruction::PrimitiveEvidence& evidence, int
     }, evidence);
     return region;
 }
+
+template<class SourceRow>
+std::shared_ptr<const SphereSourceTriangles> validatedSphereTriangles(
+    const reconstruction::SurfaceSupportValidationReport& report, reconstruction::SurfaceId proposal,
+    SourceRow sourceRow)
+{
+    std::shared_ptr<SphereSourceTriangles> triangles;
+    for (const auto& decision : report.decisions) {
+        if (decision.proposalId != proposal || decision.kind != reconstruction::PrimitiveKind::Sphere ||
+            decision.verdict != reconstruction::SupportVerdict::Accepted || !decision.footprint) continue;
+        if (!triangles) triangles = std::make_shared<SphereSourceTriangles>();
+        const auto& footprint = *decision.footprint;
+        for (const auto& indices : footprint.triangles) {
+            if (std::any_of(indices.begin(), indices.end(), [&](auto index) {
+                return index >= footprint.sourcePointIds.size();
+            })) continue;
+            const std::array<vtkIdType, 3> rows{sourceRow(footprint.sourcePointIds[indices[0]]),
+                sourceRow(footprint.sourcePointIds[indices[1]]), sourceRow(footprint.sourcePointIds[indices[2]])};
+            if (rows[0] >= 0 && rows[1] >= 0 && rows[2] >= 0 &&
+                rows[0] != rows[1] && rows[1] != rows[2] && rows[2] != rows[0]) triangles->push_back(rows);
+        }
+    }
+    return triangles;
+}
 }
 
 PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
@@ -203,6 +227,12 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
                 {"reference_spacing",finalReport.reference.available?finalReport.reference.spacing:0},
                 {"density_ratio_max",analysisOptions.supportValidation.planeDensityRatioMax}};
             const auto proposalId=std::visit([](const auto& e){return e.id;},evidence);
+            if (region.geometry == "sphere") {
+                region.validatedSphereTriangles = validatedSphereTriangles(finalReport, proposalId, [&](auto id) {
+                    const auto point = originalBySource.find(id);
+                    return point == originalBySource.end() ? vtkIdType(-1) : point->second;
+                });
+            }
             const reconstruction::SurfaceSupportDecision* dominant=nullptr;
             for(const auto& d:finalReport.decisions)
                 if(d.proposalId==proposalId && d.verdict==reconstruction::SupportVerdict::Accepted && (!dominant || d.area>dominant->area))dominant=&d;
@@ -248,7 +278,8 @@ PointCloudRegion describeTemplateFit(const reconstruction::TemplateFit& fit, dou
 }
 
 std::vector<DetectedPointCloudSurface> describeAnalysisPatches(
-    const reconstruction::SurfaceAnalysisResult& analysis, std::size_t sourcePointCount, double scale)
+    const reconstruction::SurfaceAnalysisResult& analysis, std::size_t sourcePointCount, double scale,
+    bool ownedPreview)
 {
     std::vector<DetectedPointCloudSurface> result;
     const auto minimum=reconstruction::loadAnalysisSettings().meshing.minimumSurfacePoints;
@@ -264,7 +295,16 @@ std::vector<DetectedPointCloudSurface> describeAnalysisPatches(
             if (id > 0 && id <= sourcePointCount) surface.points.push_back(vtkIdType(id - 1));
         std::sort(surface.points.begin(),surface.points.end());
         surface.points.erase(std::unique(surface.points.begin(),surface.points.end()),surface.points.end());
-        if (surface.points.size()>=minimum) result.push_back(std::move(surface));
+        if (surface.points.size() < minimum) continue;
+        if (ownedPreview && surface.surface.geometry == "sphere" && patch.surfaceId <= analysis.supportProposalIds.size()) {
+            const auto proposal = analysis.supportProposalIds[patch.surfaceId - 1];
+            surface.surface.validatedSphereTriangles = validatedSphereTriangles(analysis.supportValidation, proposal, [&](auto id) {
+                if (id == 0 || id > sourcePointCount) return vtkIdType(-1);
+                const auto row = static_cast<vtkIdType>(id - 1);
+                return std::binary_search(surface.points.begin(), surface.points.end(), row) ? row : vtkIdType(-1);
+            });
+        }
+        result.push_back(std::move(surface));
     }
     std::stable_sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
         if ((a.surface.geometry == "plane") != (b.surface.geometry == "plane")) return a.surface.geometry == "plane";

@@ -388,19 +388,13 @@ All cloud controls live in **Properties → 点云**; the left dock holds **CAD 
 The shared header shows the source file, units, active/deleted point counts and
 selection. Four pages separate the workflows:
 
-- **选点**: model interaction, single-point picking or a 3D selection box.
-  Ctrl/Shift + left click changes point selection. Box controls appear only in
-  box mode: drag faces/handles to resize, drag the body to rotate, and Shift-drag
-  to translate. **扩展一轮** uses the neighbourhood radius in original PLY units.
-  Enter a zero-based original point ID and press Enter to locate it.
-  **选区操作** offers new collections, unassignment, point deletion, undo and clear.
 - **集合**: the collection tree is the single editing target. Left click highlights
   its members; double click edits its name/template. Right click offers editing,
   appending/replacing members, template reconstruction, removing the collection
   while keeping points, or removing its points from the working cloud. Right
-  clicking preserves the existing 3D selection so append/replace uses the points
-  picked by the user. **选区归属** creates or changes membership without a second
-  target selector. Templates support boxes, planes, spheres, cylinders, cones and
+  clicking keeps the current selection for appending or replacing members.
+  Clicking a fitted surface selects its set. **选区归属** creates or changes
+  membership. Templates support boxes, planes, spheres, cylinders, cones and
   tori. Expand fitted parameters, residual/confidence and paginated original IDs.
 - **关系**: left click highlights both endpoint collections; right click edits or
   deletes a relationship. **添加关系…** and **更新关系** support parallel,
@@ -409,6 +403,9 @@ selection. Four pages separate the workflows:
   geometry. Deleted automatic relationships stay suppressed on later updates.
 - **设置**: surface-fit, relationship-distance and angular tolerances. Distance
   values use the original point cloud's coordinate units.
+- **交线与边界** displays fitted planes from the current cloud or an analysis
+  bundle. Check planes to fit their intersection lines and boundaries. Select a
+  plane from the current cloud to inspect its boundary and generate a sketch.
 
 The footer keeps **识别表面**, **重建 CAD** and **更多** visible. Surface recognition
 only processes unassigned points and preserves existing collections. CAD rebuild

@@ -104,6 +104,7 @@ bool CaptureWorkspaceController::startStructuredScan(bool multipleStations,const
 {
     auto* panel=m_ui.propertyPanel->capturePanel();
     if(m_structured->isRunning())return false;
+    emit documentViewportRequested();
     try {
         const auto camera=m_ui.viewer->cameraParameters();
         if(camera.parallelProjection)throw std::invalid_argument("Structured-light capture requires a perspective camera");
@@ -146,6 +147,7 @@ bool CaptureWorkspaceController::startStructuredScan(bool multipleStations,const
 
 void CaptureWorkspaceController::captureImage()
 {
+    emit documentViewportRequested();
     // A single-frame capture is named after the moment it was taken and offered
     // inside the project's outputs folder; a relative default would resolve
     // against the process working directory and could land outside the project.
@@ -175,7 +177,7 @@ void CaptureWorkspaceController::captureImage()
     }
 }
 
-void CaptureWorkspaceController::captureViewport()
+void CaptureWorkspaceController::captureViewport(VTKViewer* viewer)
 {
     const QString screenshotsRoot = ProjectPaths::screenshotsRoot();
     if (!QDir().mkpath(screenshotsRoot)) {
@@ -194,7 +196,7 @@ void CaptureWorkspaceController::captureViewport()
             QStringLiteral("%1_%2.png").arg(stamp).arg(suffix));
     }
 
-    if (m_ui.viewer->captureViewport(filePath)) {
+    if (viewer->captureViewport(filePath)) {
         emit logInfo(workspaceTr("Viewport screenshot saved: %1").arg(filePath));
         emit statusMessage(workspaceTr("截图已保存到 %1").arg(filePath), 5000);
     } else {
@@ -206,6 +208,7 @@ void CaptureWorkspaceController::captureViewport()
 
 void CaptureWorkspaceController::capturePhoto()
 {
+    emit documentViewportRequested();
     const RenderPanel* renderPanel = m_ui.propertyPanel->renderPanel();
     if (m_captureController->captureSingle(renderPanel->outputWidth(),
                                            renderPanel->outputHeight())) {
@@ -216,6 +219,7 @@ void CaptureWorkspaceController::capturePhoto()
 
 void CaptureWorkspaceController::captureOrbit(double distance)
 {
+    emit documentViewportRequested();
     // Five latitude rings at 30-degree longitude steps cover the body, while
     // one canonical pose at each pole avoids twelve duplicate images there.
     // The plan is externalised in config/capture.conf.

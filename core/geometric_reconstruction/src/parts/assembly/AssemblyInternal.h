@@ -34,6 +34,8 @@ void recoverBoundaries(const WorkingData&, const AssemblyOptions&, const std::ve
     std::vector<FiniteSurfacePatch>&, const std::function<bool()>&);
 CompoundCandidate closeParts(const WorkingData&, const AssemblyOptions&, std::vector<FiniteSurfacePatch>&,
     std::vector<AssemblyPart>&, std::size_t inputPoints, const std::function<bool()>&);
+void recoverPlanarContours(const WorkingData&, const AssemblyOptions&, AssemblyReconstructionResult&,
+    const std::function<bool()>&);
 void closeAnalyticProfile(const PointStore&, const WorkingData&, AssemblyReconstructionResult&, const std::function<bool()>&);
 void closeAnnularTube(const PointStore&, const WorkingData&, AssemblyReconstructionResult&, const std::function<bool()>&);
 std::vector<CylinderEquation> fitCylinderWallsAlongAxis(const WorkingData&, const std::vector<FiniteSurfacePatch>&,

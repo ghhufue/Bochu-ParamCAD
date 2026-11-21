@@ -1,10 +1,13 @@
 #include "app/MainWindow.h"
 #include "app/ModelingController.h"
 #include "app/ModelViewController.h"
+#include "app/ParametricModelingTab.h"
+#include "app/PlanarJunctionPanel.h"
 #include "app/ProjectController.h"
 #include "app/PointCloudWorkspaceController.h"
 #include "app/CadReconstructionTask.h"
 #include "io/FeatureCodec.h"
+#include "io/AnalysisBundleExporter.h"
 #include "io/StepModelLoader.h"
 #include "ui/panels/CameraPanel.h"
 #include "ui/panels/FeatureDetailsPanel.h"
@@ -42,9 +45,11 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QPlainTextEdit>
+#include <QPointer>
 #include <QPushButton>
 #include <QScopeGuard>
 #include <QSpinBox>
+#include <QTabWidget>
 #include <QSurfaceFormat>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -53,9 +58,12 @@
 #include <BRepCheck_Analyzer.hxx>
 #include <vtkActor.h>
 #include <vtkActorCollection.h>
+#include <vtkCallbackCommand.h>
+#include <vtkCommand.h>
 #include <vtkGenericOpenGLRenderWindow.h>
 #include <vtkPolyData.h>
 #include <vtkPolyDataMapper.h>
+#include <vtkProperty.h>
 #include <vtkRenderer.h>
 #include <vtkRendererCollection.h>
 #include <vtkRenderWindowInteractor.h>
@@ -178,6 +186,204 @@ void projectionSketchDrawing()
             "the plot perimeter is distinct from the interior fill");
 }
 
+void planarJunctionTabWorkflow()
+{
+    QTemporaryDir temp;
+    require(temp.isValid(), "temporary directory for a planar junction bundle");
+    auto path = qEnvironmentVariable("PCAD_TEST_PLANAR_JUNCTION_BUNDLE");
+    const bool realBundle = !path.isEmpty();
+    const std::vector<int> ids = realBundle ? std::vector<int>{3, 20, 26, 69} : std::vector<int>{4, 59};
+    if (!realBundle) {
+        AnalysisBundleSnapshot snapshot;
+        snapshot.sourceName = "planar-pair.ply";
+        snapshot.sourceUnit = "arbitrary";
+        snapshot.cloud.positions = {{{-4,0,0}},{{-.1f,0,0}},{{-.1f,4,0}},{{-4,4,0}},
+                                    {{0,0,.1f}},{{0,4,.1f}},{{0,4,4}},{{0,0,4}}};
+        snapshot.deleted.assign(8, 0);
+        snapshot.memberships = {4,4,4,4,59,59,59,59};
+        for (std::size_t i = 0; i < ids.size(); ++i) {
+            PointCloudRegion plane;
+            plane.id = ids[i];
+            plane.name = QStringLiteral("Plane %1").arg(plane.id);
+            plane.geometry = "plane";
+            plane.parameters = {{"normal", i ? QJsonArray{1,0,0} : QJsonArray{0,0,1}}, {"offset", 0}};
+            snapshot.regions.push_back(plane);
+            snapshot.displayedSurfaces.insert(plane.id);
+            auto& mesh = snapshot.surfaces.meshes[plane.id];
+            for (std::size_t row = 4*i; row < 4*(i+1); ++row) {
+                const auto& p = snapshot.cloud.positions[row];
+                mesh.positions.push_back({p[0],p[1],p[2]});
+                mesh.sourcePointIds.push_back(vtkIdType(row));
+            }
+            mesh.triangles = {{0,1,2},{0,2,3}};
+        }
+        path = temp.filePath("pair.pcad-analysis");
+        QString error;
+        require(exportAnalysisBundle(snapshot, path, error), qPrintable(error));
+    }
+
+    MainWindow main;
+    main.setAttribute(Qt::WA_DontShowOnScreen);
+    main.show();
+    auto* tabs = main.findChild<QTabWidget*>("viewportTabs");
+    auto* properties = main.findChild<PropertyPanel*>();
+    auto* pages = properties->findChild<QTabWidget*>("pointCloudPages");
+    auto* panel = pages->findChild<PlanarJunctionPanel*>();
+    auto* boundaryPage = pages->findChild<QWidget*>("cloudBoundaryPage");
+    auto* primary = main.findChild<VTKViewer*>("vtkViewport");
+    require(boundaryPage && panel && pages->indexOf(boundaryPage) >= 0 && boundaryPage->isAncestorOf(panel) &&
+            panel->isEnabled() && !panel->isWindow() &&
+            tabs && tabs->count() == 1 && primary && primary->renderingActive(),
+        "the combined point-cloud page is available before CAD construction");
+    properties->showPointCloudProperties();
+    pages->setCurrentWidget(boundaryPage);
+    auto* documentPage = tabs->currentWidget();
+    QString error;
+    require(panel->openBundle(path, error), qPrintable(error));
+    auto* faces = panel->findChild<QListWidget*>("planarJunctionFaces");
+    auto* fit = panel->findChild<QPushButton*>("fitPlanarJunctionsButton");
+    auto* report = panel->findChild<QPlainTextEdit*>("planarJunctionReport");
+    auto* visible = panel->findChild<QComboBox*>("planarJunctionVisibleFace");
+    auto* showPreview = panel->findChild<QPushButton*>("showPlanarJunctionViewportButton");
+    auto* inspect = panel->findChild<QPushButton*>("inspectPlanarJunctionBoundaryButton");
+    require(faces && fit && report && visible && showPreview && inspect,
+        "the junction panel supports selecting individual faces");
+    faces->setCurrentRow(0);
+    require(!inspect->isEnabled(), "bundle surfaces use the fitted boundary view");
+    for (int row = 0; row < faces->count(); ++row) {
+        auto* item = faces->item(row);
+        if (std::find(ids.begin(), ids.end(), item->data(Qt::UserRole).toInt()) != ids.end())
+            item->setCheckState(Qt::Checked);
+    }
+    require(fit->isEnabled(), "selected exported faces are ready to fit");
+    fit->click();
+    auto* viewport = qobject_cast<VTKViewer*>(tabs->currentWidget());
+    require(tabs->count() == 2 && viewport && !viewport->isWindow() && viewport->renderingActive() &&
+            viewport->renderWindow() != primary->renderWindow() && !primary->renderingActive(),
+        "fitting activates the embedded junction viewport");
+    tabs->setCurrentWidget(documentPage);
+    QElapsedTimer timer;
+    timer.start();
+    while (!fit->isEnabled() && timer.elapsed() < 20000) {
+        QApplication::processEvents();
+        QThread::msleep(3);
+    }
+    if (realBundle) std::cout << report->toPlainText().toUtf8().constData() << '\n';
+    require(fit->isEnabled() && visible->count() == qsizetype(ids.size()) + 1 && !report->toPlainText().isEmpty() &&
+            tabs->currentWidget() == documentPage && primary->renderingActive() && !viewport->renderingActive(),
+        "each face is fitted while the user stays on the selected tab");
+    showPreview->click();
+    QApplication::processEvents();
+    require(tabs->currentWidget() == viewport, "show activates the fitted junction tab");
+    auto* actors = viewport->renderWindow()->GetRenderers()->GetFirstRenderer()->GetActors();
+    const auto countVisibleSeams = [&] {
+        int count = 0;
+        actors->InitTraversal();
+        while (auto* actor = actors->GetNextActor())
+            count += actor->GetVisibility() && actor->GetProperty()->GetLineWidth() > 3;
+        return count;
+    };
+    const int seams = countVisibleSeams();
+    require(seams >= (realBundle ? 3 : 1), "finite intersections are rendered as visible line actors");
+    const auto screenshot = qEnvironmentVariable("PCAD_TEST_PLANAR_JUNCTION_SCREENSHOT");
+    if (!screenshot.isEmpty())
+        require(viewport->captureViewport(screenshot), "write a fitted planar junction viewport snapshot");
+    tabs->tabCloseRequested(tabs->indexOf(viewport));
+    require(tabs->count() == 1 && primary->renderingActive() && !viewport->renderingActive(),
+        "closing the junction tab activates the main viewport");
+    showPreview->click();
+    require(tabs->count() == 2 && tabs->currentWidget() == viewport && countVisibleSeams() == seams,
+        "reopening the junction tab reuses its fitted geometry");
+    visible->setCurrentIndex(1);
+    require(visible->currentData().toInt() != 0 && countVisibleSeams() <= seams &&
+        main.findChild<ModelingController*>()->features().empty(),
+        "isolating a fitted plane leaves the main CAD document untouched");
+}
+
+void verifyModelingTabs(MainWindow& window, ModelingController* model, VTKViewer* sourceView)
+{
+    auto* tabs = window.findChild<QTabWidget*>("viewportTabs");
+    auto* documentPage = tabs->currentWidget();
+    auto* action = window.findChild<QAction*>("openModelingTabAction");
+    require(action && action->isEnabled(), "a reconstructed solid enables the modeling tab action");
+    action->trigger();
+    auto* firstTab = qobject_cast<ParametricModelingTab*>(tabs->currentWidget());
+    action->trigger();
+    auto* secondTab = qobject_cast<ParametricModelingTab*>(tabs->currentWidget());
+    require(tabs->count() == 3 && firstTab && secondTab && firstTab != secondTab &&
+            !firstTab->isWindow() && !secondTab->isWindow() && !firstTab->isVisible() && secondTab->isVisible(),
+            "two modeling tabs can be open with only the selected page visible");
+    auto* first = firstTab->findChild<VTKViewer*>("modelingViewport");
+    auto* second = secondTab->findChild<VTKViewer*>("modelingViewport");
+    require(first && second && first->renderWindow() != second->renderWindow() &&
+            first->renderWindow() != sourceView->renderWindow() && second->renderingActive() &&
+            !first->renderingActive() && !sourceView->renderingActive(),
+            "only the active modeling tab renders in its own VTK render window");
+    QApplication::processEvents();
+    require(first->displayedBody().IsSame(model->bodyShape()) && second->displayedBody().IsSame(model->bodyShape()) &&
+            sourceView->hasPointCloud() && !first->hasPointCloud() && !second->hasPointCloud(),
+            "both modeling tabs show the current solid while the main view retains the cloud");
+
+    int renders = 0;
+    vtkNew<vtkCallbackCommand> renderObserver;
+    renderObserver->SetClientData(&renders);
+    renderObserver->SetCallback([](vtkObject*, unsigned long, void* data, void*) { ++*static_cast<int*>(data); });
+    const auto observerId = second->renderWindow()->AddObserver(vtkCommand::StartEvent, renderObserver);
+    second->renderNow();
+    require(renders > 0, "the selected modeling tab renders");
+    tabs->setCurrentWidget(firstTab);
+    renders = 0;
+    second->requestRender();
+    second->renderNow();
+    second->renderWindow()->Render();
+
+    const auto sourceCamera = sourceView->cameraParameters();
+    const auto secondCamera = second->cameraParameters();
+    const auto firstCamera = first->cameraParameters();
+    first->setStandardView(CameraController::StandardView::Top);
+    require(!near(first->cameraParameters().position[0], firstCamera.position[0]) &&
+            near(second->cameraParameters().position[0], secondCamera.position[0]) &&
+            near(sourceView->cameraParameters().position[0], sourceCamera.position[0]),
+            "camera changes in one tab leave the other views in place");
+
+    auto* editor = firstTab->findChild<FeatureEditorPanel*>();
+    auto* length = editor ? editor->findChild<QDoubleSpinBox*>("featureDimension0") : nullptr;
+    auto* apply = editor ? editor->findChild<QPushButton*>("applyFeatureParametersButton") : nullptr;
+    require(length && apply && length->isEnabled() && near(length->value(), 6),
+            "the current feature can be edited in the modeling tab");
+    sourceView->setSketchInteractionEnabled(true);
+    require(!apply->isEnabled(), "a sketch session in the main view suspends parameter edits in modeling tabs");
+    sourceView->setSketchInteractionEnabled(false);
+    length->setValue(7);
+    apply->click();
+    require(first->displayedBody().IsSame(model->bodyShape()) && second->displayedBody().IsSame(model->bodyShape()) &&
+            sourceView->displayedBody().IsSame(model->bodyShape()) && near(volume(second->displayedBody()), 252),
+            "editing a parameter in a tab rebuilds the same body in all views");
+    QApplication::processEvents();
+    require(renders == 0, "direct and queued renders plus model updates leave background rendering idle");
+    tabs->setCurrentWidget(secondTab);
+    QApplication::processEvents();
+    second->renderNow();
+    require(renders > 0, "bringing a tab forward resumes rendering");
+    second->renderWindow()->RemoveObserver(observerId);
+    auto* undo = secondTab->findChild<QAction*>("modelingUndoAction");
+    require(undo && undo->isEnabled(), "editing history is shared across modeling tabs");
+    undo->trigger();
+    require(near(volume(first->displayedBody()), 216) && near(length->value(), 6),
+            "undo from another tab refreshes the solid and the parameter fields");
+
+    QPointer<ParametricModelingTab> closedTab(firstTab);
+    tabs->tabCloseRequested(tabs->indexOf(firstTab));
+    QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    require(!closedTab && secondTab->isVisible() && near(volume(model->bodyShape()), 216),
+            "closing one modeling tab preserves the remaining tab and the model");
+    tabs->tabCloseRequested(tabs->indexOf(secondTab));
+    QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    tabs->tabCloseRequested(tabs->indexOf(documentPage));
+    require(tabs->count() == 1 && tabs->currentWidget() == documentPage && sourceView->renderingActive(),
+            "the main viewport is always available and renders when selected");
+}
+
 void cloudOnlyButtonWorkflow() {
     QTemporaryDir directory;require(directory.isValid(),"cloud-only fixture directory");
     const auto path=directory.filePath("input.ply");QFile file(path);require(file.open(QIODevice::WriteOnly),"write cloud-only fixture");
@@ -201,6 +407,8 @@ void cloudOnlyButtonWorkflow() {
             debugMenu->actions().contains(debugAction) && !debugAction->isEnabled(),
             "direct projection is in a top-level Debug menu and requires an imported cloud");
     auto* model=window.findChild<ModelingController*>();workspace->loadPointCloudFromFile(path);
+    require(!window.findChild<QAction*>("openModelingTabAction")->isEnabled(),
+            "point cloud alone does not enable parametric modeling");
     auto* action=window.findChild<QAction*>("reconstructCadAction");require(action->isEnabled() && !action->text().contains("STEP"),"button exposes only point-cloud reconstruction");
     const auto* projectionAction=window.findChild<QAction*>("cadWithoutProjectionAction");
     require(projectionAction && projectionAction->isEnabled(),"projection opt-out is enabled for a metric cloud");
@@ -301,6 +509,7 @@ void cloudOnlyButtonWorkflow() {
     action->trigger();QElapsedTimer timer;timer.start();while(task->isRunning()&&timer.elapsed()<30000){QApplication::processEvents();QThread::msleep(5);}
     require(result && result->outcome==CadReconstructionResult::Outcome::Success && !model->features().empty(),"button reconstructs using only observations despite poisoned source-model sidecars");
     require(near(volume(model->bodyShape()),216),"cloud-only result has observed dimensions");
+    verifyModelingTabs(window, model, viewer);
     window.findChild<ModelingPanel*>()->selectFeature(model->features().front().id);auto* editor=window.findChild<FeatureEditorPanel*>();
     editor->findChild<QDoubleSpinBox*>("featureDimension0")->setValue(7);editor->findChild<QPushButton*>("applyFeatureParametersButton")->click();
     require(near(volume(model->bodyShape()),252)&&model->undo()&&near(volume(model->bodyShape()),216),"cloud-only CAD remains editable and undoable");
@@ -533,6 +742,7 @@ int main(int argc,char** argv) {
     try {
         hyperparameterSettingsWorkflow();
         projectionSketchDrawing();
+        planarJunctionTabWorkflow();
         cloudOnlyButtonWorkflow();
         assemblyButtonWorkflow();
         observedAssemblyWorkflow();

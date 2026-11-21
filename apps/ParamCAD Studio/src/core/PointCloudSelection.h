@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <vtkSmartPointer.h>
 
+#include <memory>
 #include <set>
 #include <map>
 #include <vector>
@@ -14,6 +15,8 @@
 class vtkPlanes;
 class vtkPolyData;
 class vtkStaticPointLocator;
+
+using SphereSourceTriangles = std::vector<std::array<vtkIdType, 3>>;
 
 struct PointCloudRegion
 {
@@ -27,6 +30,8 @@ struct PointCloudRegion
     double confidence = 0.0;
     bool fitStale = false;
     bool templateLocked = false;
+    // A null pointer denotes fits created without validated display topology.
+    std::shared_ptr<const SphereSourceTriangles> validatedSphereTriangles;
 };
 
 struct PointCloudRelation

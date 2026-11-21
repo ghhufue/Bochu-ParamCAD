@@ -23,6 +23,7 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSpinBox>
+#include <QStackedWidget>
 #include <QTabWidget>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
@@ -166,7 +167,6 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
                 m_pickedRegion = 0;
                 emit relationGroupSelected(m_relationGrouping.groups[static_cast<std::size_t>(id)].members);
             }
-            if (kind == Point) emit pointSelected(static_cast<vtkIdType>(id));
         });
         connect(tree, &QTreeWidget::itemDoubleClicked, this, [this, tree](QTreeWidgetItem* item) {
             if (item->data(0, KindRole).toInt() == Region && item->data(0, IdRole).toInt() > 0) editRegion();
@@ -242,11 +242,12 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
     settingsScroll->setWidget(settings);
     m_pages->addTab(settingsScroll, tr("设置"));
 
-    auto* boundaryScroll = new QScrollArea(m_pages);
+    m_boundaryPage = new QStackedWidget(m_pages);
+    m_boundaryPage->setObjectName("cloudBoundaryPage");
+    auto* boundaryScroll = new QScrollArea(m_boundaryPage);
     boundaryScroll->setWidgetResizable(true);
     boundaryScroll->setFrameShape(QFrame::NoFrame);
-    m_boundaryPage = boundaryScroll;
-    m_boundaryPage->setObjectName("cloudBoundaryPage");
+    m_boundaryInspection = boundaryScroll;
     auto* boundaryContent = new QWidget;
     boundaryScroll->setWidget(boundaryContent);
     auto* boundaryLayout = new QVBoxLayout(boundaryContent);
@@ -346,12 +347,13 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
     });
     connect(m_createContourSketch, &QPushButton::clicked, this, &PointCloudRelationsPanel::contourSketchRequested);
 
-    m_closeBoundary = new QPushButton(tr("返回三维视图"), boundaryContent);
+    m_closeBoundary = new QPushButton(tr("返回面片列表"), boundaryContent);
     m_closeBoundary->setObjectName("closeCloudBoundaryInspection");
     connect(m_closeBoundary, &QPushButton::clicked, this, &PointCloudRelationsPanel::boundaryInspectionCloseRequested);
     boundaryLayout->addWidget(m_closeBoundary);
     boundaryLayout->addStretch(1);
-    m_pages->addTab(m_boundaryPage, tr("边界"));
+    m_boundaryPage->addWidget(m_boundaryInspection);
+    m_pages->addTab(m_boundaryPage, tr("交线与边界"));
     clearBoundaryInspection();
     connect(m_pages, &QTabWidget::currentChanged, this, [this] {
         if (m_boundaryActive && m_pages->currentWidget() != m_boundaryPage) emit boundaryInspectionCloseRequested();
@@ -359,7 +361,9 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
 
     m_status = new QLabel(this); m_status->setObjectName("pointCloudRelationStatus");
     m_status->setWordWrap(true); layout->addWidget(m_status);
-    auto* footer = new QHBoxLayout;
+    m_cloudActions = new QWidget(this);
+    auto* footer = new QHBoxLayout(m_cloudActions);
+    footer->setContentsMargins(0, 0, 0, 0);
     m_detect = new QPushButton(tr("识别表面"), this); m_detect->setObjectName("detectCloudSurfacesButton");
     m_detect->setToolTip(tr("识别未归属点的曲面，保留已有集合；此操作不生成 CAD 实体。"));
     m_reconstruct = new QToolButton(this); m_reconstruct->setObjectName("rebuildCloudTemplatesButton");
@@ -378,7 +382,7 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
     m_analysisExportAction->setToolTip(tr("面信息、点映射和原始点分开保存，附带按面查询脚本。"));
     more->setMenu(files);
     footer->addWidget(m_detect, 1); footer->addWidget(m_reconstruct, 1); footer->addWidget(more);
-    layout->addLayout(footer);
+    layout->addWidget(m_cloudActions);
     m_cancelCad = new QPushButton(tr("取消 CAD 重建"), this);
     m_cancelCad->setObjectName("cancelCadReconstructionButton"); m_cancelCad->hide();
     layout->addWidget(m_cancelCad);
@@ -418,12 +422,28 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
         m_activeTree = m_pages->currentWidget() == m_relationTree->parentWidget() ? m_relationTree : m_tree;
         updateActions();
     });
-    setEnabled(false);
+    setCloudAvailable(false);
 }
-void PointCloudRelationsPanel::insertSelectionPage(QWidget* page)
+void PointCloudRelationsPanel::setJunctionPanel(QWidget* panel)
 {
-    m_pages->insertTab(0, page, tr("选点"));
-    m_pages->setCurrentIndex(1);
+    m_junctionPanel = panel;
+    m_boundaryPage->addWidget(panel);
+    m_boundaryPage->setCurrentWidget(panel);
+}
+
+void PointCloudRelationsPanel::showJunctionPage()
+{
+    if (m_boundaryActive) emit boundaryInspectionCloseRequested();
+    m_pages->setCurrentWidget(m_boundaryPage);
+}
+
+void PointCloudRelationsPanel::setCloudAvailable(bool available)
+{
+    for (int i = 0; i < m_pages->count(); ++i) {
+        auto* page = m_pages->widget(i);
+        if (page != m_boundaryPage) page->setEnabled(available);
+    }
+    m_cloudActions->setEnabled(available);
 }
 
 void PointCloudRelationsPanel::showBoundaryInspection(const QString& name, std::size_t points,
@@ -438,6 +458,7 @@ void PointCloudRelationsPanel::showBoundaryInspection(const QString& name, std::
     m_boundaryLayers[2]->setEnabled(outerRings > 0);
     m_boundaryLayers[3]->setEnabled(innerRings > 0);
     m_closeBoundary->setEnabled(true);
+    m_boundaryPage->setCurrentWidget(m_boundaryInspection);
     m_pages->setCurrentWidget(m_boundaryPage);
     emit boundaryInspectionLayersChanged(m_boundaryLayers[0]->isChecked(), m_boundaryLayers[1]->isChecked(),
                                         m_boundaryLayers[2]->isChecked(), m_boundaryLayers[3]->isChecked());
@@ -445,13 +466,11 @@ void PointCloudRelationsPanel::showBoundaryInspection(const QString& name, std::
 
 void PointCloudRelationsPanel::clearBoundaryInspection()
 {
-    const bool returnToSets = m_boundaryActive && m_pages->currentWidget() == m_boundaryPage;
     m_boundaryActive = false;
-    m_boundarySummary->setText(tr("在集合中右键点击已拟合的平面，选择「查看平面边界」。"));
     for (auto* layer : m_boundaryLayers) layer->setEnabled(false);
     m_contourControls->hide();
     m_closeBoundary->setEnabled(false);
-    if (returnToSets) m_pages->setCurrentWidget(m_tree->parentWidget());
+    if (m_junctionPanel) m_boundaryPage->setCurrentWidget(m_junctionPanel);
 }
 
 void PointCloudRelationsPanel::configureContourFit(double spacing, bool knownUnits)
@@ -472,13 +491,6 @@ void PointCloudRelationsPanel::setContourFitState(bool busy, bool ready, const Q
     m_createContourSketch->setEnabled(m_boundaryActive && !busy && ready);
     m_contourStatus->setText(message);
     m_contourStatus->setVisible(!message.isEmpty());
-}
-QMenu* PointCloudRelationsPanel::createSelectionMenu(QWidget* parent)
-{
-    auto* menu = new QMenu(parent);
-    menu->addAction(m_newRegion); menu->addAction(m_unassign);
-    menu->addSeparator(); menu->addAction(m_deleteSelected); menu->addAction(m_undo);
-    return menu;
 }
 void PointCloudRelationsPanel::setSourceInfo(const QString& path, const QString& unit)
 {
@@ -522,11 +534,6 @@ void PointCloudRelationsPanel::showContextMenu(QTreeWidget* tree, const QPoint& 
         }
         menu.addAction(m_deleteRegionPoints);
     }
-    if (item && item->data(0, KindRole).toInt() == Point) {
-        const auto id = item->data(0, IdRole).toLongLong();
-        auto* select = menu.addAction(tr("选中此点"));
-        connect(select, &QAction::triggered, this, [this, id] { emit pointSelected(id); });
-    }
     menu.addSeparator(); menu.addAction(m_newRegion); menu.addAction(m_unassign);
     menu.addAction(m_deleteSelected); menu.addAction(m_undo);
     menu.exec(tree->viewport()->mapToGlobal(position));
@@ -552,7 +559,8 @@ void PointCloudRelationsPanel::createRegion()
 
 void PointCloudRelationsPanel::setDocument(const PointCloudSelection& document, bool available)
 {
-    m_document = &document; setEnabled(available);
+    m_document = &document;
+    setCloudAvailable(available);
     if (m_pickedRegion > 0 && !document.region(m_pickedRegion)) m_pickedRegion = 0;
     const QString previous = itemKey(m_tree->currentItem());
     const QString previousRelation = itemKey(m_relationTree->currentItem());

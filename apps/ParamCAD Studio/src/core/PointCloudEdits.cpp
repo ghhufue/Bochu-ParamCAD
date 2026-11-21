@@ -76,7 +76,11 @@ void PointCloudSelection::rebuildLocator()
 void PointCloudSelection::invalidateRegion(int id)
 {
     if (id <= 0) return;
-    for (auto& r : m_regions) if (r.id == id) {r.supportValidation={};if(!r.parameters.isEmpty())r.fitStale=true;}
+    for (auto& r : m_regions) if (r.id == id) {
+        r.supportValidation = {};
+        r.validatedSphereTriangles.reset();
+        if (!r.parameters.isEmpty()) r.fitStale = true;
+    }
     // Inferred relationships no longer have valid evidence after membership
     // edits. User-authored relationships are kept as explicit annotations.
     m_relations.erase(std::remove_if(m_relations.begin(), m_relations.end(),
@@ -126,6 +130,7 @@ void PointCloudSelection::updateRegionFit(int id, const PointCloudRegion& fitted
     for (auto& r : m_regions) if (r.id == id) {
         r.parameters = fitted.parameters; r.residual = fitted.residual; r.supportValidation=fitted.supportValidation;
         r.confidence = fitted.confidence; r.source = r.templateLocked ? "manual" : "detected"; r.fitStale = false;
+        r.validatedSphereTriangles = fitted.validatedSphereTriangles;
     }
 }
 void PointCloudSelection::selectUnassigned() { select(regionPoints(0)); }
@@ -188,6 +193,14 @@ void PointCloudSelection::addSurfaces(const std::vector<DetectedPointCloudSurfac
         auto surface = detected.surface;
         surface.id = m_nextRegionId++;
         surface.source = "detected";
+        if (surface.validatedSphereTriangles && ids.size() != detected.points.size()) {
+            const std::unordered_set<vtkIdType> retained(ids.begin(), ids.end());
+            auto triangles = std::make_shared<SphereSourceTriangles>();
+            for (const auto& triangle : *surface.validatedSphereTriangles)
+                if (std::all_of(triangle.begin(), triangle.end(), [&](auto index) { return retained.count(index) != 0; }))
+                    triangles->push_back(triangle);
+            surface.validatedSphereTriangles = std::move(triangles);
+        }
         m_regions.push_back(surface);
         for (vtkIdType id : ids) m_memberships[static_cast<size_t>(id)] = surface.id;
     }
@@ -214,6 +227,16 @@ bool PointCloudSelection::samePartCandidates(const std::vector<DetectedPointClou
             prior.parameters != next.parameters || prior.supportValidation != next.supportValidation ||
             prior.residual != next.residual || prior.confidence != next.confidence ||
             prior.fitStale != next.fitStale || prior.templateLocked != next.templateLocked) return false;
+        if (bool(prior.validatedSphereTriangles) != bool(next.validatedSphereTriangles)) return false;
+        if (prior.validatedSphereTriangles) {
+            auto cached = prior.validatedSphereTriangles->begin();
+            const auto end = prior.validatedSphereTriangles->end();
+            for (const auto& triangle : *next.validatedSphereTriangles) {
+                if (!std::all_of(triangle.begin(), triangle.end(), available)) continue;
+                if (cached == end || *cached++ != triangle) return false;
+            }
+            if (cached != end) return false;
+        }
         for (const auto id : part.points)
             if (available(id)) memberships[static_cast<std::size_t>(id)] = prior.id;
     }

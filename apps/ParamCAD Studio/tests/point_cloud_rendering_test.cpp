@@ -1,6 +1,7 @@
 #include "core/PointCloudSelection.h"
 #include "rendering/PointCloudActor.h"
 #include "SurfaceMeshMetrics.h"
+#include <reconstruction/surface/SurfaceSupportValidation.h>
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -260,6 +261,76 @@ bool covers(const PointCloudSurfaceMesh& mesh,double x,double y)
             || *std::max_element(sides.begin(),sides.end())<=1e-9)return true;
     }
     return false;
+}
+
+void validatedSphereDisplay()
+{
+    constexpr double radius = 8.;
+    PlyCloud cloud;
+    reconstruction::SphereEvidence sphere;
+    sphere.sphere = {{0, 0, 0}, radius};
+    sphere.confidence = .99;
+    std::vector<reconstruction::PointSample> samples;
+    for (int i = -20; i <= 20; ++i) for (int j = -20; j <= 20; ++j) {
+        const double x = i * .2, y = j * .2;
+        if (std::hypot(x, y) < 1.5) continue;
+        const double z = std::sqrt(radius * radius - x * x - y * y);
+        cloud.positions.push_back({float(x), float(y), float(z)});
+        reconstruction::PointSample point;
+        point.id = cloud.positions.size();
+        point.position = {x, y, z};
+        samples.push_back(point);
+        sphere.supportPointIds.push_back(point.id);
+    }
+    const reconstruction::PointStore source(std::move(samples), reconstruction::LengthUnit::Millimeter);
+    reconstruction::SurfaceAnalysisOptions options;
+    options.detection.sphere.distanceThreshold = .02;
+    std::vector<reconstruction::PrimitiveEvidence> accepted;
+    reconstruction::SurfaceSupportValidationReport report;
+    std::string error;
+    require(reconstruction::validateSurfaceSupport(source, {sphere}, options, accepted, report, error),
+        "validate sphere with an observed opening");
+    require(accepted.size() == 1 && report.decisions.size() == 1 && report.decisions.front().footprint,
+        "accepted sphere carries its supported triangles");
+    const auto& footprint = *report.decisions.front().footprint;
+    auto topology = std::make_shared<SphereSourceTriangles>();
+    for (const auto& triangle : footprint.triangles)
+        topology->push_back({vtkIdType(footprint.sourcePointIds[triangle[0]] - 1),
+            vtkIdType(footprint.sourcePointIds[triangle[1]] - 1), vtkIdType(footprint.sourcePointIds[triangle[2]] - 1)});
+    DetectedPointCloudSurface annotation;
+    annotation.surface.geometry = "sphere";
+    annotation.surface.parameters = {{"center", QJsonArray{0, 0, 0}}, {"radius", radius}};
+    annotation.surface.validatedSphereTriangles = topology;
+    for (const auto id : footprint.coveredPointIds) annotation.points.push_back(vtkIdType(id - 1));
+
+    PointCloudSelection selection;
+    selection.setCloud(cloud);
+    selection.addSurfaces({annotation});
+    auto settings = options.supportMeshing;
+    settings.curvedAlphaRadiusMultiplier = .1;
+    const auto display = meshPointCloudSurfaces(selection, settings);
+    const auto& mesh = display.meshes.at(1);
+    require(mesh.triangles.size() == topology->size() && mesh.coveredPointIds == annotation.points,
+        "display reuses the validated topology and coverage independently of curved Alpha");
+    for (size_t i = 0; i < mesh.triangles.size(); ++i)
+        for (size_t j = 0; j < 3; ++j)
+            require(mesh.sourcePointIds[mesh.triangles[i][j]] == (*topology)[i][j], "display preserves source triangle vertices");
+    require(covers(mesh, 2.6, -1) && !covers(mesh, 0, 0), "validated display preserves the sphere opening");
+    for (const auto& p : mesh.positions)
+        require(std::abs(std::hypot(p[0], p[1], p[2]) - radius) < 1e-10, "display vertices lie on the fitted sphere");
+
+    PointCloudSelection reopened;
+    reopened.setCloud(cloud);
+    QString loadError;
+    require(reopened.restoreAutomaticAnnotations(selection.automaticAnnotations(), loadError) &&
+        reopened.region(1)->validatedSphereTriangles && *reopened.region(1)->validatedSphereTriangles == *topology,
+        "saved annotations preserve the validated sphere topology");
+    reopened.select({annotation.points.front()});
+    reopened.deleteSelectedPoints();
+    require(reopened.region(1)->fitStale && !reopened.region(1)->validatedSphereTriangles,
+        "membership edits invalidate the topology");
+    require(reopened.undo() && reopened.region(1)->validatedSphereTriangles,
+        "undo restores the topology with its observations");
 }
 
 void relativeDensitySurfaces()
@@ -629,7 +700,7 @@ int main(int argc,char** argv) {
         if(argc==4 && QString::fromLocal8Bit(argv[1])=="--trace-surface") {
             traceSurface(QString::fromLocal8Bit(argv[2]),QString::fromLocal8Bit(argv[3]));return 0;
         }
-        unsupportedPlaneSamples();surfaceDisplay();vertexTouchingBoundaries();finalSurfaceMinimum();wideConeSupport();curvedSurfaces();irregularSampling();fragmentedPlanes();narrowAndUnevenPlanes();finitePlaneBoundaries();distantCoplanarIslands();relativeDensitySurfaces();boundaryAndInteriorSupport();
+        unsupportedPlaneSamples();surfaceDisplay();vertexTouchingBoundaries();finalSurfaceMinimum();wideConeSupport();curvedSurfaces();validatedSphereDisplay();irregularSampling();fragmentedPlanes();narrowAndUnevenPlanes();finitePlaneBoundaries();distantCoplanarIslands();relativeDensitySurfaces();boundaryAndInteriorSupport();
         PlyCloud cloud;cloud.positions={{0,0,0},{1,0,0},{2,0,0}};
         cloud.colors={{12,34,56},{78,90,12},{34,56,78}};
         PointCloudSelection selection;selection.setCloud(cloud);

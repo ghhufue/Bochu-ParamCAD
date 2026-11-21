@@ -28,6 +28,8 @@ class PointCloudWorkspaceController;
 class SketchWorkspaceController;
 class FeatureEditingController;
 class ModelingController;
+class PlanarJunctionPanel;
+struct CameraParameters;
 
 // Composition root: window layout, navigation and application feedback.
 // Each workspace owns its editing state and connects its own panel intents.
@@ -66,6 +68,12 @@ private:
     void createMenus();
     void createToolBar();
     void createCentralArea();
+    void showDocumentViewport();
+    void showViewportTab(QWidget* page, const QString& title);
+    void updateActiveViewport();
+    void updateViewportCamera(const CameraParameters& parameters);
+    void releaseViewportOriginLock();
+    VTKViewer* activeViewport() const;
     void createDockPanels();
     void createStatusBar();
     void createWorkspaceControllers();
@@ -73,11 +81,15 @@ private:
     void applyDarkTheme();
     void showAbout();
     void openShortcutSettings();
+    void clearReconstructionCache();
     void updateCameraStatus(bool parallelProjection);
 
     Scene m_scene;
     PointCloudDocument* m_pointCloudDocument = nullptr;
     VTKViewer* m_viewer = nullptr;
+    QWidget* m_documentViewport = nullptr;
+    QTabWidget* m_viewportTabs = nullptr;
+    PlanarJunctionPanel* m_planarJunctionPanel = nullptr;
     SketchToolPalette* m_toolPalette = nullptr;
     ModelingPanel* m_modelingPanel = nullptr;
     PointCloudRelationsPanel* m_relationsPanel = nullptr;
@@ -127,6 +139,7 @@ private:
     QAction* m_captureAction = nullptr;
     QAction* m_screenshotAction = nullptr;
     QAction* m_newSketchAction = nullptr;
+    QAction* m_openModelingTabAction = nullptr;
     QAction* m_captureToolAction = nullptr;
     QAction* m_reconstructToolAction = nullptr;
     QAction* m_reconstructCadAction = nullptr;

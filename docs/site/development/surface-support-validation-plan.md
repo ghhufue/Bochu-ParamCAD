@@ -429,7 +429,7 @@ bool validateSurfaceSupport(
 | `apps/ParamCAD Studio/config/analysis.conf` | 新增主要及高级超参数 |
 | `apps/ParamCAD Studio/src/io/PointCloudAnalysis.cpp` | 原始点补证、有效候选归属、最终复验及缓存失效 |
 | `apps/ParamCAD Studio/src/rendering/PlanarSurfaceDomain.cpp`、`PointCloudSurfaceMesh.cpp` | 适配共享域，不再自行放行被拒区域 |
-| `apps/ParamCAD Studio/src/io/AnalysisBundleExporter.cpp`、`src/cli/AnalysisBundleReader.cpp` | 可选验证报告导出和读取 |
+| `apps/ParamCAD Studio/src/io/AnalysisBundleExporter.cpp`、`src/io/AnalysisBundleReader.cpp` | 可选验证报告导出和读取 |
 | `tools/analysis_bundle/inspect_bundle.py` | Python兼容查询器支持新报告 |
 | 核心与客户端 `CMakeLists.txt` | 注册新模块与测试，保持核心无Qt/VTK依赖 |
 | 对应分析、配置、客户端与导出测试 | 增加实际几何行为和兼容性测试 |

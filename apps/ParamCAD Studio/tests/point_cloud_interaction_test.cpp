@@ -12,6 +12,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QMenu>
+#include <QMessageBox>
 #include <QTimer>
 #include <QDockWidget>
 #include <QToolButton>
@@ -32,6 +33,7 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QPushButton>
 #include <QSurfaceFormat>
 #include <QScopeGuard>
@@ -61,6 +63,46 @@ void require(bool condition, const char* message)
 {
     if (!condition) throw std::runtime_error(message);
 }
+
+void verifyCacheCleanup(MainWindow& window, const QTemporaryDir& temp)
+{
+    const auto cacheRoot = temp.filePath("cache");
+    const auto previousRoot = qgetenv("PCAD_CACHE_DIR");
+    qputenv("PCAD_CACHE_DIR", cacheRoot.toUtf8());
+    const auto restoreRoot = qScopeGuard([&] {
+        if (previousRoot.isNull()) qunsetenv("PCAD_CACHE_DIR");
+        else qputenv("PCAD_CACHE_DIR", previousRoot);
+    });
+
+    const QDir root(cacheRoot);
+    const auto entry = QString(64, QLatin1Char('a')) + ".bin";
+    const auto current = root.filePath("reconstruction/v1/recognition/" + entry);
+    const auto otherVersion = root.filePath("reconstruction/v2/recognition/" + entry);
+    const auto unrelated = root.filePath("reconstruction/v1/recognition/notes.bin");
+    const auto outside = root.filePath(entry);
+    require(root.mkpath("reconstruction/v1/recognition") && root.mkpath("reconstruction/v2/recognition"),
+            "create versioned cache fixture directories");
+    for (const auto& path : {current, otherVersion, unrelated, outside}) {
+        QFile file(path);
+        require(file.open(QIODevice::WriteOnly), "create cache fixture file");
+    }
+
+    auto* settings = window.findChild<QMenu*>("settingsMenu");
+    auto* action = settings ? settings->findChild<QAction*>("clearReconstructionCacheAction") : nullptr;
+    require(action, "settings menu exposes cache cleanup");
+    const auto respond = [&](QMessageBox::StandardButton answer) {
+        QTimer::singleShot(0, &window, [&window, answer] {
+            if (auto* dialog = window.findChild<QMessageBox*>()) dialog->button(answer)->click();
+        });
+        action->trigger();
+    };
+    respond(QMessageBox::Cancel);
+    require(QFile::exists(current) && QFile::exists(otherVersion), "cancelling preserves cached entries");
+    respond(QMessageBox::Yes);
+    require(!QFile::exists(current) && !QFile::exists(otherVersion), "confirming deletes entries across cache versions");
+    require(QFile::exists(unrelated) && QFile::exists(outside), "cleanup preserves unrelated files");
+}
+
 bool changed(const double a[3], const double b[3])
 {
     return std::hypot(std::hypot(a[0] - b[0], a[1] - b[1]), a[2] - b[2]) > 1.0e-8;
@@ -162,7 +204,7 @@ void waitForAnalysis(QLabel* status, int timeout = 30000)
     require(!status->text().startsWith(QStringLiteral("正在后台")), "background analysis completed within deadline");
 }
 
-void verifyContourWorkflow(MainWindow& window, VTKViewer* viewer, QTreeWidget* tree,
+void verifyContourWorkflow(MainWindow& window, VTKViewer* viewer,
                            const QTemporaryDir& temp)
 {
     QByteArray points;
@@ -190,7 +232,17 @@ void verifyContourWorkflow(MainWindow& window, VTKViewer* viewer, QTreeWidget* t
     document->addSurfaces({plane});
     require(document->selection().regions().size() == 1 && document->sourceUnit() == "m",
             "fitted metric plane is available to boundary inspection");
-    contextAction(tree, findNode(tree, 1, document->selection().regions().front().id), "inspectCloudRegionBoundaryAction");
+    auto* pages = window.findChild<QTabWidget*>("pointCloudPages");
+    auto* boundaryPage = window.findChild<QWidget*>("cloudBoundaryPage");
+    auto* planes = boundaryPage->findChild<QListWidget*>("planarJunctionFaces");
+    auto* inspect = boundaryPage->findChild<QPushButton*>("inspectPlanarJunctionBoundaryButton");
+    pages->setCurrentWidget(boundaryPage);
+    require(planes && planes->count() == 1 && inspect, "the shared page lists the fitted plane");
+    planes->setCurrentRow(0);
+    require(inspect->isEnabled(), "a fitted plane can be inspected from the shared list");
+    inspect->click();
+    require(!planes->isVisible() && boundaryInspectionRenderer(viewer),
+            "the inspection controls replace the shared list in the same page");
     auto* fit = window.findChild<QPushButton*>("fitCloudContour");
     auto* create = window.findChild<QPushButton*>("createCloudContourSketch");
     auto* fitStatus = window.findChild<QLabel*>("cloudContourStatus");
@@ -349,7 +401,7 @@ int previewCloud(const QString& path, const QString& output)
     require(!viewer->displayedPointCloudSurfaces().empty(),qPrintable(status->text()));
     const auto elapsed=timer.elapsed();
     const auto revision=document->revision();
-    auto* pages=window.findChild<QTabWidget*>("pointCloudPages");pages->setCurrentIndex(1);
+    auto* pages=window.findChild<QTabWidget*>("pointCloudPages");pages->setCurrentIndex(0);
     document->clearSelection();QCoreApplication::processEvents();
     require(viewer->captureViewport(QDir(output).filePath("surfaces.png")),"capture real-cloud surfaces");
     require(window.grab().save(QDir(output).filePath("collections.png")),"capture real-cloud collection UI");
@@ -462,9 +514,12 @@ int main(int argc, char** argv)
         window.setAttribute(Qt::WA_DontShowOnScreen);
         window.show();
         application.processEvents();
+        verifyCacheCleanup(window, temp);
         auto* viewer = window.findChild<VTKViewer*>();
         auto* panel = window.findChild<PointCloudPanel*>();
-        require(viewer && panel && !panel->isEnabled(), "empty cloud disables panel");
+        auto* junctions = panel ? panel->findChild<QWidget*>("planarJunctionPanel") : nullptr;
+        require(viewer && junctions && junctions->isEnabled() && !panel->findChild<QComboBox*>("pointCloudSelectionMode"),
+                "bundle inspection is available with no cloud and no point-selection controls");
         auto* document = window.findChild<PointCloudDocument*>();
         require(document && document == viewer->pointCloudDocument(),
                 "composition root supplies one document to the viewport and workspace");
@@ -473,46 +528,28 @@ int main(int argc, char** argv)
         viewer->resetCameraToPointCloud();
         viewer->setStandardView(CameraController::StandardView::Top);
         application.processEvents();
-        require(panel->isEnabled() && viewer->pointCloudSelectionMode() == 1, "loaded cloud enables point picking");
-        auto* mode = panel->findChild<QComboBox*>("pointCloudSelectionMode");
-        auto* radius = panel->findChild<QDoubleSpinBox*>("pointCloudNeighbourRadius");
-        auto* expand = panel->findChild<QPushButton*>("expandPointCloudSelection");
         auto* relationships = panel->relationsPanel();
         auto* pages = panel->findChild<QTabWidget*>("pointCloudPages");
         auto* tree = panel->findChild<QTreeWidget*>("pointCloudRelationshipTree");
         auto* relationTree = panel->findChild<QTreeWidget*>("cloudRelationsTree");
         auto* property = window.findChild<PropertyPanel*>();
         auto* cadDock = window.findChild<QDockWidget*>("modelingDock");
-        require(mode && radius && expand && relationships && pages && tree && relationTree, "unified selection and collection controls available");
-        require(property->isAncestorOf(relationships) && pages->count() == 5
-                && pages->tabText(0) == "选点" && pages->tabText(1) == "集合"
-                && pages->tabText(2) == "关系" && pages->tabText(3) == "设置" && pages->tabText(4) == "边界",
+        require(relationships && pages && tree && relationTree, "collection and relationship controls available");
+        require(property->isAncestorOf(relationships) && pages->count() == 4
+                && pages->tabText(0) == "集合" && pages->tabText(1) == "关系"
+                && pages->tabText(2) == "设置" && pages->tabText(3) == "交线与边界"
+                && pages->widget(3)->isAncestorOf(junctions),
                 "all point-cloud pages belong to Properties");
         require(!window.findChild<QTabWidget*>("structureTabs") && !cadDock->isAncestorOf(relationships),
                 "left CAD dock contains no duplicate point-cloud panel");
         pages->setCurrentIndex(0);
-        require(!expand->isEnabled(), "empty selection disables expansion");
-        // Pick a point that does not share a projection with another point.
         pick(viewer, 1, 0, 0);
-        require(viewer->pointCloudDocument()->selection().selected() == std::vector<vtkIdType>{1}, "actual VTK point pick reports original ID");
-        radius->setValue(1.01);
-        expand->click();
-        require(viewer->pointCloudDocument()->selection().selected() == std::vector<vtkIdType>({0, 1, 2}), "panel button expands one round");
-        expand->click();
-        require(viewer->pointCloudDocument()->selection().selected() == std::vector<vtkIdType>({0, 1, 2, 3}), "second panel click expands current set");
+        pick(viewer, 3, 0, 0, true);
+        require(document->selection().selected().empty(), "raw observations are no longer picked by viewport clicks");
+        document->select({0, 1, 2, 3});
         createCollection(relationships, "cuboid");
         require(viewer->pointCloudDocument()->selection().regions().size() == 1
                 && viewer->pointCloudDocument()->selection().regionPointCount(1) == 4, "panel assigns cuboid group");
-        viewer->pointCloudDocument()->clearSelection();
-        pick(viewer, 1, 0, 0);
-        pick(viewer, 3, 0, 0, true);
-        require(viewer->pointCloudDocument()->selection().selected() == std::vector<vtkIdType>({1, 3}), "Ctrl picking adds a second point");
-        pick(viewer, 1, 0, 0, true);
-        require(viewer->pointCloudDocument()->selection().selected() == std::vector<vtkIdType>{3}, "Ctrl picking removes selected point");
-        mode->setCurrentIndex(2);
-        viewer->selectPointCloudBox(false);
-        require(viewer->pointCloudDocument()->selection().selected() == std::vector<vtkIdType>({0, 1}), "3D box has finite depth and original IDs");
-        // Box mode must preserve both camera gestures even over the box.
         const auto cameraBefore = viewer->cameraParameters();
         auto* interactor = viewer->renderWindow()->GetInteractor();
         const int* size = viewer->renderWindow()->GetSize();
@@ -522,32 +559,22 @@ int main(int argc, char** argv)
         interactor->MouseMoveEvent();
         interactor->MiddleButtonReleaseEvent();
         const auto cameraRotated = viewer->cameraParameters();
-        require(changed(cameraRotated.position, cameraBefore.position), "middle drag rotates camera in box mode");
+        require(changed(cameraRotated.position, cameraBefore.position), "middle drag rotates the cloud camera");
         interactor->SetEventInformation(size[0] / 2, size[1] / 2);
         interactor->RightButtonPressEvent();
         interactor->SetEventInformation(size[0] / 2 + 40, size[1] / 2 + 20);
         interactor->MouseMoveEvent();
         interactor->RightButtonReleaseEvent();
-        require(changed(viewer->cameraParameters().target, cameraRotated.target)
-            && viewer->pointCloudSelectionMode() == 2, "right drag pans without cancelling box mode");
+        require(changed(viewer->cameraParameters().target, cameraRotated.target), "right drag pans the cloud camera");
         if (argc > 1) {
             require(window.grab().save(QString::fromLocal8Bit(argv[1])), "save UI preview");
         }
 
         const auto photo = temp.filePath("capture.png");
-        require(viewer->captureImage(photo, 640, 480), "capture while box selection is active");
-        require(!QImage(photo).isNull() && viewer->pointCloudSelectionMode() == 2,
-                "capture succeeds and restores box mode");
-        viewer->selectPointCloudBox(false);
-        require(viewer->pointCloudDocument()->selection().selected().size() == 2, "capture preserves selection box bounds");
+        require(viewer->captureImage(photo, 640, 480) && !QImage(photo).isNull(), "capture the cloud viewport");
         require(viewer->pointCloudDocument()->saveAnnotations(temp.filePath("regions.json"), error), "save viewer annotations");
         require(viewer->pointCloudDocument()->loadAnnotations(temp.filePath("regions.json"), error), "reload viewer annotations");
         require(findNode(tree, 1, 1), "loaded groups refresh the single collection tree");
-        viewer->setSketchInteractionEnabled(true);
-        require(viewer->pointCloudSelectionMode() == 0 && mode->currentIndex() == 0, "sketch entry exits point-cloud selection");
-        mode->setCurrentIndex(2);
-        require(viewer->pointCloudSelectionMode() == 0 && mode->currentIndex() == 0, "cloud mode cannot steal active sketch input");
-        viewer->setSketchInteractionEnabled(false);
         require(viewer->pointCloudDocument()->load(ply.fileName(), error), "replace cloud");
         require(viewer->pointCloudDocument()->selection().regions().empty()
             && viewer->pointCloudDocument()->selection().selected().empty() && !findNode(tree,1,1),
@@ -609,9 +636,7 @@ int main(int argc, char** argv)
                 && tree->currentItem()->data(0,Qt::UserRole+1).toInt() == 1,
                 "collection rename keeps the editing target by original collection ID");
         undo->trigger();
-        auto* pointId = window.findChild<QLineEdit*>("relationshipPointId");
-        pointId->setText("1"); pointId->returnPressed();
-        require(viewer->pointCloudDocument()->selection().selected() == std::vector<vtkIdType>{1}, "point ID lookup selects the source observation");
+        document->selectPoint(1);
         window.findChild<QAction*>("deleteSelectedCloudPointsAction")->trigger();
         viewer->resetCameraToPointCloud(); viewer->setStandardView(CameraController::StandardView::Top);
         pick(viewer,1,0,0);
@@ -685,7 +710,7 @@ int main(int argc, char** argv)
         auto* boundaryPage = window.findChild<QWidget*>("cloudBoundaryPage");
         auto* inspection = boundaryInspectionRenderer(viewer);
         require(pages->currentWidget() == boundaryPage && inspection && inspection->GetActiveCamera()->GetParallelProjection(),
-                "Sets boundary action opens the dedicated orthographic inspection tab");
+                "Sets boundary action opens orthographic inspection in the combined page");
         require(inspection->GetActors()->GetNumberOfItems() == 4,
                 "the isolated view contains only the selected plane's display layers");
         auto* boundaryPoints = window.findChild<QCheckBox*>("cloudBoundaryPoints");
@@ -698,12 +723,11 @@ int main(int argc, char** argv)
         require(!observedPoints->GetVisibility(), "Boundary tab controls point visibility");
         boundaryPoints->setChecked(true);
         window.findChild<QPushButton*>("closeCloudBoundaryInspection")->click();
-        require(pages->currentWidget() == tree->parentWidget() &&
+        require(pages->currentWidget() == boundaryPage && junctions->isVisible() &&
                 viewer->cameraParameters().parallelProjection == cameraBeforeBoundary.parallelProjection &&
                 !changed(viewer->cameraParameters().position, cameraBeforeBoundary.position) &&
                 document->revision() == displayRevision, "leaving inspection restores the original scene and camera");
         viewer->resetCameraToPointCloud();viewer->setStandardView(CameraController::StandardView::Top);
-        viewer->setPointCloudSelectionMode(1);
         const int frontRegion=document->selection().memberships()[500];
         const int backRegion=document->selection().memberships()[400];
         require(frontRegion!=backRegion,"opposing faces have independent collection IDs");
@@ -760,7 +784,7 @@ int main(int argc, char** argv)
         viewer->resetCameraToPointCloud(); application.processEvents();
         auto* firstFace = findNode(tree,1,viewer->pointCloudDocument()->selection().regions().front().id);
         firstFace->setExpanded(true); tree->setCurrentItem(firstFace);
-        pages->setCurrentIndex(1);
+        pages->setCurrentWidget(tree->parentWidget());
         if(argc>1) require(window.grab().save(QString::fromLocal8Bit(argv[1])),"save relationship UI preview");
         // Voxel downsampling has its own spacing and trigger, caches each scale
         // beside the source, and switches the active cloud when it finishes.
@@ -798,9 +822,11 @@ int main(int argc, char** argv)
         require(document->sourcePath() == originalPath
                     && document->pointCount() == originalCount,
                 "the original entry restores the source cloud");
-        verifyContourWorkflow(window, viewer, tree, temp);
+        verifyContourWorkflow(window, viewer, temp);
         viewer->pointCloudDocument()->clear();
-        require(!panel->isEnabled() && !relationships->isEnabled(), "clearing cloud disables both point-cloud panels");
+        auto* detectAfterClear = relationships->findChild<QPushButton*>("detectCloudSurfacesButton");
+        require(detectAfterClear && !detectAfterClear->isEnabled() && junctions->isEnabled(),
+                "clearing the cloud disables cloud-specific controls and keeps bundle inspection available");
         require(document->sourcePath().isEmpty(), "clear resets the shared source identity");
         window.close();
 

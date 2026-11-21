@@ -54,6 +54,9 @@ void prepareSourceSurfacePreview(const reconstruction::PointStore& source, doubl
     if (reconstruction::indexValidatedSourceSurfaces(source, result.analysis, indexed, error) &&
         reconstruction::resolveSurfaceOwnership(source, indexed, options, owned, error, cancelled) &&
         reconstruction::indexSurfacePatches(source, owned.surfaces, indexed.options, ownedIndex, error)) {
+        ownedIndex.supportProposalIds.reserve(owned.surfaces.size());
+        for (const auto& evidence : owned.surfaces)
+            ownedIndex.supportProposalIds.push_back(std::visit([](const auto& surface) { return surface.id; }, evidence));
         ownedIndex.supportValidation = std::move(owned.finalSupportValidation);
         cache.writePreview(key, ownedIndex);
         result.sourceSurfacePreview = std::move(ownedIndex);
@@ -127,7 +130,7 @@ void runCadWork(const CadWork& input, CadReconstructionResult& result,
     if(hints.empty() && relations.empty() && (!recognized || bodies>1 || refineBox)) {
         stageChanged(Stage::SeparatingParts);
         reconstruction::AssemblyOptions options = assemblySettings;
-        options.enableSpecializedRecovery = specializedRecovery;
+        options.enableSpecializedRecovery &= specializedRecovery;
         options.projectionOptions = projectionOptions;
         if (!projectionFallback || refineBox) options.maximumProjectionParts = 0;
         // The decomposition estimates local noise independently of the
@@ -148,7 +151,10 @@ void runCadWork(const CadWork& input, CadReconstructionResult& result,
                 });
             profileRefined = std::size_t(throughCuts) >= guided.candidate.throughHoles.size();
         }
-        if (refineBox && !profileRefined) {
+        const bool recessRefined = refineBox && separatedOk && guided.candidate.throughHoles.empty()
+            && result.assembly->parts.size() == 1
+            && result.assembly->parts.front().status == "closed_inferred_recess";
+        if (refineBox && !profileRefined && !recessRefined) {
             result.assembly.reset();
         } else if (separatedOk) {
             result.branch = CadReconstructionResult::Branch::Assembly;
@@ -158,7 +164,8 @@ void runCadWork(const CadWork& input, CadReconstructionResult& result,
                 result.partialAssembly = !result.assembly->unassignedPointIds.empty() ||
                     std::any_of(result.assembly->parts.begin(), result.assembly->parts.end(), [](const auto& part) {
                         return part.status == "closed_circular_slab_inferred_contact" ||
-                            !part.closed;
+                            part.status == "closed_inferred_extrusion" ||
+                            part.status == "closed_inferred_recess" || !part.closed;
                     });
                 result.candidate=separated;result.analysis=std::move(guided.analysis);
                 result.analysisReused=guided.analysisReused;
@@ -167,8 +174,17 @@ void runCadWork(const CadWork& input, CadReconstructionResult& result,
             result.analysis=std::move(guided.analysis);
             result.analysisReused=guided.analysisReused;
             result.outcome=CadReconstructionResult::Outcome::Unsupported;
-            result.error=QCoreApplication::translate("CadReconstructionTask", "分离出 %1 个候选，但没有验证闭合的实体").arg(result.assembly->parts.size());
-            if (!recognized && !failure.empty()) result.error += "; conventional: " + QString::fromStdString(failure);
+            const bool matchedRecess = std::any_of(result.assembly->parts.begin(), result.assembly->parts.end(),
+                [](const auto& part) { return part.status == "open_matched_recess"; });
+            if (matchedRecess) {
+                result.error = QCoreApplication::translate("CadReconstructionTask",
+                    "已匹配孔口与孔底轮廓。生成盲孔需要可验证的宿主实体。");
+            } else {
+                result.error = QCoreApplication::translate("CadReconstructionTask",
+                    "分离出 %1 个候选，但没有验证闭合的实体").arg(result.assembly->parts.size());
+                if (!recognized && !failure.empty())
+                    result.error += "; conventional: " + QString::fromStdString(failure);
+            }
             preparePreview();
             return;
         } else if(!recognized)failure += "; decomposition: "+decompositionError;

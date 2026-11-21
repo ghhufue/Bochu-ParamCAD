@@ -17,6 +17,10 @@
 <context>
     <name>CadReconstructionTask</name>
     <message>
+        <source>已匹配孔口与孔底轮廓。生成盲孔需要可验证的宿主实体。</source>
+        <translation>The hole opening and floor contours match. A verified host solid is required to build the blind hole.</translation>
+    </message>
+    <message>
         <location filename="../src/app/CadReconstructionTask.cpp" line="124"/>
         <source>分离出 %1 个候选，但没有验证闭合的实体</source>
         <translation>Separated %1 candidates; no verified closed solid</translation>
@@ -1052,6 +1056,34 @@
 <context>
     <name>MainWindow</name>
     <message>
+        <source>识别未归属点以建立曲面集合。</source>
+        <translation>Recognise unassigned points to create surface sets.</translation>
+    </message>
+    <message>
+        <source>面片交线与边界</source>
+        <translation>Surface Intersections and Boundaries</translation>
+    </message>
+    <message>
+        <source>主视图</source>
+        <translation>Main View</translation>
+    </message>
+    <message>
+        <source>参数化建模</source>
+        <translation>Parametric Modeling</translation>
+    </message>
+    <message>
+        <source>在新标签页中查看当前实体并调整特征参数</source>
+        <translation>View the current solid and edit its feature parameters in a new tab</translation>
+    </message>
+    <message>
+        <source>当前项目没有可建模的实体。</source>
+        <translation>The current project has no parametric solid.</translation>
+    </message>
+    <message>
+        <source>平行轮廓配对闭合了 %1 个候选。</source>
+        <translation>Matching parallel contours closed %1 candidates.</translation>
+    </message>
+    <message>
         <source>当前平面无法进入边界检查。</source>
         <translation>Boundary inspection is unavailable for this plane.</translation>
     </message>
@@ -1406,6 +1438,36 @@ Maximum deviation ≤ %3 %5, P95 deviation %4 %5</translation>
         <location filename="../src/app/MainWindow.cpp" line="447"/>
         <source>快捷键…</source>
         <translation>Shortcuts…</translation>
+    </message>
+    <message>
+        <location filename="../src/app/MainWindow.cpp" line="529"/>
+        <source>清理点云缓存…</source>
+        <translation>Clear Point Cloud Cache…</translation>
+    </message>
+    <message>
+        <location filename="../src/app/MainWindow.cpp" line="817"/>
+        <source>清理点云缓存</source>
+        <translation>Clear Point Cloud Cache</translation>
+    </message>
+    <message>
+        <location filename="../src/app/MainWindow.cpp" line="819"/>
+        <source>要删除点云识别和 CAD 重建的磁盘缓存吗？下次需要时会重新计算。</source>
+        <translation>Delete the disk cache for point cloud recognition and CAD reconstruction? Results will be recomputed when needed.</translation>
+    </message>
+    <message>
+        <location filename="../src/app/MainWindow.cpp" line="824"/>
+        <source>正在识别或重建点云，请等待任务结束后重试。</source>
+        <translation>Point cloud recognition or reconstruction is running. Try again when it finishes.</translation>
+    </message>
+    <message>
+        <location filename="../src/app/MainWindow.cpp" line="828"/>
+        <source>未能清理全部点云缓存。请检查缓存目录权限或关闭正在使用缓存的进程，然后重试。</source>
+        <translation>Some point cloud cache entries could not be cleared. Check the cache directory permissions or close processes using the cache, then try again.</translation>
+    </message>
+    <message>
+        <location filename="../src/app/MainWindow.cpp" line="831"/>
+        <source>点云缓存已清理。</source>
+        <translation>Point cloud cache cleared.</translation>
     </message>
     <message>
         <location filename="../src/app/MainWindow.cpp" line="455"/>
@@ -1899,105 +1961,11 @@ Executable path %7</translation>
     </message>
 </context>
 <context>
-    <name>PointCloudPanel</name>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="29"/>
-        <source>模型交互</source>
-        <translation>Model interaction</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="29"/>
-        <source>单点选择</source>
-        <translation>Single-point selection</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="29"/>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="33"/>
-        <source>三维框选</source>
-        <translation>3D box selection</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="30"/>
-        <source>交互方式</source>
-        <translation>Interaction mode</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="35"/>
-        <source>追加到现有选区</source>
-        <translation>Append to the current selection</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="38"/>
-        <source>选取框内点</source>
-        <translation>Select points in the box</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="41"/>
-        <source>重置框</source>
-        <translation>Reset box</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="47"/>
-        <source>扩展选区</source>
-        <translation>Grow selection</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="52"/>
-        <source>使用原始点云坐标单位；每次只向外扩展一轮。</source>
-        <translation>Uses the raw point-cloud units; each step grows the selection by one ring.</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="53"/>
-        <source>邻域半径</source>
-        <translation>Neighbourhood radius</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="54"/>
-        <source>扩展一轮</source>
-        <translation>Grow one ring</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="62"/>
-        <source>原始点 ID，从 0 开始；回车定位</source>
-        <translation>Original point ID, zero-based; press Enter to locate</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="63"/>
-        <source>查找点</source>
-        <translation>Find point</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="67"/>
-        <source>选区操作</source>
-        <translation>Selection actions</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="71"/>
-        <source>操作帮助</source>
-        <translation>Operation help</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="74"/>
-        <source>单点：左键选择，Ctrl / Shift + 左键增减点。
-选择框：拖动面或手柄缩放，拖动框体旋转，Shift + 左键平移。
-中键旋转视角，右键平移，滚轮缩放。</source>
-        <translation>Single point: left-click to select; Ctrl / Shift + left-click to add or remove points.
-Box: drag a face or handle to resize, drag the box to rotate, Shift + left-click to pan.
-Middle-drag to orbit, right-drag to pan, scroll to zoom.</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="88"/>
-        <source>清空选区</source>
-        <translation>Clear selection</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudPanel.cpp" line="103"/>
-        <source>请输入从 0 开始的原始点 ID。</source>
-        <translation>Enter a zero-based original point ID.</translation>
-    </message>
-</context>
-<context>
     <name>PointCloudRelationsPanel</name>
+    <message>
+        <source>交线与边界</source>
+        <translation>Intersections and Boundaries</translation>
+    </message>
     <message>
         <source>证据对数</source>
         <translation>Evidence Pairs</translation>
@@ -2083,10 +2051,6 @@ Middle-drag to orbit, right-drag to pan, scroll to zoom.</translation>
         <translation>Inspect plane boundary</translation>
     </message>
     <message>
-        <source>边界</source>
-        <translation>Boundary</translation>
-    </message>
-    <message>
         <source>显示观测点</source>
         <translation>Show observed points</translation>
     </message>
@@ -2103,8 +2067,8 @@ Middle-drag to orbit, right-drag to pan, scroll to zoom.</translation>
         <translation>Show inner rings (pink)</translation>
     </message>
     <message>
-        <source>返回三维视图</source>
-        <translation>Return to 3D view</translation>
+        <source>返回面片列表</source>
+        <translation>Back to surface list</translation>
     </message>
     <message>
         <source>%1
@@ -2113,10 +2077,6 @@ Middle-drag to orbit, right-drag to pan, scroll to zoom.</translation>
         <translation>%1
 %2 observed points, %3 triangles
 %4 outer rings, %5 candidate holes</translation>
-    </message>
-    <message>
-        <source>在集合中右键点击已拟合的平面，选择「查看平面边界」。</source>
-        <translation>In Sets, right-click a fitted plane and choose Inspect plane boundary.</translation>
     </message>
     <message>
         <source>显示表面</source>
@@ -2428,11 +2388,6 @@ Middle-drag to orbit, right-drag to pan, scroll to zoom.</translation>
         <translation>Cancel CAD reconstruction</translation>
     </message>
     <message>
-        <location filename="../src/ui/panels/PointCloudRelationsPanel.cpp" line="268"/>
-        <source>选点</source>
-        <translation>Select points</translation>
-    </message>
-    <message>
         <location filename="../src/ui/panels/PointCloudRelationsPanel.cpp" line="280"/>
         <source>mm（毫米）</source>
         <translation>mm (millimetres)</translation>
@@ -2451,11 +2406,6 @@ Middle-drag to orbit, right-drag to pan, scroll to zoom.</translation>
         <location filename="../src/ui/panels/PointCloudRelationsPanel.cpp" line="282"/>
         <source>%1 · 单位：%2</source>
         <translation>%1 · Unit: %2</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/panels/PointCloudRelationsPanel.cpp" line="307"/>
-        <source>选中此点</source>
-        <translation>Select this point</translation>
     </message>
     <message>
         <location filename="../src/ui/panels/PointCloudRelationsPanel.cpp" line="318"/>
@@ -4083,5 +4033,108 @@ Full model rebuild validated; click &quot;Apply Preview&quot; to commit. The cha
     <message><source>识别结果已导出，可从 README.md 开始查看</source><translation>Recognition results exported. Start with README.md.</translation></message>
     <message><source>识别结果导出失败：%1</source><translation>Recognition result export failed: %1</translation></message>
     <message><source>导出识别结果</source><translation>Export recognition results</translation></message>
+</context>
+<context>
+    <name>PlanarJunctionPanel</name>
+    <message>
+        <source>查看平面边界</source>
+        <translation>Inspect Plane Boundary</translation>
+    </message>
+    <message>
+        <source>显示交线视图</source>
+        <translation>Show Intersection View</translation>
+    </message>
+    <message>
+        <source>打开分析包…</source>
+        <translation>Open Analysis Bundle…</translation>
+    </message>
+    <message>
+        <source>使用当前点云</source>
+        <translation>Use Current Point Cloud</translation>
+    </message>
+    <message>
+        <source>适应视图</source>
+        <translation>Fit View</translation>
+    </message>
+    <message>
+        <source>选择 .pcad-analysis 目录</source>
+        <translation>Select a .pcad-analysis directory</translation>
+    </message>
+    <message>
+        <source>按名称或 ID 筛选平面</source>
+        <translation>Filter planes by name or ID</translation>
+    </message>
+    <message>
+        <source>拟合所选面片</source>
+        <translation>Fit Selected Faces</translation>
+    </message>
+    <message>
+        <source>显示边界</source>
+        <translation>Show Boundaries</translation>
+    </message>
+    <message>
+        <source>显示交线</source>
+        <translation>Show Intersections</translation>
+    </message>
+    <message>
+        <source>分析包：%1</source>
+        <translation>Analysis bundle: %1</translation>
+    </message>
+    <message>
+        <source>请打开分析包，或先在主窗口识别平面。</source>
+        <translation>Open an analysis bundle or detect planar faces in the main window.</translation>
+    </message>
+    <message>
+        <source>当前点云：%1</source>
+        <translation>Current point cloud: %1</translation>
+    </message>
+    <message>
+        <source>平面已更改，请重新选择。</source>
+        <translation>The planes have changed. Select them again.</translation>
+    </message>
+    <message>
+        <source>平面 #%1 缺少可拟合的有限网格。</source>
+        <translation>Plane #%1 has no usable finite mesh.</translation>
+    </message>
+    <message>
+        <source>正在拟合面片与交线…</source>
+        <translation>Fitting faces and intersections…</translation>
+    </message>
+    <message>
+        <source>全部面片</source>
+        <translation>All Faces</translation>
+    </message>
+    <message>
+        <source>%1：%2</source>
+        <translation>%1: %2</translation>
+    </message>
+    <message>
+        <source>边界已贴合交线</source>
+        <translation>Boundary fitted to intersections</translation>
+    </message>
+    <message>
+        <source>保留观测边界</source>
+        <translation>Observed boundary retained</translation>
+    </message>
+    <message>
+        <source>平行或接近平行</source>
+        <translation>Parallel or nearly parallel</translation>
+    </message>
+    <message>
+        <source>有限面域无交线</source>
+        <translation>No intersection within the finite faces</translation>
+    </message>
+    <message>
+        <source>%1 段交线</source>
+        <translation>%1 intersection segments</translation>
+    </message>
+    <message>
+        <source>%1 × %2：%3</source>
+        <translation>%1 × %2: %3</translation>
+    </message>
+    <message>
+        <source>已拟合 %1 个面片，找到 %2 段交线。</source>
+        <translation>Fitted %1 faces and found %2 intersection segments.</translation>
+    </message>
 </context>
 </TS>

@@ -37,7 +37,7 @@ QString featureTypeLabel(modeling::FeatureType type)
 
 }  // namespace
 
-ModelingPanel::ModelingPanel(QWidget* parent)
+ModelingPanel::ModelingPanel(QWidget* parent, Commands commands)
     : QWidget(parent)
 {
     auto* outer = new QVBoxLayout(this);
@@ -66,40 +66,40 @@ ModelingPanel::ModelingPanel(QWidget* parent)
     m_features->header()->setSectionResizeMode(4, QHeaderView::Stretch);
     featureLayout->addWidget(m_features);
 
-    auto* featureButtons = new QHBoxLayout();
-    m_editSketch = new QPushButton(tr("编辑草图"), featureGroup);
-    m_editSketch->setObjectName(QStringLiteral("editExistingSketchButton"));
-    m_editSketch->setEnabled(false);
-    featureButtons->addWidget(m_editSketch);
-    auto* deleteFeatureButton = new QPushButton(tr("删除特征"), featureGroup);
-    deleteFeatureButton->setObjectName(QStringLiteral("deleteFeatureButton"));
-    featureButtons->addWidget(deleteFeatureButton);
-    featureButtons->addStretch();
-    featureLayout->addLayout(featureButtons);
-    outer->addWidget(featureGroup);
+    if (commands == Commands::SketchAndDelete) {
+        auto* featureButtons = new QHBoxLayout();
+        m_editSketch = new QPushButton(tr("编辑草图"), featureGroup);
+        m_editSketch->setObjectName(QStringLiteral("editExistingSketchButton"));
+        m_editSketch->setEnabled(false);
+        featureButtons->addWidget(m_editSketch);
+        auto* deleteFeatureButton = new QPushButton(tr("删除特征"), featureGroup);
+        deleteFeatureButton->setObjectName(QStringLiteral("deleteFeatureButton"));
+        featureButtons->addWidget(deleteFeatureButton);
+        featureButtons->addStretch();
+        featureLayout->addLayout(featureButtons);
 
-    outer->addStretch();
+        connect(m_editSketch, &QPushButton::clicked, this, [this] { emit editSketchRequested(selectedFeatureId()); });
+        connect(m_features, &QTreeWidget::itemDoubleClicked, this, [this] {
+            if (m_editSketch->isEnabled()) emit editSketchRequested(selectedFeatureId());
+        });
+        connect(deleteFeatureButton, &QPushButton::clicked, this, [this] {
+            const modeling::FeatureId id = selectedFeatureId();
+            if (id != modeling::kInvalidFeatureId) emit deleteFeatureRequested(id);
+        });
+    }
+    outer->addWidget(featureGroup, commands == Commands::None ? 1 : 0);
+    if (commands != Commands::None) outer->addStretch();
 
     connect(m_features, &QTreeWidget::itemSelectionChanged, this, [this] {
         updateSketchAction();
         emit featureSelected(selectedFeatureId());
-    });
-    connect(m_editSketch, &QPushButton::clicked, this, [this] { emit editSketchRequested(selectedFeatureId()); });
-    connect(m_features, &QTreeWidget::itemDoubleClicked, this, [this] {
-        if (m_editSketch->isEnabled()) emit editSketchRequested(selectedFeatureId());
-    });
-
-    connect(deleteFeatureButton, &QPushButton::clicked, this, [this] {
-        const modeling::FeatureId id = selectedFeatureId();
-        if (id != modeling::kInvalidFeatureId) {
-            emit deleteFeatureRequested(id);
-        }
     });
 }
 
 void ModelingPanel::setStatusText(const QString& text)
 {
     m_status->setText(text);
+    m_status->setVisible(!text.isEmpty());
 }
 
 void ModelingPanel::setFeatures(const std::vector<modeling::Feature>& features)
@@ -130,6 +130,7 @@ void ModelingPanel::setFeatures(const std::vector<modeling::Feature>& features)
 
 void ModelingPanel::updateSketchAction()
 {
+    if (!m_editSketch) return;
     const auto selected = m_features->selectedItems();
     m_editSketch->setEnabled(!selected.isEmpty() && selected.front()->data(2, Qt::UserRole).toInt()
         == static_cast<int>(modeling::FeatureType::Sketch));

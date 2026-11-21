@@ -20,6 +20,7 @@ public:
     using Stop = std::function<bool()>;
 
     explicit ReconstructionCache(Stop cancelled = {});
+    static bool clearDiskEntries();
     bool enabled() const { return !m_root.isEmpty(); }
     const QJsonObject& report() const { return m_report; }
 

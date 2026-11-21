@@ -220,6 +220,10 @@ qt_add_executable(CadPointCloudClient WIN32
     src/app/MainWindow.h
     src/app/MainWindow.cpp
     src/app/MainWindowCommands.cpp
+    src/app/ParametricModelingTab.h
+    src/app/ParametricModelingTab.cpp
+    src/app/PlanarJunctionPanel.h
+    src/app/PlanarJunctionPanel.cpp
     src/app/PointCloudWorkspaceCommands.cpp
     src/cli/CommandProtocol.cpp src/cli/CommandProtocol.h
     src/cli/StudioCommandServer.cpp src/cli/StudioCommandServer.h
@@ -290,6 +294,7 @@ qt_add_executable(CadPointCloudClient WIN32
     src/io/PointCloudAnalysis.h
     src/io/PointCloudAnalysis.cpp
     src/io/AnalysisBundleExporter.h src/io/AnalysisBundleExporter.cpp
+    src/io/AnalysisBundleReader.h src/io/AnalysisBundleReader.cpp
     resources/analysis_export.qrc
     src/io/StepModelLoader.h
     src/io/StepModelLoader.cpp
@@ -491,7 +496,7 @@ stage_module_configs(CadPointCloudClient)
 
 if(CAD_CLIENT_BUILD_MODULE_CLIS)
     add_executable(pcad
-        src/cli/pcad_main.cpp src/cli/CommandProtocol.cpp src/cli/AnalysisBundleReader.cpp
+        src/cli/pcad_main.cpp src/cli/CommandProtocol.cpp src/io/AnalysisBundleReader.cpp
         src/cli/OfflineCadCommands.cpp src/io/AssemblyDiagnostics.cpp
         src/cli/modules/ModuleCli.cpp src/cli/modules/pcad_preprocess.cpp
         src/cli/modules/pcad_detect.cpp src/cli/modules/pcad_analyze.cpp

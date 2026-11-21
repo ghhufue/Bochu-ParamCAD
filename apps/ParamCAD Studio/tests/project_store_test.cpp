@@ -236,7 +236,6 @@ int main(int argc, char** argv)
         snapshot.view.object.opacity = 0.3;
         snapshot.view.cloudVisible = false;
         snapshot.view.pointSize = 5;
-        snapshot.view.selectionMode = 2;
         QImage texture(16, 16, QImage::Format_RGBA8888);
         texture.fill(Qt::cyan);
         snapshot.view.render.texturePath = temp.filePath("texture.png");
@@ -312,6 +311,15 @@ int main(int argc, char** argv)
                 "corrupt asset rejected");
         auto metadata = manifest(original);
         require(metadata["version"] == 2, "new saves use version 2");
+        auto legacyView = metadata["view"].toObject();
+        require(legacyView["selectionMode"] == 0, "new saves default to model interaction in older readers");
+        legacyView["selectionMode"] = 2;
+        metadata["view"] = legacyView;
+        const auto legacyPath = temp.filePath("legacy-box-selection.pcad");
+        write(legacyPath, withManifest(original, metadata));
+        const auto legacy = ProjectStore::load(legacyPath, error);
+        require(legacy && legacy->cloud->pointCount() == restored->cloud->pointCount(),
+                "projects saved in the old selection mode retain cloud data");
         metadata["version"] = 1;
         write(bad, withManifest(original, metadata));
         require(ProjectStore::load(bad, error) != nullptr, "version 1 projects remain readable");

@@ -130,7 +130,7 @@ int main(int argc, char** argv)
         cloud->select({0, 1});
         const auto cloudRevision = cloud->revision();
         contextAction(tree, SceneNodeType::PointCloud, "隐藏");
-        require(!viewer->pointCloudVisible() && viewer->pointCloudSelectionMode() == 0
+        require(!viewer->pointCloudVisible()
                 && cloud->pointCount() == 3 && cloud->revision() == cloudRevision,
                 "hiding cloud disables picking and preserves observations");
         contextAction(tree, SceneNodeType::PointCloud, "显示");
@@ -145,7 +145,7 @@ int main(int argc, char** argv)
         require(!viewer->hasBody(), "rebuild cannot resurrect deleted model");
         contextAction(tree, SceneNodeType::PointCloud, "删除");
         require(!cloud->hasCloud() && cloud->sourcePath().isEmpty() && cloud->pointCount() == 0
-                && cloud->revision() > cloudRevision && viewer->pointCloudSelectionMode() == 0
+                && cloud->revision() > cloudRevision
                 && node(tree, SceneNodeType::PointCloud)->isHidden() && QFile::exists(cloudPath),
                 "cloud deletion clears document and scene while preserving source file");
 

@@ -153,7 +153,6 @@ int main(int argc, char** argv)
         viewer->setObjectOpacity(0.3);
         viewer->setObjectColor(Qt::yellow);
         viewer->setPointCloudPointSize(5);
-        viewer->setPointCloudSelectionMode(2);
         action(window, "datumPlanesAction")->setChecked(false);
         panel->cameraPanel()->setOriginLock(false);
         CameraParameters camera;
@@ -216,8 +215,7 @@ int main(int argc, char** argv)
                     std::abs(object.opacity - 0.3) < 1e-9 &&
                     restoredPanel->presentation().scale[2] == 4 &&
                     restoredViewer->pointCloudPointSize() == 5 &&
-                    restoredViewer->gradientBackground() &&
-                    restoredViewer->pointCloudSelectionMode() == 2,
+                    restoredViewer->gradientBackground(),
                 "presentation controls and actual actors restore together");
         require(restoredViewer->hasBodyTexture() && restoredViewer->bodyTextureEnabled() &&
                     restoredViewer->textureProjection() == 4 &&

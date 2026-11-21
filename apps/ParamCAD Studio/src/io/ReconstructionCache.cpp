@@ -13,7 +13,9 @@
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
 
@@ -27,6 +29,19 @@ using diagnostics::profileStage;
 
 constexpr qint64 maxPayloadBytes = 512 * 1024 * 1024;
 constexpr int formatVersion = 1;
+
+QString cacheDirectory()
+{
+    const auto overrideRoot = qEnvironmentVariable("PCAD_CACHE_DIR");
+    const auto root = overrideRoot.isEmpty()
+        ? QStandardPaths::writableLocation(QStandardPaths::CacheLocation) : overrideRoot;
+    return root.isEmpty() ? QString{} : QDir(root).absoluteFilePath("reconstruction");
+}
+
+bool isLocalCacheDirectory(const QFileInfo& info)
+{
+    return info.isDir() && !info.isSymLink() && !info.isJunction() && QDir(info.filePath()).isReadable();
+}
 
 QByteArray digest(const QByteArray& bytes)
 {
@@ -122,10 +137,42 @@ QByteArray assemblyClosureKey(const QByteArray& preparation, AssemblyOptions opt
 ReconstructionCache::ReconstructionCache(Stop cancelled) : m_cancelled(std::move(cancelled))
 {
     if (qEnvironmentVariableIntValue("PCAD_DISABLE_CACHE") != 0) return;
-    const auto overrideRoot = qEnvironmentVariable("PCAD_CACHE_DIR");
-    const auto root = overrideRoot.isEmpty()
-        ? QStandardPaths::writableLocation(QStandardPaths::CacheLocation) : overrideRoot;
-    if (!root.isEmpty()) m_root = QDir(root).absoluteFilePath("reconstruction/v1");
+    const auto directory = cacheDirectory();
+    if (!directory.isEmpty()) m_root = QDir(directory).filePath(QStringLiteral("v%1").arg(formatVersion));
+}
+
+bool ReconstructionCache::clearDiskEntries()
+{
+    const auto directory = cacheDirectory();
+    if (directory.isEmpty()) return false;
+    const QFileInfo root(directory);
+    if (!root.exists() && !root.isSymLink() && !root.isJunction()) return true;
+    if (!isLocalCacheDirectory(root)) return false;
+
+    static const QRegularExpression versionName(QStringLiteral("^v[0-9]+$"));
+    static const QRegularExpression entryName(QStringLiteral("^[0-9a-f]{64}\\.bin$"));
+    constexpr auto subdirectories = QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden;
+    bool complete = true;
+    for (const auto& version : QDir(directory).entryInfoList(subdirectories)) {
+        if (!versionName.match(version.fileName()).hasMatch()) continue;
+        if (!isLocalCacheDirectory(version)) {
+            complete = false;
+            continue;
+        }
+        for (const auto& stage : QDir(version.filePath()).entryInfoList(subdirectories)) {
+            if (!isLocalCacheDirectory(stage)) {
+                complete = false;
+                continue;
+            }
+            const auto entries = QDir(stage.filePath()).entryInfoList(QDir::Files | QDir::Hidden);
+            for (const auto& entry : entries) {
+                if (!entryName.match(entry.fileName()).hasMatch()) continue;
+                if (entry.isSymLink() || (!QFile::remove(entry.filePath()) && QFileInfo::exists(entry.filePath())))
+                    complete = false;
+            }
+        }
+    }
+    return complete;
 }
 
 void ReconstructionCache::note(const QString& stage, const char* status, const char* reason)

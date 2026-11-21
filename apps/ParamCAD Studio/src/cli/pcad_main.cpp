@@ -2,7 +2,7 @@
 #include "ParamCADBuildInfo.h"
 #include "BackendLogScope.h"
 #include "CommandArguments.h"
-#include "AnalysisBundleReader.h"
+#include "io/AnalysisBundleReader.h"
 #include "OfflineCadCommands.h"
 #include "modules/ModuleCli.h"
 #include "app/ProjectPaths.h"

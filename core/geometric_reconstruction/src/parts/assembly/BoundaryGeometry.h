@@ -1,5 +1,7 @@
 #pragma once
 #include "reconstruction/parts/AssemblyReconstruction.h"
+#include <array>
+#include <optional>
 
 namespace reconstruction::detail::assembly {
 using BoundaryLoop = std::vector<modeling::Point2D>;
@@ -7,9 +9,13 @@ struct BoundaryLine {
     double a=0,b=0,c=0;
     int identity=0;
     modeling::Point2D anchor{};
+    std::optional<std::array<modeling::Point2D, 2>> extent;
 };
 
 double boundaryArea(const BoundaryLoop& loop);
+double boundaryDistance(const BoundaryLoop& loop, modeling::Point2D point);
+// Both loops must be simple. A touching boundary does not count as contained.
+bool boundaryContainsLoop(const BoundaryLoop& outer, const BoundaryLoop& inner);
 std::vector<BoundaryLoop> alphaLoops(const std::vector<modeling::Point2D>& points,
     double radius, double simplifyTolerance, BoundaryRecoveryDiagnostics& diagnostics);
 bool simpleBoundary(const BoundaryLoop& loop);

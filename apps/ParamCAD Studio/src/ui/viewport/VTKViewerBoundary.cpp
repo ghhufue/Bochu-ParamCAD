@@ -5,7 +5,6 @@
 #include <contour_fitting/ContourParameterization.h>
 
 #include <vtkActor.h>
-#include <vtkBoxWidget2.h>
 #include <vtkCellArray.h>
 #include <vtkGenericOpenGLRenderWindow.h>
 #include <vtkMath.h>
@@ -151,7 +150,6 @@ std::optional<VTKViewer::BoundaryInspectionCounts> VTKViewer::inspectPointCloudB
         mapper->SetRelativeCoincidentTopologyLineOffsetParameters(0, -4);
     }
     for (const auto& actor : m_boundaryInspectionActors) m_boundaryInspectionRenderer->AddActor(actor);
-    m_pointBox->SetEnabled(0);
     m_orientationWidget->SetEnabled(0);
     m_interactorStyle->setOrbitEnabled(false);
     m_renderer->InteractiveOff();
@@ -250,7 +248,6 @@ void VTKViewer::closeBoundaryInspection()
     m_orientationWidget->SetEnabled(1);
     m_orientationWidget->InteractiveOff();
     m_interactorStyle->setOrbitEnabled(true);
-    m_pointBox->SetEnabled(m_pointSelectionMode == 2 && m_pointCloudDocument->hasCloud());
     m_renderer->ResetCameraClippingRange();
     requestRender();
     emit boundaryInspectionClosed();
