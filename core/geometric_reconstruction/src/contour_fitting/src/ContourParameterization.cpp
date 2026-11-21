@@ -1,4 +1,5 @@
 #include "contour_fitting/ContourParameterization.h"
+#include "EngineeringContour.h"
 
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Polygon_2.h>
@@ -310,6 +311,77 @@ std::optional<Deviation> measurePolyline(const Ring& source, const Ring& fitted)
     return result;
 }
 
+Deviation measureEngineering(const Ring& source, const Ring& fitted, double spacing)
+{
+    Deviation result;
+    const auto measure = [&](const Ring& first, const Ring& second) {
+        for (std::size_t i = 0; i < first.size(); ++i) {
+            const auto a = first[i], b = first[(i+1)%first.size()];
+            const double edge = distance(a,b);
+            const auto steps = static_cast<int>(std::clamp(std::ceil(edge/spacing), 1., 512.));
+            for (int step = 0; step <= steps; ++step) {
+                const auto t = double(step)/steps;
+                const Point2D p{a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t};
+                double closest = std::numeric_limits<double>::infinity();
+                for (std::size_t j = 0; j < second.size(); ++j)
+                    closest = std::min(closest, segmentDistance(p, second[j], second[(j+1)%second.size()]));
+                result.samples.push_back(closest);
+                result.bound = std::max(result.bound, closest+edge/(2*steps));
+            }
+        }
+    };
+    measure(source, fitted);
+    measure(fitted, source);
+    return result;
+}
+
+std::vector<bool> protectNarrowClearances(const std::vector<const Ring*>& rings, std::size_t index,
+                                           double spacing, bool includeOtherRings)
+{
+    const auto& source = *rings[index];
+    const auto threshold = 1.7*spacing;
+    std::vector<double> lengths(source.size()+1);
+    for (std::size_t i = 0; i < source.size(); ++i)
+        lengths[i+1] = lengths[i]+distance(source[i], source[(i+1)%source.size()]);
+    std::vector<bool> result(source.size(), false);
+    const auto heading = [&](std::size_t vertex) {
+        const auto look = std::min<std::size_t>(3, (source.size()-1)/2);
+        const auto a = source[(vertex+source.size()-look)%source.size()];
+        const auto b = source[(vertex+look)%source.size()];
+        return Point2D{b.x-a.x, b.y-a.y};
+    };
+    for (std::size_t i = 0; i < source.size(); ++i) {
+        const auto p = source[i];
+        const auto direction = heading(i);
+        for (std::size_t j = 0; j < rings.size() && !result[i]; ++j) {
+            if (j != index && !includeOtherRings) continue;
+            const auto& other = *rings[j];
+            for (std::size_t k = 0; k < other.size(); ++k) {
+                if (j == index) {
+                    const double along = std::abs(lengths[i]-(lengths[k]+lengths[k+1])*.5);
+                    if (std::min(along, lengths.back()-along) < 7*spacing) continue;
+                }
+                const auto a = other[k], b = other[(k+1)%other.size()];
+                if (p.x < std::min(a.x,b.x)-threshold || p.x > std::max(a.x,b.x)+threshold ||
+                    p.y < std::min(a.y,b.y)-threshold || p.y > std::max(a.y,b.y)+threshold) continue;
+                if (segmentDistance(p,a,b) > threshold) continue;
+                if (j == index) {
+                    // A tooth can bring two portions of the same wall close
+                    // in space by inflating their distance along the raw ring.
+                    // The opposing walls of a slot run in opposite directions.
+                    const auto neighbor = heading(k);
+                    const auto agreement = direction.x*neighbor.x + direction.y*neighbor.y;
+                    if (agreement > .6 * std::hypot(direction.x,direction.y) *
+                                         std::hypot(neighbor.x,neighbor.y)) continue;
+                }
+                result[i] = true;
+                break;
+            }
+        }
+    }
+    return result;
+}
+
 std::optional<Circle> fitCircle(const Ring& ring)
 {
     if (ring.size() < 8) return {};
@@ -376,6 +448,11 @@ ParameterizationResult parameterizeContours(const std::vector<Contour>& contours
     if (stopped()) return failure(FitFailure::Cancelled);
     if (contours.empty() || !std::isfinite(options.tolerance) || options.tolerance < 0
         || !options.maximumEdgesPerContour) return failure(FitFailure::InvalidBoundary);
+    const auto& engineering = options.engineering;
+    if (engineering && (!(engineering->spacing > 0) || !std::isfinite(engineering->spacing) ||
+        !(engineering->maximumLineTolerance > 0) || !std::isfinite(engineering->maximumLineTolerance) ||
+        !(engineering->circleTolerance > 0) || !std::isfinite(engineering->circleTolerance)))
+        return failure(FitFailure::InvalidBoundary);
     auto source = contours;
     for (auto& contour : source) {
         if (!normalize(contour.outer, true)) return failure(FitFailure::InvalidBoundary);
@@ -410,6 +487,11 @@ ParameterizationResult parameterizeContours(const std::vector<Contour>& contours
         }
     }
     const auto rings = flatten(prepared);
+    std::vector<bool> inner;
+    for (const auto& contour : prepared) {
+        inner.push_back(false);
+        inner.insert(inner.end(), contour.holes.size(), true);
+    }
     auto geometry = boundaries(rings);
     if (separatedHoles) for (std::size_t i = 0; i < rings.size(); ++i) {
         if (stopped()) return failure(FitFailure::Cancelled);
@@ -443,12 +525,13 @@ ParameterizationResult parameterizeContours(const std::vector<Contour>& contours
 
     if (options.recognizeCircles) for (std::size_t i = 0; i < rings.size(); ++i) {
         if (stopped()) return failure(FitFailure::Cancelled);
-        const auto circle = fitCircle(*rings[i]);
+        const auto circle = engineering && inner[i] ? fitEngineeringCircle(*rings[i], engineering->circleTolerance, engineering->spacing)
+                                                   : fitCircle(*rings[i]);
         if (!circle || !originalGeometry[i].contains(circle->center)) continue;
         Boundary candidate(*circle);
         if (!matches(candidate, i, geometry, *topology)) continue;
         auto deviation = measureCircle(*originals[i], *circle);
-        if (deviation.bound > std::min(options.tolerance, .15*circle->radius)) continue;
+        if ((!engineering || !inner[i]) && deviation.bound > std::min(options.tolerance, .15*circle->radius)) continue;
         geometry[i] = std::move(candidate);
         fitted[i] = {{}, circle};
         deviations[i] = std::move(deviation);
@@ -456,8 +539,68 @@ ParameterizationResult parameterizeContours(const std::vector<Contour>& contours
 
     ParameterizationResult result;
     result.separatedHoles = separatedHoles;
+    std::vector<bool> refitted(rings.size());
+    if (engineering) for (std::size_t i = 0; i < rings.size(); ++i) {
+        if (stopped()) return failure(FitFailure::Cancelled);
+        if (inner[i] || fitted[i].circle) continue;
+        Ring holeSamples;
+        for (auto h = i+1; h < rings.size() && inner[h]; ++h)
+            holeSamples.insert(holeSamples.end(), rings[h]->begin(), rings[h]->end());
+        std::vector<const Ring*> exteriorRings;
+        for (std::size_t other = 0; other < rings.size(); ++other) {
+            const auto relation = (*topology)[i][other];
+            if (i != other && !inner[other] && (relation == Relation::Disjoint || relation == Relation::VertexContact))
+                exteriorRings.push_back(rings[other]);
+        }
+        std::vector<bool> protectedSamples;
+        for (int protection : {0, 1, 2, 3}) {
+            if (protection == 1 || protection == 2)
+                protectedSamples = protectNarrowClearances(rings, i, engineering->spacing, protection == 2);
+            // Test longer bridges with the same whole-ring topology check.
+            // If a bridge crosses another boundary, retry with the gap protected.
+            auto candidate = fitEngineeringRing(*rings[i], *engineering, cancelled, protectedSamples, holeSamples,
+                                                protection < 3, exteriorRings);
+            if (stopped()) return failure(FitFailure::Cancelled);
+            if (!candidate || (candidate->arcs.empty() && candidate->polyline.size() >= fitted[i].polyline.size())) continue;
+            auto sampled = sampleEngineeringRing(*candidate, .25*engineering->spacing);
+            if (!normalize(sampled, true)) continue;
+            Boundary outline(sampled);
+            if (!matches(outline, i, geometry, *topology)) continue;
+            auto deviation = measureEngineering(*originals[i], sampled, .5*engineering->spacing);
+            // Include the maximum sagitta of the arc tessellation in the bound.
+            double sagitta = 0.;
+            for (const auto& arc : candidate->arcs) if (arc)
+                sagitta = std::max(sagitta, 2*arc->circle.radius*std::pow(std::sin(std::abs(arc->sweep)/32), 2));
+            deviation.bound += sagitta;
+            if (deviation.bound > std::max(4*engineering->spacing, 2*engineering->maximumLineTolerance)) continue;
+            for (const auto p : *originals[i]) {
+                double closest = std::numeric_limits<double>::infinity();
+                for (std::size_t j = 0; j < sampled.size(); ++j)
+                    closest = std::min(closest, segmentDistance(p, sampled[j], sampled[(j+1)%sampled.size()]));
+                if (closest > engineering->spacing) result.downweightedPoints.push_back(p);
+            }
+            geometry[i] = std::move(outline);
+            fitted[i] = std::move(*candidate);
+            deviations[i] = std::move(deviation);
+            refitted[i] = true;
+            break;
+        }
+    }
     for (std::size_t i = 0; i < fitted.size(); ++i) {
-        if (!bevelBounds[i] || fitted[i].circle) continue;
+        if (fitted[i].circle) {
+            ++result.circleCount;
+            if (engineering && inner[i]) {
+                const auto& circle = *fitted[i].circle;
+                for (const auto p : *originals[i])
+                    if (std::abs(distance(p,circle.center)-circle.radius) >
+                        circularInlierTolerance(circle.radius, engineering->circleTolerance, engineering->spacing))
+                        result.downweightedPoints.push_back(p);
+            }
+            continue;
+        }
+        result.arcCount += std::count_if(fitted[i].arcs.begin(), fitted[i].arcs.end(),
+                                        [](const auto& arc) { return arc.has_value(); });
+        if (!bevelBounds[i] || refitted[i]) continue;
         auto& deviation = deviations[i];
         deviation.bound += bevelBounds[i];
         deviation.samples.clear();

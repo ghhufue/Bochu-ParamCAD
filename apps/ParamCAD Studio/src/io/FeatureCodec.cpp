@@ -168,8 +168,10 @@ QJsonObject paramsJson(const FeatureParams& params)
                                 return values({g.x1, g.y1, g.x2, g.y2});
                             else if constexpr (std::is_same_v<G, Rectangle2D>)
                                 return values({g.x, g.y, g.width, g.height});
-                            else
+                            else if constexpr (std::is_same_v<G, Circle2D>)
                                 return values({g.x, g.y, g.radius});
+                            else
+                                return values({g.start.x, g.start.y, g.middle.x, g.middle.y, g.end.x, g.end.y});
                         },
                         entity.geometry);
                     entities.append(QJsonObject{{"id", QString::number(entity.id)},
@@ -265,8 +267,9 @@ FeatureParams paramsFromJson(const QJsonObject& p)
         for (const auto& value : p["entities"].toArray()) {
             check(value.isObject());
             const auto entity = value.toObject();
-            const int kind = integer(entity["kind"], 3);
-            const auto v = numbers(entity["values"], kind == 0 ? 2 : kind == 3 ? 3 : 4);
+            const int kind = integer(entity["kind"], 4);
+            constexpr int coordinateCount[]{2, 4, 4, 3, 6};
+            const auto v = numbers(entity["values"], coordinateCount[kind]);
             SketchGeometry geometry;
             if (kind == 0)
                 geometry = Point2D{v[0], v[1]};
@@ -274,8 +277,10 @@ FeatureParams paramsFromJson(const QJsonObject& p)
                 geometry = Line2D{v[0], v[1], v[2], v[3]};
             else if (kind == 2)
                 geometry = Rectangle2D{v[0], v[1], v[2], v[3]};
-            else
+            else if (kind == 3)
                 geometry = Circle2D{v[0], v[1], v[2]};
+            else
+                geometry = Arc2D{{v[0], v[1]}, {v[2], v[3]}, {v[4], v[5]}};
             sketch.entities.push_back({id(entity["id"]), geometry});
         }
         return sketch;

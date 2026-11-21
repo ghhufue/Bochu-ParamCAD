@@ -96,6 +96,121 @@ void testTopology()
     require(parameterizeContours({shell}, {2, 256, true}, [] { return true; }).failure == FitFailure::Cancelled,
             "the worker can cancel a superseded fit");
 }
+
+void testEngineeringContour()
+{
+    Contour plate;
+    for (int x = 0; x <= 170; ++x) {
+        const auto noise = x == 80 ? 2.4 : x%2 ? .36 : -.36;
+        plate.outer.push_back({double(x), x == 0 || x == 170 ? 0. : noise});
+    }
+    const auto quarter = std::acos(-1.)*.5;
+    for (int i = 1; i <= 32; ++i) {
+        const auto angle = quarter*(i/32.-1.);
+        plate.outer.push_back({170+20*std::cos(angle), 20+20*std::sin(angle)});
+    }
+    for (int y = 21; y <= 80; ++y) plate.outer.push_back({190., double(y)});
+    for (int x = 189; x >= 95; --x) plate.outer.push_back({double(x), 80.});
+    plate.outer.push_back({95., 86.});
+    for (int x = 94; x >= 0; --x) plate.outer.push_back({double(x), 86.});
+    for (int y = 85; y > 0; --y) plate.outer.push_back({0., double(y)});
+    Ring hole;
+    for (int i = 0; i < 80; ++i) {
+        const double angle = 4*quarter*i/80.;
+        const double radius = i == 12 || i == 43 ? 15. : 12.;
+        hole.push_back({50+radius*std::cos(angle), 36+radius*std::sin(angle)});
+    }
+    plate.holes = {hole, {{106, 27}, {124, 27}, {124, 33}, {106, 33}}};
+    ParameterizationOptions options{.25, 1024, true};
+    const auto classic = parameterizeContours({plate}, options);
+    options.engineering = ParameterizationOptions::Engineering{1, 3, 1.25};
+    const auto fitted = parameterizeContours({plate}, options);
+    require(classic.failure == FitFailure::None && fitted.failure == FitFailure::None,
+            "engineering contour fits the noisy rounded plate");
+    require(fitted.edgeCount < classic.edgeCount / 4 && !fitted.downweightedPoints.empty(),
+            "a long straight edge absorbs isolated spikes and reports residuals");
+    require(fitted.circleCount == 1 && fitted.contours.front().holes.front().circle &&
+        std::abs(fitted.contours.front().holes.front().circle->radius-12.) < .15,
+        "the noisy circular hole becomes an analytic circle and the narrow slot stays polygonal");
+    const auto& outer = fitted.contours.front().outer;
+    bool step = false;
+    for (std::size_t i = 0; i < outer.polyline.size(); ++i) {
+        const auto a = outer.polyline[i], b = outer.polyline[(i+1)%outer.polyline.size()];
+        step |= std::abs(a.x-95.) < 1.1 && std::abs(b.x-95.) < 1.1 && std::abs(a.y-b.y) > 4.;
+    }
+    require(step, "a sustained step interrupts the adjoining horizontal lines");
+    require(fitted.arcCount == 1, "the supported rounded corner becomes a tangent arc");
+    for (std::size_t i = 0; i < outer.arcs.size(); ++i) if (const auto arc = outer.arcs[i]) {
+        require(std::abs(arc->sweep-quarter) < .12 && std::abs(arc->circle.radius-20.) < 3.,
+                "the fillet has the measured radius and turn");
+        const auto a = outer.polyline[i], before = outer.polyline[(i+outer.polyline.size()-1)%outer.polyline.size()];
+        const auto b = outer.polyline[(i+1)%outer.polyline.size()], after = outer.polyline[(i+2)%outer.polyline.size()];
+        const auto orthogonal = [](Point2D tangent, Point2D p, Point2D center) {
+            return std::abs(tangent.x*(p.x-center.x)+tangent.y*(p.y-center.y)) < 1e-6;
+        };
+        require(orthogonal({a.x-before.x, a.y-before.y}, a, arc->circle.center) &&
+            orthogonal({after.x-b.x, after.y-b.y}, b, arc->circle.center),
+            "the reconstructed fillet is tangent at both shared endpoints");
+    }
+}
+
+void testAdaptiveStraightTolerance()
+{
+    Contour plate;
+    constexpr double noise[]{0., 1.45, 0., -1.45};
+    for (int x = 0; x <= 260; x += 2)
+        plate.outer.push_back({double(x), x > 78 && x < 236 ? noise[(x/2)%4] : 0.});
+    for (int y = 2; y <= 60; y += 2) plate.outer.push_back({260., double(y)});
+    for (int x = 258; x >= 0; x -= 2) plate.outer.push_back({double(x), 60.});
+    for (int y = 58; y > 0; y -= 2) plate.outer.push_back({0., double(y)});
+    ParameterizationOptions options{.25, 1024, false};
+    options.engineering = ParameterizationOptions::Engineering{1, 1, 1.25, false};
+    const auto capped = parameterizeContours({plate}, options);
+    options.engineering->maximumLineTolerance = 3;
+    const auto adaptive = parameterizeContours({plate}, options);
+    require(capped.failure == FitFailure::None && adaptive.failure == FitFailure::None,
+            "both straightness settings keep a valid closed contour");
+    const auto longestBottomEdge = [](const FittedRing& ring) {
+        double longest = 0;
+        for (std::size_t i = 0; i < ring.polyline.size(); ++i) {
+            const auto a = ring.polyline[i], b = ring.polyline[(i+1)%ring.polyline.size()];
+            if (std::abs(a.y) < 3 && std::abs(b.y) < 3) longest = std::max(longest, std::abs(a.x-b.x));
+        }
+        return longest;
+    };
+    require(longestBottomEdge(adaptive.contours.front().outer) > 245. &&
+            longestBottomEdge(capped.contours.front().outer) < 220.,
+            "length-dependent tolerance joins the rough span into one long edge");
+}
+
+void testStraightBridgeBesideDetachedIsland()
+{
+    Contour plate;
+    for (int x = 0; x <= 240; ++x) plate.outer.push_back({double(x), 0.});
+    for (int y = 1; y <= 60; ++y) plate.outer.push_back({240., double(y)});
+    for (int x = 239; x >= 0; --x) {
+        double y = x%2 ? 59.7 : 60.3;
+        if (x >= 58 && x <= 62) y = 57.9 + .5*std::abs(x-60);
+        plate.outer.push_back({double(x), x == 0 ? 60. : y});
+    }
+    for (int y = 59; y > 0; --y) plate.outer.push_back({0., double(y)});
+    // The secondary contour touches one vertex of the small dip in the scan.
+    const Contour island{{{60.,57.9}, {61.,58.7}, {61.,59.6}, {59.,59.6}, {59.,58.7}}, {}};
+    ParameterizationOptions options{.2, 1024, false};
+    options.engineering = ParameterizationOptions::Engineering{1., 3., 1.25, false};
+    const auto fit = parameterizeContours({plate, island}, options);
+    require(fit.failure == FitFailure::None && fit.contours.size() == 2,
+            "straightening near a vertex-contact island retains both closed profiles");
+    const auto& fitted = fit.contours.front().outer.polyline;
+    bool straight = false;
+    for (std::size_t i = 0; i < fitted.size(); ++i) {
+        const auto a = fitted[i], b = fitted[(i+1)%fitted.size()];
+        if (a.y < 54. || b.y < 54. || std::abs(a.x-b.x) < 230.) continue;
+        const auto heightAtIsland = a.y+(b.y-a.y)*(60.-a.x)/(b.x-a.x);
+        straight |= heightAtIsland < 57.9 && heightAtIsland > 56.5;
+    }
+    require(straight, "one supported long edge clears the detached island without following the local dip");
+}
 }
 
 int main()
@@ -103,6 +218,9 @@ int main()
     try {
         testFit();
         testTopology();
+        testEngineeringContour();
+        testAdaptiveStraightTolerance();
+        testStraightBridgeBesideDetachedIsland();
         std::cout << "Contour parameterization tests passed.\n";
         return 0;
     } catch (const std::exception& error) {

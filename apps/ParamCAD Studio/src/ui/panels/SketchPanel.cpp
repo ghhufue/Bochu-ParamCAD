@@ -36,7 +36,7 @@ QString kindLabel(const modeling::SketchGeometry& geometry)
     if (std::holds_alternative<modeling::Rectangle2D>(geometry)) {
         return QStringLiteral("Rectangle");
     }
-    return QStringLiteral("Circle");
+    return std::holds_alternative<modeling::Arc2D>(geometry) ? QStringLiteral("Arc") : QStringLiteral("Circle");
 }
 
 QString describe(const modeling::SketchGeometry& geometry)
@@ -59,6 +59,12 @@ QString describe(const modeling::SketchGeometry& geometry)
             .arg(rectangle->y, 0, 'f', 2)
             .arg(rectangle->width, 0, 'f', 2)
             .arg(rectangle->height, 0, 'f', 2);
+    }
+    if (const auto* arc = std::get_if<modeling::Arc2D>(&geometry)) {
+        const auto parameters = modeling::arcParameters(*arc);
+        return parameters ? QCoreApplication::translate("SketchPanel", "半径 %1，扫角 %2°")
+            .arg(parameters->radius, 0, 'f', 2).arg(std::abs(parameters->sweep)*180/std::acos(-1.), 0, 'f', 1)
+            : QString();
     }
     const auto& circle = std::get<modeling::Circle2D>(geometry);
     return QCoreApplication::translate("SketchPanel", "中心 (%1, %2)，半径 %3")

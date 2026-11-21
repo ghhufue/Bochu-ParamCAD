@@ -55,7 +55,8 @@ signals:
     void boundaryInspectionLayersChanged(bool points, bool surface, bool outerRings, bool innerRings);
     void boundaryInspectionCloseRequested();
     void contourFitSettingsChanged();
-    void contourFitRequested(double tolerance, int maximumEdges, bool recognizeCircles);
+    void contourFitRequested(double tolerance, int maximumEdges, bool recognizeCircles,
+                             bool engineering, double maximumLineTolerance, double circleTolerance);
     void contourSketchRequested();
     void detectRequested();
     void reconstructRequested();
@@ -122,6 +123,9 @@ private:
     QDoubleSpinBox* m_contourTolerance;
     QSpinBox* m_contourEdgeBudget;
     QCheckBox* m_contourCircles;
+    QCheckBox* m_engineeringContour;
+    QDoubleSpinBox* m_contourLineTolerance;
+    QDoubleSpinBox* m_contourCircleTolerance;
     QLabel* m_contourStatus;
     QPushButton* m_fitContour;
     QPushButton* m_createContourSketch;

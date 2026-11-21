@@ -323,7 +323,7 @@ int main(int argc, char** argv)
         metadata["version"] = 1;
         write(bad, withManifest(original, metadata));
         require(ProjectStore::load(bad, error) != nullptr, "version 1 projects remain readable");
-        metadata["version"] = 4;
+        metadata["version"] = 5;
         write(bad, withManifest(original, metadata));
         require(!ProjectStore::load(bad, error) && error.contains(QCoreApplication::translate("ProjectStore", "不支持的项目格式/版本")),
                 "future version rejected");

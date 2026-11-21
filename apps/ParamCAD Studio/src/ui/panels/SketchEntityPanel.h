@@ -54,4 +54,6 @@ private:
     QDoubleSpinBox* m_circleX = nullptr;
     QDoubleSpinBox* m_circleY = nullptr;
     QDoubleSpinBox* m_circleRadius = nullptr;
+    QDoubleSpinBox* m_arcRadius = nullptr;
+    modeling::Arc2D m_arc;
 };

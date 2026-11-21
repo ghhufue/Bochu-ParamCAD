@@ -388,16 +388,23 @@ bool PartDocument::editSketchEntity(
         return false;
     }
     if (params->keepCoincidentEndpoints) {
-        const auto* oldLine = std::get_if<Line2D>(&iterator->geometry);
-        const auto* newLine = std::get_if<Line2D>(&geometry);
-        if (oldLine && newLine) {
+        const auto endpoints = [](const SketchGeometry& value) -> std::optional<std::pair<Point2D, Point2D>> {
+            if (const auto* line = std::get_if<Line2D>(&value))
+                return std::pair{Point2D{line->x1, line->y1}, Point2D{line->x2, line->y2}};
+            if (const auto* arc = std::get_if<Arc2D>(&value))
+                return std::pair{arc->start, arc->end};
+            return {};
+        };
+        const auto previous = endpoints(iterator->geometry);
+        const auto updated = endpoints(geometry);
+        if (previous && updated) {
             const auto moveEndpoint = [&](double& x, double& y) {
-                if (x == oldLine->x1 && y == oldLine->y1) {
-                    x = newLine->x1;
-                    y = newLine->y1;
-                } else if (x == oldLine->x2 && y == oldLine->y2) {
-                    x = newLine->x2;
-                    y = newLine->y2;
+                if (x == previous->first.x && y == previous->first.y) {
+                    x = updated->first.x;
+                    y = updated->first.y;
+                } else if (x == previous->second.x && y == previous->second.y) {
+                    x = updated->second.x;
+                    y = updated->second.y;
                 }
             };
             for (auto& neighbor : params->entities) {
@@ -405,6 +412,10 @@ bool PartDocument::editSketchEntity(
                 if (auto* line = std::get_if<Line2D>(&neighbor.geometry)) {
                     moveEndpoint(line->x1, line->y1);
                     moveEndpoint(line->x2, line->y2);
+                }
+                if (auto* arc = std::get_if<Arc2D>(&neighbor.geometry)) {
+                    moveEndpoint(arc->start.x, arc->start.y);
+                    moveEndpoint(arc->end.x, arc->end.y);
                 }
             }
         }

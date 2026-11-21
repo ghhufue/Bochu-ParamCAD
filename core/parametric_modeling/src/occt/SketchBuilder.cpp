@@ -11,7 +11,9 @@
 #include <BRepTools.hxx>
 #include <BRep_Tool.hxx>
 #include <GC_MakeCircle.hxx>
+#include <GC_MakeArcOfCircle.hxx>
 #include <Geom_Circle.hxx>
+#include <Geom_TrimmedCurve.hxx>
 #include <GProp_GProps.hxx>
 #include <Precision.hxx>
 #include <Standard_Failure.hxx>
@@ -19,6 +21,7 @@
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Vertex.hxx>
+#include <TopoDS_Edge.hxx>
 #include <TopoDS_Wire.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Ax3.hxx>
@@ -108,100 +111,89 @@ bool buildCircle(
     return true;
 }
 
-bool buildLineWires(
+bool buildEdgeWires(
     const std::vector<SketchEntity>& entities,
     const PlaneFrame& frame,
     std::vector<TopoDS_Wire>& wires,
     std::string& error) {
-    std::vector<Line2D> unordered;
-    unordered.reserve(entities.size());
-    for (const SketchEntity& entity : entities) {
-        const auto* line = std::get_if<Line2D>(&entity.geometry);
-        if (line == nullptr) {
-            error = "A line profile may contain only Line entities";
-            return false;
+    struct ProfileEdge {
+        Point2D start, end;
+        TopoDS_Edge shape;
+        bool curved;
+    };
+    const auto sameEndpoint = [](Point2D a, Point2D b) { return samePoint(a.x, a.y, b.x, b.y); };
+    const auto onPlane = [&](Point2D p) { return pointOnPlane(frame, p.x, p.y); };
+    std::vector<ProfileEdge> edges;
+    edges.reserve(entities.size());
+    for (const auto& entity : entities) {
+        if (const auto* line = std::get_if<Line2D>(&entity.geometry)) {
+            const Point2D a{line->x1, line->y1}, b{line->x2, line->y2};
+            if (!finite(a.x) || !finite(a.y) || !finite(b.x) || !finite(b.y) || sameEndpoint(a, b)) {
+                error = "Line coordinates must be finite and endpoints distinct";
+                return false;
+            }
+            BRepBuilderAPI_MakeEdge edge(onPlane(a), onPlane(b));
+            if (!edge.IsDone()) {
+                error = "OpenCASCADE could not build a line edge";
+                return false;
+            }
+            edges.push_back({a, b, edge.Edge(), false});
+        } else {
+            const auto* arc = std::get_if<Arc2D>(&entity.geometry);
+            if (!arc || !arcParameters(*arc)) {
+                error = "A circular arc needs three distinct, non-collinear points";
+                return false;
+            }
+            GC_MakeArcOfCircle curve(onPlane(arc->start), onPlane(arc->middle), onPlane(arc->end));
+            if (!curve.IsDone()) {
+                error = "OpenCASCADE could not fit a circular arc";
+                return false;
+            }
+            BRepBuilderAPI_MakeEdge edge(curve.Value());
+            if (!edge.IsDone()) {
+                error = "OpenCASCADE could not build an arc edge";
+                return false;
+            }
+            edges.push_back({arc->start, arc->end, edge.Edge(), true});
         }
-        if (!finite(line->x1) || !finite(line->y1) ||
-            !finite(line->x2) || !finite(line->y2)) {
-            error = "Line coordinates must be finite";
-            return false;
-        }
-        if (samePoint(line->x1, line->y1, line->x2, line->y2)) {
-            error = "A line profile contains a zero-length edge";
-            return false;
-        }
-        unordered.push_back(*line);
-    }
-    if (unordered.empty()) {
-        return true;
-    }
-    if (unordered.size() < 3U) {
-        error = "A line profile needs at least three segments";
-        return false;
     }
 
-    std::vector<bool> used(unordered.size(), false);
-    std::size_t usedCount = 0;
-    while (usedCount < unordered.size()) {
-        const auto unused = std::find(used.begin(), used.end(), false);
-        const std::size_t first = static_cast<std::size_t>(
-            std::distance(used.begin(), unused));
-        std::vector<Line2D> ordered{unordered[first]};
+    std::vector<bool> used(edges.size(), false);
+    for (std::size_t first = 0; first < edges.size(); ++first) {
+        if (used[first]) continue;
+        BRepBuilderAPI_MakeWire wireBuilder;
+        wireBuilder.Add(edges[first].shape);
         used[first] = true;
-        ++usedCount;
-
-        const double startX = unordered[first].x1;
-        const double startY = unordered[first].y1;
-        double endX = unordered[first].x2;
-        double endY = unordered[first].y2;
-
-        while (!samePoint(endX, endY, startX, startY)) {
-            bool found = false;
-            for (std::size_t index = 0; index < unordered.size(); ++index) {
-                if (used[index]) {
-                    continue;
-                }
-                const Line2D& candidate = unordered[index];
-                if (samePoint(candidate.x1, candidate.y1, endX, endY)) {
-                    ordered.push_back(candidate);
-                    endX = candidate.x2;
-                    endY = candidate.y2;
-                } else if (samePoint(candidate.x2, candidate.y2, endX, endY)) {
-                    ordered.push_back(
-                        Line2D{candidate.x2, candidate.y2, candidate.x1, candidate.y1});
-                    endX = candidate.x1;
-                    endY = candidate.y1;
+        std::size_t count = 1;
+        bool curved = edges[first].curved;
+        const auto start = edges[first].start;
+        auto end = edges[first].end;
+        while (!sameEndpoint(end, start)) {
+            std::size_t index = 0;
+            for (; index < edges.size(); ++index) {
+                if (used[index]) continue;
+                const auto& candidate = edges[index];
+                if (sameEndpoint(candidate.start, end)) {
+                    wireBuilder.Add(candidate.shape);
+                    end = candidate.end;
+                } else if (sameEndpoint(candidate.end, end)) {
+                    wireBuilder.Add(TopoDS::Edge(candidate.shape.Reversed()));
+                    end = candidate.start;
                 } else {
                     continue;
                 }
                 used[index] = true;
-                ++usedCount;
-                found = true;
+                ++count;
+                curved = curved || candidate.curved;
                 break;
             }
-            if (!found) {
-                error = "Line entities contain an open or disconnected chain";
+            if (index == edges.size() || !wireBuilder.IsDone()) {
+                error = "Sketch edges contain an open or disconnected chain";
                 return false;
             }
         }
-        if (ordered.size() < 3U) {
-            error = "A closed line profile needs at least three segments";
-            return false;
-        }
-
-        BRepBuilderAPI_MakeWire wireBuilder;
-        for (const Line2D& line : ordered) {
-            BRepBuilderAPI_MakeEdge edgeBuilder(
-                pointOnPlane(frame, line.x1, line.y1),
-                pointOnPlane(frame, line.x2, line.y2));
-            if (!edgeBuilder.IsDone()) {
-                error = "OpenCASCADE could not build a line edge";
-                return false;
-            }
-            wireBuilder.Add(edgeBuilder.Edge());
-        }
-        if (!wireBuilder.IsDone()) {
-            error = "Line entities do not form a connected wire";
+        if (count < (curved ? 2U : 3U) || !wireBuilder.IsDone()) {
+            error = "Sketch edges do not form a closed profile";
             return false;
         }
         wires.push_back(wireBuilder.Wire());
@@ -305,9 +297,9 @@ bool buildSketchFace(
     TopoDS_Face& output,
     std::string& error) {
     try {
-        std::vector<SketchEntity> lineEntities;
+        std::vector<SketchEntity> edgeEntities;
         std::vector<TopoDS_Wire> wires;
-        lineEntities.reserve(params.entities.size());
+        edgeEntities.reserve(params.entities.size());
         for (const SketchEntity& entity : params.entities) {
             if (std::holds_alternative<Point2D>(entity.geometry)) {
                 continue;
@@ -325,11 +317,11 @@ bool buildSketchFace(
                 }
                 wires.push_back(wire);
             } else {
-                lineEntities.push_back(entity);
+                edgeEntities.push_back(entity);
             }
         }
 
-        if (!buildLineWires(lineEntities, frame, wires, error)) {
+        if (!buildEdgeWires(edgeEntities, frame, wires, error)) {
             return false;
         }
         return buildFaceFromWires(wires, frame, output, error);

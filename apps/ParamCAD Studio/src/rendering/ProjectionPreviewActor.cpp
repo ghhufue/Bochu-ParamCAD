@@ -41,6 +41,20 @@ struct SketchBounds {
         add(circle.x-circle.radius,circle.y-circle.radius);
         add(circle.x+circle.radius,circle.y+circle.radius);
     }
+    void add(const modeling::Arc2D& arc)
+    {
+        add(arc.start);
+        add(arc.end);
+        if (const auto parameters = modeling::arcParameters(arc)) {
+            constexpr double quarter = 1.57079632679489661923;
+            for (int i = 0; i < 4; ++i) {
+                const double sign = parameters->sweep > 0 ? 1. : -1.;
+                const double offset = std::fmod(sign*(i*quarter-parameters->startAngle)+8*quarter, 4*quarter);
+                if (offset < std::abs(parameters->sweep))
+                    add(parameters->pointAt(offset/std::abs(parameters->sweep)));
+            }
+        }
+    }
 };
 
 Position at(const sketchapp::PlaneFrame& frame, double x, double y, double depth = 0)

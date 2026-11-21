@@ -254,8 +254,14 @@ bool ProjectStore::save(const QString& path, const ProjectSnapshot& state, QStri
             const auto* extrude = std::get_if<modeling::ExtrudeFeatureParams>(&feature.params);
             return extrude && extrude->targetBody;
         });
+        const bool arcSketches = std::any_of(state.features.begin(), state.features.end(), [](const auto& feature) {
+            const auto* sketch = std::get_if<modeling::SketchFeatureParams>(&feature.params);
+            return sketch && std::any_of(sketch->entities.begin(), sketch->entities.end(), [](const auto& entity) {
+                return std::holds_alternative<modeling::Arc2D>(entity.geometry);
+            });
+        });
         QJsonObject manifest{{"schema", "paramcad.project"},
-                             {"version", scopedOperations ? 3 : 2},
+                             {"version", arcSketches ? 4 : scopedOperations ? 3 : 2},
                              {"features", FeatureCodec::encode(state.features)},
                              {"parametricBody", state.parametricBody},
                              {"view", viewJson(state.view)}};
@@ -344,7 +350,8 @@ std::unique_ptr<PreparedProject> ProjectStore::load(const QString& path, QString
         check(parse.error == QJsonParseError::NoError && document.isObject());
         const auto manifest = document.object();
         check(manifest["schema"] == "paramcad.project" &&
-                  (manifest["version"] == 1 || manifest["version"] == 2 || manifest["version"] == 3),
+                  (manifest["version"] == 1 || manifest["version"] == 2 ||
+                   manifest["version"] == 3 || manifest["version"] == 4),
               QCoreApplication::translate("ProjectStore", "不支持的项目格式/版本"));
         check(manifest["features"].isArray() && manifest["view"].isObject() &&
               manifest["assets"].isArray() && manifest["selection"].isArray());

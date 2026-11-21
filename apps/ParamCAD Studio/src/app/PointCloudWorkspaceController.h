@@ -79,7 +79,8 @@ private:
     void inspectCloudBoundary(int regionId);
     void invalidateContourPreview();
     void closeContourInspection();
-    void startContourFit(double tolerance, int maximumEdges, bool recognizeCircles);
+    void startContourFit(double tolerance, int maximumEdges, bool recognizeCircles,
+                         bool engineering, double maximumLineTolerance, double circleTolerance);
     void createContourSketch();
     void frameImportedCloud(const QString& filePath);
     void reportCloudLoadError(const QString& error);

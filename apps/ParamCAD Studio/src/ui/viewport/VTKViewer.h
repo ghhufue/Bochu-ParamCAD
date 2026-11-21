@@ -306,6 +306,7 @@ private:
     vtkSmartPointer<vtkRenderer> m_boundaryInspectionRenderer;
     std::array<vtkSmartPointer<vtkActor>, 4> m_boundaryInspectionActors;
     vtkSmartPointer<vtkActor> m_boundaryContourActor;
+    vtkSmartPointer<vtkActor> m_boundaryResidualActor;
     quint64 m_boundaryInspectionRevision = 0;
     vtkSmartPointer<vtkActor> m_assemblyBoundaryActor;
     int m_boundaryPointCount=0;

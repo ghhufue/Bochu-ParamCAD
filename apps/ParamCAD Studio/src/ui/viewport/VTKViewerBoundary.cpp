@@ -191,13 +191,16 @@ void VTKViewer::setBoundaryContourPreview(const PointCloudContourInput& input,
     vtkNew<vtkPoints> points;
     points->SetDataTypeToDouble();
     vtkNew<vtkCellArray> lines;
+    const auto toWorld = [&](contour_fitting::Point2D p) {
+        std::array<double, 3> world{};
+        for (int axis = 0; axis < 3; ++axis)
+            world[axis] = frame.origin[axis] + sourceScale*(p.x*frame.xDirection[axis] + p.y*frame.yDirection[axis]);
+        return world;
+    };
     const auto append = [&](const contour_fitting::FittedRing& ring) {
         std::vector<std::size_t> indices;
         const auto insert = [&](double x, double y) {
-            double world[3];
-            for (int axis = 0; axis < 3; ++axis)
-                world[axis] = frame.origin[axis] + sourceScale*(x*frame.xDirection[axis] + y*frame.yDirection[axis]);
-            indices.push_back(static_cast<std::size_t>(points->InsertNextPoint(world)));
+            indices.push_back(static_cast<std::size_t>(points->InsertNextPoint(toWorld({x,y}).data())));
         };
         if (ring.circle) {
             const auto& circle = *ring.circle;
@@ -207,7 +210,15 @@ void VTKViewer::setBoundaryContourPreview(const PointCloudContourInput& input,
                 insert(circle.center.x + circle.radius*std::cos(angle), circle.center.y + circle.radius*std::sin(angle));
             }
         } else {
-            for (const auto point : ring.polyline) insert(point.x, point.y);
+            for (std::size_t i = 0; i < ring.polyline.size(); ++i) {
+                const auto point = ring.polyline[i];
+                insert(point.x, point.y);
+                if (ring.arcs.empty() || !ring.arcs[i]) continue;
+                for (int step = 1; step < 64; ++step) {
+                    const auto sample = ring.arcs[i]->pointAt(step/64.);
+                    insert(sample.x, sample.y);
+                }
+            }
         }
         if (!indices.empty()) addClosedRing(lines, indices);
     };
@@ -224,6 +235,23 @@ void VTKViewer::setBoundaryContourPreview(const PointCloudContourInput& input,
     mapper->SetResolveCoincidentTopologyToPolygonOffset();
     mapper->SetRelativeCoincidentTopologyLineOffsetParameters(0, -10);
     m_boundaryInspectionRenderer->AddActor(m_boundaryContourActor);
+    if (!result.downweightedPoints.empty()) {
+        vtkNew<vtkPoints> outliers;
+        outliers->SetDataTypeToDouble();
+        vtkNew<vtkCellArray> vertices;
+        for (const auto p : result.downweightedPoints) {
+            const auto index = outliers->InsertNextPoint(toWorld(p).data());
+            vertices->InsertNextCell(1, &index);
+        }
+        vtkNew<vtkPolyData> residualData;
+        residualData->SetPoints(outliers);
+        residualData->SetVerts(vertices);
+        m_boundaryResidualActor = inspectionActor(residualData, 1., .48, .15);
+        m_boundaryResidualActor->GetProperty()->SetPointSize(4.);
+        auto* residualMapper = vtkPolyDataMapper::SafeDownCast(m_boundaryResidualActor->GetMapper());
+        residualMapper->SetRelativeCoincidentTopologyPointOffsetParameter(-15.);
+        m_boundaryInspectionRenderer->AddActor(m_boundaryResidualActor);
+    }
     requestRender();
 }
 
@@ -232,6 +260,10 @@ void VTKViewer::clearBoundaryContourPreview()
     if (!m_boundaryContourActor) return;
     m_boundaryInspectionRenderer->RemoveActor(m_boundaryContourActor);
     m_boundaryContourActor = nullptr;
+    if (m_boundaryResidualActor) {
+        m_boundaryInspectionRenderer->RemoveActor(m_boundaryResidualActor);
+        m_boundaryResidualActor = nullptr;
+    }
     requestRender();
 }
 
@@ -242,6 +274,7 @@ void VTKViewer::closeBoundaryInspection()
     m_boundaryInspectionRenderer = nullptr;
     m_boundaryInspectionActors = {};
     m_boundaryContourActor = nullptr;
+    m_boundaryResidualActor = nullptr;
     m_renderer->InteractiveOn();
     m_renderer->DrawOn();
     m_referenceRenderer->DrawOn();

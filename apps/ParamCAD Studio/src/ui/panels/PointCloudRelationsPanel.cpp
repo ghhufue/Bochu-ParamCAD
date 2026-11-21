@@ -295,6 +295,28 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
     m_contourCircles->setObjectName("cloudContourRecognizeCircles");
     m_contourCircles->setChecked(true);
     contourOptions->addRow(m_contourCircles);
+    m_engineeringContour = new QCheckBox(tr("工程轮廓"), m_contourOptions);
+    m_engineeringContour->setObjectName("cloudEngineeringContour");
+    contourOptions->addRow(m_engineeringContour);
+    m_contourLineTolerance = tolerance(m_contourOptions, 1.);
+    m_contourLineTolerance->setObjectName("cloudContourLineTolerance");
+    m_contourLineTolerance->setKeyboardTracking(false);
+    contourOptions->addRow(tr("长边容差上限"), m_contourLineTolerance);
+    m_contourCircleTolerance = tolerance(m_contourOptions, 1.);
+    m_contourCircleTolerance->setObjectName("cloudContourCircleTolerance");
+    m_contourCircleTolerance->setKeyboardTracking(false);
+    contourOptions->addRow(tr("圆孔径向容差"), m_contourCircleTolerance);
+    const auto showEngineeringOptions = [this, contourOptions] {
+        contourOptions->setRowVisible(m_contourLineTolerance, m_engineeringContour->isChecked());
+        contourOptions->setRowVisible(m_contourCircleTolerance,
+                                      m_engineeringContour->isChecked() && m_contourCircles->isChecked());
+    };
+    showEngineeringOptions();
+    connect(m_engineeringContour, &QCheckBox::toggled, this, showEngineeringOptions);
+    connect(m_contourCircles, &QCheckBox::toggled, this, showEngineeringOptions);
+    connect(m_engineeringContour, &QCheckBox::toggled, this, &PointCloudRelationsPanel::contourFitSettingsChanged);
+    connect(m_contourLineTolerance, &QDoubleSpinBox::valueChanged, this, &PointCloudRelationsPanel::contourFitSettingsChanged);
+    connect(m_contourCircleTolerance, &QDoubleSpinBox::valueChanged, this, &PointCloudRelationsPanel::contourFitSettingsChanged);
     auto* advanced = new QToolButton(m_contourOptions);
     advanced->setText(tr("高级设置"));
     advanced->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
@@ -343,7 +365,9 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
     connect(m_contourEdgeBudget, &QSpinBox::valueChanged, this, &PointCloudRelationsPanel::contourFitSettingsChanged);
     connect(m_contourCircles, &QCheckBox::toggled, this, &PointCloudRelationsPanel::contourFitSettingsChanged);
     connect(m_fitContour, &QPushButton::clicked, this, [this] {
-        emit contourFitRequested(m_contourTolerance->value(), m_contourEdgeBudget->value(), m_contourCircles->isChecked());
+        emit contourFitRequested(m_contourTolerance->value(), m_contourEdgeBudget->value(), m_contourCircles->isChecked(),
+                                 m_engineeringContour->isChecked(), m_contourLineTolerance->value(),
+                                 m_contourCircleTolerance->value());
     });
     connect(m_createContourSketch, &QPushButton::clicked, this, &PointCloudRelationsPanel::contourSketchRequested);
 
@@ -478,9 +502,14 @@ void PointCloudRelationsPanel::configureContourFit(double spacing, bool knownUni
     m_contourControls->setVisible(spacing > 0);
     m_contourSpacing = spacing;
     const QSignalBlocker precision(m_contourPrecision), tolerance(m_contourTolerance);
+    const QSignalBlocker lineTolerance(m_contourLineTolerance), circleTolerance(m_contourCircleTolerance);
     m_contourPrecision->setCurrentIndex(1);
     m_contourTolerance->setSuffix(knownUnits ? QStringLiteral(" mm") : tr(" 源单位"));
     m_contourTolerance->setValue(std::max(.000001, spacing));
+    m_contourLineTolerance->setSuffix(m_contourTolerance->suffix());
+    m_contourLineTolerance->setValue(3*spacing);
+    m_contourCircleTolerance->setSuffix(m_contourTolerance->suffix());
+    m_contourCircleTolerance->setValue(1.25*spacing);
     setContourFitState(false, false);
 }
 

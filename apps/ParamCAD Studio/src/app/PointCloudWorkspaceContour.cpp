@@ -28,7 +28,12 @@ void appendRing(modeling::SketchFeatureParams& sketch, const FittedRing& ring)
     }
     for (std::size_t i = 0; i < ring.polyline.size(); ++i) {
         const auto a = ring.polyline[i], b = ring.polyline[(i+1)%ring.polyline.size()];
-        append(modeling::Line2D{a.x, a.y, b.x, b.y});
+        if (!ring.arcs.empty() && ring.arcs[i]) {
+            const auto middle = ring.arcs[i]->pointAt(.5);
+            append(modeling::Arc2D{{a.x,a.y}, {middle.x,middle.y}, {b.x,b.y}});
+        } else {
+            append(modeling::Line2D{a.x, a.y, b.x, b.y});
+        }
     }
 }
 
@@ -94,15 +99,18 @@ void PointCloudWorkspaceController::closeContourInspection()
     m_ui.relationsPanel->clearBoundaryInspection();
 }
 
-void PointCloudWorkspaceController::startContourFit(double tolerance, int maximumEdges, bool recognizeCircles)
+void PointCloudWorkspaceController::startContourFit(double tolerance, int maximumEdges, bool recognizeCircles,
+                                                    bool engineering, double maximumLineTolerance, double circleTolerance)
 {
     if (!m_contourInput || m_contourInput->contours.empty() || m_contourFitThread) return;
     invalidateContourPreview();
     const auto revision = m_contourFitRevision;
     auto input = m_contourInput;
     const double scale = m_contourUnitScale.value_or(1.);
-    const contour_fitting::ParameterizationOptions options{tolerance,
+    contour_fitting::ParameterizationOptions options{tolerance,
         static_cast<std::size_t>(maximumEdges), recognizeCircles};
+    if (engineering) options.engineering = contour_fitting::ParameterizationOptions::Engineering{
+        input->spacing*scale, maximumLineTolerance, circleTolerance};
     auto result = std::make_shared<ContourPreview>();
     auto* thread = QThread::create([input, scale, options, result] {
         const auto cancelled = [] { return QThread::currentThread()->isInterruptionRequested(); };
@@ -144,7 +152,7 @@ void PointCloudWorkspaceController::startContourFit(double tolerance, int maximu
     });
     m_contourFitThread = thread;
     thread->setParent(this);
-    connect(thread, &QThread::finished, this, [this, input, scale, revision, result] {
+    connect(thread, &QThread::finished, this, [this, input, scale, revision, result, engineering] {
         m_contourFitThread = nullptr;
         if (revision != m_contourFitRevision) {
             if (m_contourInput) m_ui.relationsPanel->setContourFitState(false, false);
@@ -163,6 +171,10 @@ void PointCloudWorkspaceController::startContourFit(double tolerance, int maximu
         if (result->fit.separatedHoles)
             message += QStringLiteral("\n") + workspaceTr("已在拟合容差内分开 %1 个接触外环的内孔。")
                 .arg(result->fit.separatedHoles);
+        if (engineering)
+            message += QStringLiteral("\n") + workspaceTr("直线 %1 条，整圆 %2 个，圆弧 %3 段。橙色点表示较大残差。")
+                .arg(result->fit.edgeCount-result->fit.circleCount-result->fit.arcCount)
+                .arg(result->fit.circleCount).arg(result->fit.arcCount);
         m_ui.relationsPanel->setContourFitState(false, true, message);
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);

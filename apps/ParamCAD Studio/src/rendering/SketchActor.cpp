@@ -75,6 +75,18 @@ void appendEntity(const modeling::SketchGeometry& geometry,
         return;
     }
 
+    if (const auto* arc = std::get_if<modeling::Arc2D>(&geometry)) {
+        if (const auto parameters = modeling::arcParameters(*arc)) {
+            auto previous = arc->start;
+            for (int i = 1; i <= kCircleSegments; ++i) {
+                const auto next = i == kCircleSegments ? arc->end : parameters->pointAt(double(i)/kCircleSegments);
+                appendSegment(points, lines, frame, previous.x, previous.y, next.x, next.y);
+                previous = next;
+            }
+        }
+        return;
+    }
+
     const auto& circle = std::get<modeling::Circle2D>(geometry);
     double previousX = circle.x + circle.radius;
     double previousY = circle.y;
@@ -125,8 +137,17 @@ double distanceToGeometry(const modeling::SketchGeometry& geometry,
         return best;
     }
 
-    const auto& circle = std::get<modeling::Circle2D>(geometry);
-    return std::abs(std::hypot(p.x - circle.x, p.y - circle.y) - circle.radius);
+    if (const auto* circle = std::get_if<modeling::Circle2D>(&geometry))
+        return std::abs(std::hypot(p.x - circle->x, p.y - circle->y) - circle->radius);
+    const auto& arc = std::get<modeling::Arc2D>(geometry);
+    const auto parameters = modeling::arcParameters(arc);
+    if (!parameters) return distanceToSegment(p, arc.start, arc.end);
+    const double dx = p.x-parameters->center.x, dy = p.y-parameters->center.y;
+    const double direction = parameters->sweep > 0 ? 1. : -1.;
+    const double offset = std::fmod(direction*(std::atan2(dy, dx)-parameters->startAngle)+2*kPi, 2*kPi);
+    if (offset <= std::abs(parameters->sweep))
+        return std::abs(std::hypot(dx, dy)-parameters->radius);
+    return std::min(std::hypot(p.x-arc.start.x, p.y-arc.start.y), std::hypot(p.x-arc.end.x, p.y-arc.end.y));
 }
 
 // Vertices of one entity that a drawing tool can anchor on. A rectangle
@@ -155,8 +176,13 @@ void appendSnapVertices(const modeling::SketchGeometry& geometry,
         return;
     }
 
-    const auto& circle = std::get<modeling::Circle2D>(geometry);
-    out.push_back(modeling::Point2D{circle.x, circle.y});
+    if (const auto* arc = std::get_if<modeling::Arc2D>(&geometry)) {
+        out.push_back(arc->start);
+        out.push_back(arc->end);
+    } else {
+        const auto& circle = std::get<modeling::Circle2D>(geometry);
+        out.push_back(modeling::Point2D{circle.x, circle.y});
+    }
 }
 
 }  // namespace

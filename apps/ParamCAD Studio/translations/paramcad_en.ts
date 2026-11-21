@@ -282,6 +282,10 @@
 <context>
     <name>FeatureDetailsPanel</name>
     <message>
+        <source>弧长</source>
+        <translation>Arc length</translation>
+    </message>
+    <message>
         <location filename="../src/ui/panels/FeatureDetailsPanel.cpp" line="44"/>
         <source>#%1（引用不存在）</source>
         <translation>#%1 (reference does not exist)</translation>
@@ -1055,6 +1059,10 @@
 </context>
 <context>
     <name>MainWindow</name>
+    <message>
+        <source>直线 %1 条，整圆 %2 个，圆弧 %3 段。橙色点表示较大残差。</source>
+        <translation>%1 straight segments, %2 circles, %3 arcs. Orange points show larger residuals.</translation>
+    </message>
     <message>
         <source>识别未归属点以建立曲面集合。</source>
         <translation>Recognise unassigned points to create surface sets.</translation>
@@ -1962,6 +1970,18 @@ Executable path %7</translation>
 </context>
 <context>
     <name>PointCloudRelationsPanel</name>
+    <message>
+        <source>工程轮廓</source>
+        <translation>Engineering contour</translation>
+    </message>
+    <message>
+        <source>长边容差上限</source>
+        <translation>Maximum long-edge tolerance</translation>
+    </message>
+    <message>
+        <source>圆孔径向容差</source>
+        <translation>Hole radial tolerance</translation>
+    </message>
     <message>
         <source>交线与边界</source>
         <translation>Intersections and Boundaries</translation>
@@ -3484,6 +3504,10 @@ Set: %1</translation>
 </context>
 <context>
     <name>SketchPanel</name>
+    <message>
+        <source>半径 %1，扫角 %2°</source>
+        <translation>Radius %1, sweep %2°</translation>
+    </message>
     <message>
         <location filename="../src/ui/panels/SketchPanel.cpp" line="57"/>
         <source>位于 (%1, %2)，%3 × %4</source>

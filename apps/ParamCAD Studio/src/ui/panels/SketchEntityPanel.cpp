@@ -20,6 +20,8 @@ QString kindLabel(modeling::SketchEntityType kind)
         return QStringLiteral("Rectangle");
     case modeling::SketchEntityType::Circle:
         return QStringLiteral("Circle");
+    case modeling::SketchEntityType::Arc:
+        return QStringLiteral("Arc");
     }
     return QStringLiteral("Unknown");
 }
@@ -83,12 +85,17 @@ SketchEntityPanel::SketchEntityPanel(QWidget* parent)
                          QStringLiteral("sketchCircleY"));
     m_circleRadius = addField(circlePage, circleForm, tr("半径"), 5.0, 0.001,
                               QStringLiteral("sketchCircleRadius"));
+    auto* arcPage = new QWidget(m_stack);
+    auto* arcForm = new QFormLayout(arcPage);
+    m_arcRadius = addField(arcPage, arcForm, tr("半径"), 5.0, 0.001, QStringLiteral("sketchArcRadius"));
+    m_arcRadius->setKeyboardTracking(false);
 
     m_stack->addWidget(emptyPage);
     m_stack->addWidget(pointPage);
     m_stack->addWidget(linePage);
     m_stack->addWidget(rectPage);
     m_stack->addWidget(circlePage);
+    m_stack->addWidget(arcPage);
     outer->addWidget(m_stack);
     outer->addStretch();
 
@@ -177,6 +184,14 @@ void SketchEntityPanel::setEntity(const modeling::SketchEntity* entity, bool fit
         m_stack->setCurrentIndex(4);
         break;
     }
+    case modeling::SketchEntityType::Arc: {
+        m_arc = std::get<modeling::Arc2D>(entity->geometry);
+        const auto parameters = modeling::arcParameters(m_arc);
+        if (parameters) seed(m_arcRadius, parameters->radius, true);
+        m_arcRadius->setEnabled(parameters && std::abs(parameters->sweep) < 3.13);
+        m_stack->setCurrentIndex(5);
+        break;
+    }
     }
 }
 
@@ -194,6 +209,21 @@ modeling::SketchGeometry SketchEntityPanel::geometry() const
     case modeling::SketchEntityType::Circle:
         return modeling::Circle2D{m_circleX->value(), m_circleY->value(),
                                   m_circleRadius->value()};
+    case modeling::SketchEntityType::Arc: {
+        const auto parameters = modeling::arcParameters(m_arc);
+        if (!parameters || !m_arcRadius->isEnabled()) return m_arc;
+        const double scale = m_arcRadius->value() / parameters->radius;
+        const double angle = parameters->startAngle + parameters->sweep*.5;
+        const double offset = parameters->radius / std::cos(parameters->sweep*.5);
+        const modeling::Point2D corner{parameters->center.x + offset*std::cos(angle),
+                                        parameters->center.y + offset*std::sin(angle)};
+        // Scale about the intersection of the tangents. Connected line
+        // endpoints follow their moved tangent points through the document.
+        const auto move = [&](modeling::Point2D p) {
+            return modeling::Point2D{corner.x + scale*(p.x-corner.x), corner.y + scale*(p.y-corner.y)};
+        };
+        return modeling::Arc2D{move(m_arc.start), move(m_arc.middle), move(m_arc.end)};
+    }
     }
     return modeling::Point2D{};
 }

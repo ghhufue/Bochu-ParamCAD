@@ -117,9 +117,13 @@ struct Details {
                     row(prefix + QCoreApplication::translate("FeatureDetailsPanel", "矩形尺寸"), point(g.width,g.height) + " mm");
                     row(prefix + QCoreApplication::translate("FeatureDetailsPanel", "其他角点"), location(g.x+g.width,g.y) + "\n"
                         + location(g.x+g.width,g.y+g.height) + "\n" + location(g.x,g.y+g.height));
-                } else {
+                } else if constexpr (std::is_same_v<T, Circle2D>) {
                     row(prefix + QCoreApplication::translate("FeatureDetailsPanel", "圆心"), location(g.x,g.y));
                     length(prefix + QCoreApplication::translate("FeatureDetailsPanel", "半径"),g.radius); length(prefix + QCoreApplication::translate("FeatureDetailsPanel", "直径"),2*g.radius);
+                } else if (const auto arc = arcParameters(g)) {
+                    row(prefix + QCoreApplication::translate("FeatureDetailsPanel", "圆心"), location(arc->center.x,arc->center.y));
+                    length(prefix + QCoreApplication::translate("FeatureDetailsPanel", "半径"),arc->radius);
+                    length(prefix + QCoreApplication::translate("FeatureDetailsPanel", "弧长"),arc->radius*std::abs(arc->sweep));
                 }
             },e.geometry);
         }

@@ -8,7 +8,7 @@ if(NOT TARGET CGAL::CGAL)
     find_package(CGAL CONFIG REQUIRED)
 endif()
 
-add_library(contour_fitting src/ContourFitting.cpp src/ContourParameterization.cpp)
+add_library(contour_fitting src/ContourFitting.cpp src/ContourParameterization.cpp src/EngineeringContour.cpp)
 add_library(ContourFitting::ContourFitting ALIAS contour_fitting)
 target_compile_features(contour_fitting PUBLIC cxx_std_17)
 target_include_directories(contour_fitting PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")

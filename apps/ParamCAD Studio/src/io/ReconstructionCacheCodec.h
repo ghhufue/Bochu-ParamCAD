@@ -303,6 +303,7 @@ CACHE_FIELDS(modeling::Line2D, v.x1, v.y1, v.x2, v.y2)
 CACHE_FIELDS(modeling::Rectangle2D, v.x, v.y, v.width, v.height)
 
 CACHE_FIELDS(modeling::Circle2D, v.x, v.y, v.radius)
+CACHE_FIELDS(modeling::Arc2D, v.start, v.middle, v.end)
 
 CACHE_FIELDS(modeling::SketchEntity, v.id, v.geometry)
 

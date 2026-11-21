@@ -214,6 +214,7 @@ void verifyContourWorkflow(MainWindow& window, VTKViewer* viewer,
     plane.surface.parameters = {{"normal", QJsonArray{0,0,1}}, {"offset", -.012}};
     for (int y = 0; y <= 42; ++y) for (int x = 0; x <= 64; ++x) {
         if ((x-18)*(x-18) + (y-20)*(y-20) < 81 || (x > 30 && x < 36 && y > 27)) continue;
+        if (x > 50 && y < 14 && (x-50)*(x-50)+(y-14)*(y-14) > 196) continue;
         plane.points.push_back(static_cast<vtkIdType>(plane.points.size()));
         points += QStringLiteral("%1 %2 .012\n").arg(x*.001).arg(y*.001).toUtf8();
     }
@@ -283,6 +284,19 @@ void verifyContourWorkflow(MainWindow& window, VTKViewer* viewer,
     waitForAnalysis(fitStatus);
     require(create->isEnabled(), qPrintable(fitStatus->text()));
 
+    auto* engineering = window.findChild<QCheckBox*>("cloudEngineeringContour");
+    auto* lineCap = window.findChild<QDoubleSpinBox*>("cloudContourLineTolerance");
+    auto* circleTolerance = window.findChild<QDoubleSpinBox*>("cloudContourCircleTolerance");
+    require(engineering && lineCap && circleTolerance && lineCap->suffix().contains("mm") &&
+            std::abs(lineCap->value()-3*standard) < .000004 &&
+            std::abs(circleTolerance->value()-1.25*standard) < .000004,
+            "engineering tolerances are initialized from the metric boundary spacing");
+    engineering->setChecked(true);
+    fit->click();
+    waitForAnalysis(fitStatus);
+    require(create->isEnabled() && fitStatus->text().contains(QStringLiteral("圆弧 1 段")),
+            qPrintable(fitStatus->text()));
+
     auto* model = window.findChild<ModelingController*>();
     const auto before = model->features().size();
     create->click();
@@ -303,7 +317,21 @@ void verifyContourWorkflow(MainWindow& window, VTKViewer* viewer,
     require(std::abs(std::get<modeling::Circle2D>(panel->findEntity(circleId)->geometry).radius-radius+1) < .001,
             "radius edits flow through the ordinary sketch editor");
     sketch = model->sketchParams(sketchId);
-    const auto& first = sketch->entities.front();
+    const auto arc = std::find_if(sketch->entities.begin(), sketch->entities.end(),
+        [](const auto& item) { return std::holds_alternative<modeling::Arc2D>(item.geometry); });
+    require(arc != sketch->entities.end(), "the fitted fillet is an analytic sketch arc");
+    const auto arcId = arc->id;
+    const double arcRadius = modeling::arcParameters(std::get<modeling::Arc2D>(arc->geometry))->radius;
+    panel->selectEntity(arcId);
+    auto* radiusField = window.findChild<QDoubleSpinBox*>("sketchArcRadius");
+    require(radiusField && radiusField->isEnabled(), "the fillet radius can be edited");
+    radiusField->setValue(arcRadius*.95);
+    const auto adjusted = modeling::arcParameters(std::get<modeling::Arc2D>(panel->findEntity(arcId)->geometry));
+    require(adjusted && std::abs(adjusted->radius-arcRadius*.95) < .001,
+            "editing the radius moves the connected tangent endpoints");
+    sketch = model->sketchParams(sketchId);
+    const auto& first = *std::find_if(sketch->entities.begin(), sketch->entities.end(),
+        [](const auto& item) { return std::holds_alternative<modeling::Line2D>(item.geometry); });
     auto line = std::get<modeling::Line2D>(first.geometry);
     line.x1 += .1; line.y1 += .1;
     require(model->editSketchEntity(sketchId, first.id, line), "move a shared contour vertex");
@@ -316,8 +344,11 @@ void verifyContourWorkflow(MainWindow& window, VTKViewer* viewer,
     const auto projectPath = temp.filePath("contour-project.pcad");
     auto* project = window.findChild<ProjectController*>();
     require(project->saveTo(projectPath, error) && project->loadFrom(projectPath, error), qPrintable(error));
-    require(model->sketchParams(sketchId)->keepCoincidentEndpoints && !model->bodyShape().IsNull(),
-            "project round trip preserves the contour sketch and extrusion");
+    const auto* reloaded = model->sketchParams(sketchId);
+    require(reloaded && reloaded->keepCoincidentEndpoints && !model->bodyShape().IsNull() &&
+            std::any_of(reloaded->entities.begin(), reloaded->entities.end(), [&](const auto& entity) {
+                return entity.id == arcId && std::holds_alternative<modeling::Arc2D>(entity.geometry);
+            }), "project round trip preserves the contour sketch, arc and extrusion");
     auto* features = window.findChild<QTreeWidget*>("featureList");
     for (int i = 0; i < features->topLevelItemCount(); ++i)
         if (features->topLevelItem(i)->text(0).toULongLong() == sketchId)
