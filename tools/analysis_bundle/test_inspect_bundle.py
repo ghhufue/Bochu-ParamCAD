@@ -88,6 +88,51 @@ class InspectionTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             main(["--bundle", str(self.root), "points", "--id", "182", "--limit", "101"])
 
+    def test_face_diagnostic_reports_observed_lineage_and_stage_limits(self):
+        face = self.bundle.surface(surface_id=182)
+        report = self.bundle.diagnose(face)
+        self.assertEqual(report["schema"], "paramcad.face_diagnostics")
+        self.assertEqual(report["version"], 1)
+        self.assertEqual(report["lineage"]["status"], "source_recovery_candidate_link")
+        self.assertTrue(report["lineage"]["trace_available"])
+        self.assertTrue(report["lineage"]["candidate_linked"])
+        self.assertTrue(report["lineage"]["matching_attempt_found"])
+        before = report["support_validation"]["before_ownership"]
+        self.assertEqual(before["decisions"][0]["proposal_id"], 3)
+        self.assertEqual(before["source_recovery_proposal_links"][0]["source_recovery_proposal_id"], 41)
+        self.assertEqual(report["support_validation"]["plane_merge_trace"]["attempts"][0]["reason"],
+                         "component_p95_residual_exceeded")
+        self.assertEqual(report["measured_geometry"]["measured_plane_residual"]["max"], 0)
+
+    def test_legacy_bundle_does_not_infer_source_candidate_link(self):
+        face = self.bundle.surface(surface_id=182)
+        face["support_validation"].pop("source_recovery_proposal_id")
+        report = self.bundle.diagnose(face)
+        self.assertTrue(report["lineage"]["trace_available"])
+        self.assertFalse(report["lineage"]["candidate_linked"])
+        self.assertFalse(report["lineage"]["matching_attempt_found"])
+        self.assertNotIn("plane_merge_trace", report["support_validation"])
+
+    def test_plane_comparison_uses_exported_relations_and_support(self):
+        result = self.bundle.compare_planes(self.bundle.surface(surface_id=182),
+                                            self.bundle.surface(surface_id=418))
+        comparison = result["comparison"]
+        self.assertTrue(comparison["same_equation_within_numeric_tolerance"])
+        self.assertEqual(comparison["support_overlap_points"], 0)
+        self.assertTrue(any(row["type"] == "coplanar" for row in result["recorded_relations"]))
+        self.assertTrue(result["same_display_group"])
+        self.assertTrue(result["merge_trace_available"])
+        self.assertTrue(result["candidate_links_available"])
+        self.assertFalse(result["same_recovery_proposal"])
+        self.assertTrue(result["matching_attempt_found"])
+        self.assertEqual(result["merge_attempts"][0]["reason"], "component_p95_residual_exceeded")
+
+        same_source = self.bundle.surface(surface_id=418)
+        same_source["support_validation"]["source_recovery_proposal_id"] = 41
+        repeated = self.bundle.compare_planes(self.bundle.surface(surface_id=182), same_source)
+        self.assertTrue(repeated["same_recovery_proposal"])
+        self.assertFalse(repeated["matching_attempt_found"])
+
     def test_mapping_count_corruption(self):
         face = self.bundle.surface(surface_id=182)
         face["point_map"]["count"] += 1

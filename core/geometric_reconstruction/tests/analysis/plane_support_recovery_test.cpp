@@ -131,23 +131,37 @@ void relaxedAdjacentPlaneMerge()
     auto strictAngle=options();
     strictAngle.distanceThreshold=0.05;
     strictAngle.mergeAngularToleranceRadians=2*std::acos(-1.0)/180;
-    require(recoverPlaneSupport(points,strictAngle,planes,error),error.c_str());
+    std::vector<PlaneMergeDiagnostic> trace;
+    require(recoverPlaneSupport(points,strictAngle,planes,error,{}, {}, &trace),error.c_str());
     require(planes.size()==2,"the plane merge angle independently gates tilted regions");
+    require(std::any_of(trace.begin(),trace.end(),[](const auto& attempt) {
+        return attempt.reason=="angle_exceeded" && attempt.maximumAngleDegrees<2.01 &&
+            !attempt.firstResultProposals.empty() && !attempt.secondResultProposals.empty();
+    }),"merge diagnostics record the angle rejection and active limit");
 
     planes=tiltedAdjacentPlanes(samples,span);
     auto strictDistance=options();
     strictDistance.distanceThreshold=3.4;
     strictDistance.mergeResidualToleranceMultiplier=1.0;
-    require(recoverPlaneSupport(points,strictDistance,planes,error),error.c_str());
+    require(recoverPlaneSupport(points,strictDistance,planes,error,{}, {}, &trace),error.c_str());
     require(planes.size()==2,"the per-region merge residual independently gates offset planes");
+    require(std::any_of(trace.begin(),trace.end(),[](const auto& attempt) {
+        return attempt.reason=="component_p95_residual_exceeded" &&
+            !attempt.componentP95Residuals.empty() &&
+            attempt.componentP95Residuals.front()>attempt.maximumAllowedResidual &&
+            attempt.firstResultProposals.size()==1 && attempt.secondResultProposals.size()==1;
+    }),"merge diagnostics record source-component residuals at the rejected shared fit");
 
     planes=tiltedAdjacentPlanes(samples,span);
     auto permissive=options();
     permissive.distanceThreshold=3.4;
     permissive.mergeAngularToleranceRadians=2.5*std::acos(-1.0)/180;
     permissive.mergeResidualToleranceMultiplier=1.4;
-    require(recoverPlaneSupport(points,permissive,planes,error),error.c_str());
+    require(recoverPlaneSupport(points,permissive,planes,error,{}, {}, &trace),error.c_str());
     require(planes.size()==1,"adjacent tilted patches merge after a shared plane fit passes each patch's 95th-percentile residual");
+    require(std::any_of(trace.begin(),trace.end(),[](const auto& attempt) {
+        return attempt.outcome=="merged" && attempt.reason=="all_merge_gates_passed";
+    }),"successful candidate merges are recorded alongside rejections");
     const auto& merged=std::get<PlaneEvidence>(planes.front());
     require(merged.supportPointIds.size()==samples.size() && merged.maxAbsoluteResidual>permissive.distanceThreshold,
         "merge keeps full patch support while its bounded outliers do not widen detection tolerance");

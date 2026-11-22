@@ -240,10 +240,15 @@ WorkResult resolve(const PointStore& source,const SurfaceAnalysisResult& display
     const bool useSourceNormals=options.useSourceNormals;
     // Display connected patches independently, even when they share an equation.
     reconstruction::PrimitiveDetectionResult detection;
+    std::vector<SurfaceId> detectionRecoveryProposals;
     for (const auto& patch : displayAnalysis.patches) {
         auto evidence=displayAnalysis.surfaces.at(static_cast<size_t>(patch.surfaceId-1));
+        std::visit([&](auto& surface){surface.id=detection.evidence.size()+1;},evidence);
         std::visit([&](auto& surface) { surface.supportPointIds=patch.supportPointIds; },evidence);
         detection.evidence.push_back(std::move(evidence));
+        const auto surfaceId=patch.surfaceId;
+        detectionRecoveryProposals.push_back(surfaceId && surfaceId<=displayAnalysis.supportProposalIds.size()
+            ? displayAnalysis.supportProposalIds[static_cast<size_t>(surfaceId-1)] : 0);
     }
     PointLookup positionById;
     positionById.reserve(source.size());
@@ -273,7 +278,7 @@ WorkResult resolve(const PointStore& source,const SurfaceAnalysisResult& display
         for(size_t j=0;j<detection.evidence.size();++j)if(!planeMembers[j].empty()) {
             const auto surfaceId=displayAnalysis.patches[j].surfaceId;
             if(!surfaceId || surfaceId>displayAnalysis.supportProposalIds.size())continue;
-            const auto origin=displayAnalysis.supportProposalIds[size_t(surfaceId-1)];
+            const auto origin=surfaceId;
             for(const auto& d:validation.decisions)if(d.proposalId==origin && d.verdict==reconstruction::SupportVerdict::Accepted &&
                 d.densityEvaluated && d.effectivePoints>=analysisOptions.supportValidation.referenceMinPoints && d.finalArea>=areaFloor) {
                 size_t shared=0;for(auto id:d.supportPointIds)shared+=planeMembers[j].count(id);
@@ -396,6 +401,13 @@ WorkResult resolve(const PointStore& source,const SurfaceAnalysisResult& display
         std::vector<reconstruction::PrimitiveEvidence> accepted;reconstruction::SurfaceSupportValidationReport finalReport;
         if(!reconstruction::validateSurfaceSupport(source,owned,analysisOptions,accepted,finalReport,error,
             &displayAnalysis.supportValidation.reference,cancelled)) {result.error=error;return result;}
+        std::vector<size_t> acceptedToDetection;
+        acceptedToDetection.reserve(accepted.size());
+        for(const auto& evidence:accepted) {
+            const auto proposal=std::visit([](const auto& surface){return surface.id;},evidence);
+            acceptedToDetection.push_back(proposal && proposal<=ownedToDetection.size()
+                ? ownedToDetection[static_cast<size_t>(proposal-1)] : owners.size());
+        }
         if(analysisOptions.supportValidation.mode==reconstruction::SupportValidationMode::Report) {
             result.finalSupportValidation=std::move(finalReport);
             for(size_t j=0;j<owners.size();++j)if(owners[j].size()>=analysisOptions.supportMeshing.minimumSurfacePoints) {
@@ -403,6 +415,7 @@ WorkResult resolve(const PointStore& source,const SurfaceAnalysisResult& display
                 auto evidence=detection.evidence[j];
                 std::visit([&](auto& e){e.supportPointIds=std::move(owners[j]);e.id=j+1;},evidence);
                 result.surfaces.push_back(std::move(evidence));
+                result.sourceRecoveryProposalIds.push_back(detectionRecoveryProposals[j]);
             }
             return result;
         }
@@ -476,7 +489,14 @@ WorkResult resolve(const PointStore& source,const SurfaceAnalysisResult& display
             std::vector<reconstruction::PrimitiveEvidence> checked;reconstruction::SurfaceSupportValidationReport checkedReport;
             if(!reconstruction::validateSurfaceSupport(source,accepted,analysisOptions,checked,checkedReport,error,
                 &displayAnalysis.supportValidation.reference,cancelled)){result.error=error;return result;}
+            std::vector<size_t> checkedToDetection;checkedToDetection.reserve(checked.size());
+            for(const auto& evidence:checked) {
+                const auto proposal=std::visit([](const auto& surface){return surface.id;},evidence);
+                checkedToDetection.push_back(proposal && proposal<=acceptedToDetection.size()
+                    ? acceptedToDetection[static_cast<size_t>(proposal-1)] : owners.size());
+            }
             accepted=std::move(checked);beforeReassignment=std::move(finalReport);finalReport=std::move(checkedReport);
+            acceptedToDetection=std::move(checkedToDetection);
         }
         for (const auto& e:accepted) {
             const auto* plane=std::get_if<PlaneEvidence>(&e);
@@ -495,6 +515,14 @@ WorkResult resolve(const PointStore& source,const SurfaceAnalysisResult& display
         for(const auto& evidence:accepted)
             result.assignedPoints+=std::visit([](const auto& e){return e.supportPointIds.size();},evidence);
         result.surfaces=accepted;
+        result.sourceRecoveryProposalIds.reserve(accepted.size());
+        for(size_t i=0;i<accepted.size();++i) {
+            const auto patchIndex=acceptedToDetection[i];
+            if(patchIndex>=displayAnalysis.patches.size()) {result.sourceRecoveryProposalIds.push_back(0);continue;}
+            const auto surfaceId=displayAnalysis.patches[patchIndex].surfaceId;
+            result.sourceRecoveryProposalIds.push_back(surfaceId && surfaceId<=displayAnalysis.supportProposalIds.size()
+                ? displayAnalysis.supportProposalIds[static_cast<size_t>(surfaceId-1)] : 0);
+        }
         // Final unique ownership has a different validation scope than the processed cache.
         // Force a fresh CAD analysis if publication removed any source-accepted patch.
         if(accepted.size()!=owned.size())result.requiresFreshAnalysis=true;
@@ -506,6 +534,7 @@ WorkResult resolve(const PointStore& source,const SurfaceAnalysisResult& display
         auto evidence=detection.evidence[j];
         std::visit([&](auto& e){e.supportPointIds=std::move(owners[j]);e.id=j+1;},evidence);
         result.surfaces.push_back(std::move(evidence));
+        result.sourceRecoveryProposalIds.push_back(detectionRecoveryProposals[j]);
     }
     return result;
 }

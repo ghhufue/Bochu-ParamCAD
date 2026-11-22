@@ -12,6 +12,7 @@ using Index = std::size_t;
 using Neighbors = std::vector<std::pair<double, Index>>;
 constexpr double angularLimit = 0.03490658503988659; // two degrees for growing one fitted region
 constexpr double mergeInlierFraction = 0.95;
+constexpr std::size_t maximumMergeDiagnostics = 10000;
 
 double residual(const PlaneEquation& plane, Vec3 p) { return std::abs(dot(plane.normal,p)+plane.offset); }
 
@@ -37,6 +38,7 @@ bool fit(const PointStore& points, const std::vector<Index>& support, PlaneEquat
 
 struct Region {
     PlaneEvidence evidence;
+    std::vector<SurfaceId> candidateIds;
     std::vector<Index> support;
     // Keep seed and growth supports separate so every source patch has its own merge gate.
     std::vector<std::vector<Index>> mergeComponents;
@@ -53,11 +55,15 @@ class Recovery {
     std::vector<double> radii;
     std::vector<bool> blocked;
     const std::function<bool()>& cancelled;
+    std::vector<PlaneMergeDiagnostic>* mergeDiagnostics;
+    bool& diagnosticsTruncated;
 public:
     bool stopped=false;
     Recovery(const PointStore& p,const PlaneDetectionOptions& o,const std::vector<PointId>& protectedIds,
-             const std::function<bool()>& cancel):points(p),options(o),tree(p.points()),neighbors(p.size()),
-             radii(p.size()),blocked(p.size()),cancelled(cancel) {
+             const std::function<bool()>& cancel,std::vector<PlaneMergeDiagnostic>* diagnostics,
+             bool& truncated)
+        :points(p),options(o),tree(p.points()),neighbors(p.size()),radii(p.size()),blocked(p.size()),
+         cancelled(cancel),mergeDiagnostics(diagnostics),diagnosticsTruncated(truncated) {
         const std::unordered_set<PointId> protectedSet(protectedIds.begin(),protectedIds.end());
         for(Index i=0;i<p.size();++i) blocked[i]=protectedSet.count(p.points()[i].id)!=0;
     }
@@ -149,10 +155,29 @@ public:
         e.coverage=double(r.support.size())/points.size();
         e.confidence=std::clamp(1-e.meanAbsoluteResidual/options.distanceThreshold,0.0,1.0);
     }
-    bool merge(Region& a,const Region& b) {
-        if(std::abs(dot(a.evidence.plane.normal,b.evidence.plane.normal))<
-                std::cos(options.mergeAngularToleranceRadians) ||
-            (a.material && b.material && dot(*a.material,*b.material)<0)) return false;
+    bool merge(Region& a,const Region& b,const char* phase) {
+        PlaneMergeDiagnostic diagnostic;
+        if(mergeDiagnostics && mergeDiagnostics->size()>=maximumMergeDiagnostics)
+            diagnosticsTruncated=true;
+        const bool trace=mergeDiagnostics && mergeDiagnostics->size()<maximumMergeDiagnostics;
+        if(trace) {
+            diagnostic.firstCandidates=a.candidateIds;diagnostic.secondCandidates=b.candidateIds;
+            diagnostic.phase=phase;
+            diagnostic.angleDegrees=std::acos(std::clamp(std::abs(dot(a.evidence.plane.normal,b.evidence.plane.normal)),0.0,1.0))*180/std::acos(-1.0);
+            diagnostic.maximumAngleDegrees=options.mergeAngularToleranceRadians*180/std::acos(-1.0);
+            diagnostic.maximumAllowedResidual=options.distanceThreshold*options.mergeResidualToleranceMultiplier;
+        }
+        const double normalAlignment=std::abs(dot(a.evidence.plane.normal,b.evidence.plane.normal));
+        const auto reject=[&](const char* reason) {
+            if(trace) {
+                diagnostic.outcome="rejected";diagnostic.reason=reason;
+                if(mergeDiagnostics->size()<maximumMergeDiagnostics)mergeDiagnostics->push_back(diagnostic);
+                else diagnosticsTruncated=true;
+            }
+            return false;
+        };
+        if(std::abs(normalAlignment)<std::cos(options.mergeAngularToleranceRadians)) return reject("angle_exceeded");
+        if(a.material && b.material && dot(*a.material,*b.material)<0) return reject("material_orientation_conflict");
         std::unordered_set<Index> included(a.support.begin(),a.support.end());
         bool connected=false;
         for(auto i:b.support) {
@@ -160,29 +185,37 @@ public:
             for(const auto& n:near(i)) if(included.count(n.second) && adjacent(i,n.second,n.first)) {connected=true;break;}
             if(connected) break;
         }
-        if(!connected) return false;
+        if(trace) {diagnostic.spatiallyConnected=connected;diagnostic.spatialCheckEvaluated=true;}
+        if(!connected) return reject("not_spatially_connected");
         auto combined=a;
+        combined.candidateIds.insert(combined.candidateIds.end(),b.candidateIds.begin(),b.candidateIds.end());
         for(auto i:b.support) if(included.insert(i).second) combined.support.push_back(i);
         combined.mergeComponents.insert(combined.mergeComponents.end(), b.mergeComponents.begin(), b.mergeComponents.end());
         auto proposed=combined.evidence.plane;
-        const double minimumAlignment = std::cos(options.mergeAngularToleranceRadians);
-        if(!fit(points,combined.support,proposed) ||
-            std::abs(dot(proposed.normal,a.anchor.normal))<minimumAlignment ||
-            std::abs(dot(proposed.normal,b.anchor.normal))<minimumAlignment) return false;
-        const double maximumResidual = options.distanceThreshold * options.mergeResidualToleranceMultiplier;
+        if(!fit(points,combined.support,proposed)) return reject("combined_fit_invalid");
+        if(std::abs(dot(proposed.normal,a.anchor.normal))<std::cos(options.mergeAngularToleranceRadians) ||
+           std::abs(dot(proposed.normal,b.anchor.normal))<std::cos(options.mergeAngularToleranceRadians)) return reject("combined_normal_outside_tolerance");
+        if(trace) diagnostic.residualCheckEvaluated=true;
         for (const auto& component : combined.mergeComponents) {
-            if (component.empty()) continue;
+            if (component.empty()) {if(trace)diagnostic.componentP95Residuals.push_back(0);continue;}
             std::vector<double> residuals;
             residuals.reserve(component.size());
             for (auto i : component) residuals.push_back(residual(proposed, points.points()[i].position));
             const auto index = static_cast<std::size_t>(std::ceil(mergeInlierFraction * residuals.size())) - 1;
             std::nth_element(residuals.begin(), residuals.begin() + index, residuals.end());
-            if (residuals[index] > maximumResidual) return false;
+            if(trace)diagnostic.componentP95Residuals.push_back(residuals[index]);
+            if(residuals[index]>options.distanceThreshold*options.mergeResidualToleranceMultiplier)
+                return reject("component_p95_residual_exceeded");
         }
         combined.evidence.plane=proposed;
         combined.anchor=proposed;
         if(!combined.material) combined.material=b.material;
         a=std::move(combined);
+        if(trace) {
+            diagnostic.outcome="merged";diagnostic.reason="all_merge_gates_passed";
+            if(mergeDiagnostics->size()<maximumMergeDiagnostics)mergeDiagnostics->push_back(std::move(diagnostic));
+            else diagnosticsTruncated=true;
+        }
         return true;
     }
     bool grow(Region& r) {
@@ -226,8 +259,11 @@ public:
 
 bool recoverPlaneSupport(const PointStore& points,const PlaneDetectionOptions& options,
     std::vector<PrimitiveEvidence>& evidence,std::string& error,const std::vector<PointId>& protectedIds,
-    const std::function<bool()>& cancelled) {
+    const std::function<bool()>& cancelled,std::vector<PlaneMergeDiagnostic>* mergeDiagnostics,
+    bool* diagnosticsTruncated) {
     error.clear();
+    if(mergeDiagnostics)mergeDiagnostics->clear();
+    if(diagnosticsTruncated)*diagnosticsTruncated=false;
     if(cancelled && cancelled()) {error="Cancelled";return false;}
     if(points.empty() || std::none_of(evidence.begin(),evidence.end(),[](const auto& e){return std::holds_alternative<PlaneEvidence>(e);})) return true;
     if(!std::isfinite(options.distanceThreshold) || options.distanceThreshold<=0 ||
@@ -242,8 +278,9 @@ bool recoverPlaneSupport(const PointStore& points,const PlaneDetectionOptions& o
     for(Index i=0;i<points.size();++i) indices.emplace(points.points()[i].id,i);
     const std::unordered_set<PointId> protectedSet(protectedIds.begin(),protectedIds.end());
     std::vector<Region> regions;
+    SurfaceId candidateId=0;
     for(const auto& e:evidence) if(const auto* plane=std::get_if<PlaneEvidence>(&e)) {
-        Region r;r.evidence=*plane;r.anchor=plane->plane;
+        Region r;r.evidence=*plane;r.anchor=plane->plane;r.candidateIds.push_back(++candidateId);
         std::unordered_set<Index> used;Vec3 material{};
         for(auto id:plane->supportPointIds) {
             const auto found=indices.find(id);
@@ -273,26 +310,46 @@ bool recoverPlaneSupport(const PointStore& points,const PlaneDetectionOptions& o
         regions.push_back(std::move(r));
     }
     std::stable_sort(regions.begin(),regions.end(),[](const auto& a,const auto& b){return a.support.size()>b.support.size();});
-    Recovery recovery(points,options,protectedIds,cancelled);
+    std::vector<PlaneMergeDiagnostic> stagedDiagnostics;
+    bool truncated=false;
+    Recovery recovery(points,options,protectedIds,cancelled,mergeDiagnostics?&stagedDiagnostics:nullptr,truncated);
     recovery.blockSeedSupports(regions);
-    const auto consolidate=[&]() {
+    const auto consolidate=[&](const char* phase) {
         for(Index i=0;i<regions.size();++i) {
             if(recovery.check()) return false;
             for(Index j=i+1;j<regions.size();) {
-                if(recovery.merge(regions[i],regions[j])) regions.erase(regions.begin()+j);
+                if(recovery.merge(regions[i],regions[j],phase)) regions.erase(regions.begin()+j);
                 else ++j;
             }
         }
         return true;
     };
-    if(!consolidate()) {error="Cancelled";return false;}
+    if(!consolidate("seed_consolidation")) {error="Cancelled";return false;}
     for(auto& r:regions) if(!recovery.grow(r)) {error="Cancelled";return false;}
-    if(!consolidate()) {error="Cancelled";return false;}
+    if(!consolidate("post_growth_consolidation")) {error="Cancelled";return false;}
     std::vector<PrimitiveEvidence> output;output.reserve(evidence.size());
-    for(auto& r:regions) {recovery.describe(r);output.emplace_back(std::move(r.evidence));}
-    for(const auto& e:evidence) if(!std::holds_alternative<PlaneEvidence>(e)) output.push_back(e);
-    SurfaceId id=0;for(auto& e:output) std::visit([&](auto& s){s.id=++id;},e);
+    std::unordered_map<SurfaceId,SurfaceId> candidateToOutput;
+    SurfaceId id=0;
+    for(auto& r:regions) {
+        recovery.describe(r);const auto outputId=++id;
+        for(const auto candidate:r.candidateIds)candidateToOutput[candidate]=outputId;
+        r.evidence.id=outputId;output.emplace_back(std::move(r.evidence));
+    }
+    for(const auto& e:evidence) if(!std::holds_alternative<PlaneEvidence>(e)) {
+        auto copy=e;std::visit([&](auto& s){s.id=++id;},copy);output.push_back(std::move(copy));
+    }
+    const auto resultProposals=[&](const std::vector<SurfaceId>& candidates) {
+        std::vector<SurfaceId> result;
+        for(const auto candidate:candidates)if(candidateToOutput.count(candidate))result.push_back(candidateToOutput.at(candidate));
+        std::sort(result.begin(),result.end());result.erase(std::unique(result.begin(),result.end()),result.end());return result;
+    };
+    for(auto& diagnostic:stagedDiagnostics) {
+        diagnostic.firstResultProposals=resultProposals(diagnostic.firstCandidates);
+        diagnostic.secondResultProposals=resultProposals(diagnostic.secondCandidates);
+    }
     evidence=std::move(output);
+    if(mergeDiagnostics)*mergeDiagnostics=std::move(stagedDiagnostics);
+    if(diagnosticsTruncated)*diagnosticsTruncated=truncated;
     return true;
 }
 }

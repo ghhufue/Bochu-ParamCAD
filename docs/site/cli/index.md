@@ -48,3 +48,28 @@ pcad status --session SESSION_ID
 先通过 `capabilities` 确认命令支持的模式，再核对单位和当前会话。离线使用新的输出目录；在线先读 `status`，确认当前文档。按 JSON 字段判定成功，不能只看进程启动或候选数量。点坐标和长 ID 列表只在明确需要时有界读取。
 
 `pcad inspect` 永远离线，专门查询已导出的 `.pcad-analysis`，不依赖 Studio 是否启动。`pcad studio` 是唯一显式启动 Studio 的命令。
+
+## 平面诊断
+
+从清单确认快照与单位，用 `list` 找到面 ID，再分别查询单面来源和两面比较。`compare` 当前要求两个有效的平面 ID。
+
+```powershell
+pcad inspect --bundle path/to/cloud.ply.pcad-analysis manifest
+pcad inspect --bundle path/to/cloud.ply.pcad-analysis explain --id 118
+pcad inspect --bundle path/to/cloud.ply.pcad-analysis compare --ids 118,119
+```
+
+`explain` 会区分 trace 是否存在、最终面能否关联恢复候选、是否找到该候选的合并尝试，以及事件是否截断。报告中的 `source_recovery_proposal_links` 显式映射所有权前验证的局部 proposal ID 到恢复 proposal ID。trace 只覆盖 Studio 对原始点云执行的支持恢复，不覆盖初始 RANSAC 或工作点云检测。缺少尝试事件不能单独证明候选被拒绝合并。若需算法拒绝原因，重新识别并导出包含 `plane_merge_trace` 的分析包，再用候选来源映射核对事件。
+
+`compare` 单独报告两个最终面是否共享恢复 proposal，以及 trace 是否包含这对不同候选的事件。共享 proposal 表示它们从同一恢复候选派生，后续的面片和归属流程仍可能形成多个最终面。
+
+```powershell
+pcad sessions
+pcad cloud open --session SESSION_ID --in path/to/cloud.ply
+pcad detect --session SESSION_ID
+pcad export analysis --session SESSION_ID --out outputs/diagnostic-run.pcad-analysis
+pcad inspect --bundle outputs/diagnostic-run.pcad-analysis explain --id 118
+pcad inspect --bundle outputs/diagnostic-run.pcad-analysis compare --ids 118,119
+```
+
+使用当前构建的 Studio 会话重新识别，保留一次运行一个新导出目录。若 trace 已截断或选中的面没有候选映射，报告应说明证据缺口，不要从面方程相似直接推断拒绝原因。

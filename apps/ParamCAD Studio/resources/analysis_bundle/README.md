@@ -11,6 +11,8 @@ pcad inspect --bundle . manifest
 pcad inspect --bundle . list --limit 10
 pcad inspect --bundle . show --id 118 --group
 pcad inspect --bundle . analyze --id 118
+pcad inspect --bundle . explain --id 118
+pcad inspect --bundle . compare --ids 118,119
 pcad inspect --bundle . verify --full
 ```
 
@@ -22,6 +24,8 @@ pcad inspect --bundle . verify --full
 
 - `list` / `show` 只读 JSON 元数据；`--group` 附带共面成员和边界/内部支撑记录。
 - `analyze` 按映射读取指定面的观测及缓存网格，只输出统计。当前只有平面残差复算。
+- `explain` 输出面来源、支持验证阶段、记录的关系、显示组和单面几何统计。
+- `compare --ids A,B` 输出两平面的方程差、支撑重叠、包围盒间距和共同中面探针残差。
 - `points --id ID --limit 5` 才显式输出原始坐标；默认 10 点，单次上限 100。
 - `verify` 验证元数据；`verify --full` 追加所有资产的大小和 SHA-256 校验。
 
@@ -36,3 +40,7 @@ pcad inspect --bundle . verify --full
 源点索引从 0 开始，指向本快照源点云的行；下采样后的源点云不再等同于下采样前点云。跨包比较先核对 bundle_id 和 positions_sha256。
 
 显示网格可能引用其他集合的顶点，需结合 foreign_source_vertices 与 shared_plane 判断。confidence 是拟合置信度，covered_observations 是点数，均不能代替面积或内部支撑检查。没有记录的中间过程不能推断为已验证；arbitrary 单位不能直接当成毫米。
+
+`explain` 与 `compare` 使用 `paramcad.face_diagnostics` schema v1。新导出的 bundle 会记录 Studio 原始点云支持恢复中的候选对、阶段、结果、拒绝原因及使用的门槛，不覆盖初始 RANSAC 或工作点云检测。`source_recovery_proposal_links` 将所有权前验证的局部 proposal ID 映射到恢复 proposal ID。`trace_available`、`candidate_linked`、`matching_attempt_found` 和 `trace_truncated` 分别表示 trace 存在、所选面关联恢复候选、该候选有合并尝试事件、事件是否因上限而截断。旧 bundle 可能没有 trace 或恢复候选映射。比较报告中的中面残差是对导出观测的事后诊断探针，不是检测器实际合并拟合。
+
+`compare` 还会给出 `same_recovery_proposal` 和 `matching_attempt_found`。不同最终面若映射到同一恢复 proposal，不能归因成这两个最终面之间的一次合并拒绝；查看 `explain` 中按恢复 proposal 映射的前置验证决策。事件列表为空且 trace 已截断时，不能断言该尝试不存在。

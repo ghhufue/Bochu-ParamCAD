@@ -102,6 +102,174 @@ class Bundle:
                 summary[key] = stage[key]
         return summary
 
+    def selected_validation(self, surface):
+        report = self.support_validation()
+        if report is None:
+            return None
+        selected = surface.get("support_validation", {})
+        result = {"version": report["version"], "scope": report.get("scope")}
+        if "proposal_id" in selected:
+            result["proposal_id"] = selected["proposal_id"]
+        if "patch_id" in selected:
+            result["patch_id"] = selected["patch_id"]
+        recovery_links = [link for link in report.get("before_ownership", {}).get("source_recovery_proposal_links", [])
+                          if link.get("source_recovery_proposal_id") == selected.get("source_recovery_proposal_id")]
+        before_proposal_ids = {link.get("proposal_id") for link in recovery_links}
+        for stage_name in ("before_ownership", "after_ownership"):
+            stage = report.get(stage_name)
+            if stage is None:
+                continue
+            before_ownership = stage_name == "before_ownership"
+            decisions = [decision for decision in stage.get("decisions", [])
+                         if (decision.get("proposal_id") in before_proposal_ids if before_ownership else
+                             decision.get("proposal_id") == selected.get("proposal_id") and
+                             decision.get("patch_id") == selected.get("patch_id"))]
+            if decisions:
+                result[stage_name] = {"mode": stage.get("mode"), "reference": stage.get("reference"),
+                                      "decisions": decisions}
+                if before_ownership:
+                    result[stage_name]["source_recovery_proposal_links"] = recovery_links
+        trace = report.get("plane_merge_trace")
+        if trace is not None and selected.get("source_recovery_proposal_id") is not None:
+            proposal_id = selected["source_recovery_proposal_id"]
+            attempts = [attempt for attempt in trace.get("attempts", [])
+                        if proposal_id in [*attempt.get("first_result_proposal_ids", []),
+                                           *attempt.get("second_result_proposal_ids", [])]]
+            result["plane_merge_trace"] = {"version": trace.get("version"), "source": trace.get("source"),
+                "options": trace.get("options"), "truncated": trace.get("truncated"),
+                "event_limit": trace.get("event_limit"), "attempts": attempts}
+        return result
+
+    def relations(self):
+        if not hasattr(self, "_relations"):
+            with self._path("relations.jsonl").open(encoding="utf-8") as stream:
+                self._relations = [json.loads(line) for line in stream if line.strip()]
+        return self._relations
+
+    @staticmethod
+    def _plane_equation(surface):
+        if surface.get("geometry") != "plane":
+            raise ValueError("compare currently requires two plane surfaces")
+        normal = list(map(float, surface["parameters"]["normal"]))
+        offset = float(surface["parameters"]["offset"])
+        length = math.sqrt(sum(value*value for value in normal))
+        if not math.isfinite(length) or length <= 1e-12:
+            raise ValueError("Invalid plane equation")
+        equation = [value/length for value in (*normal, offset)]
+        major = max(range(3), key=lambda axis: abs(equation[axis]))
+        if equation[major] < 0:
+            equation = [-value for value in equation]
+        return equation
+
+    def diagnose(self, surface):
+        selected = surface.get("support_validation", {})
+        validation = self.selected_validation(surface)
+        merge_trace_available = bool(validation and "plane_merge_trace" in validation)
+        source_candidate_linked = selected.get("source_recovery_proposal_id") is not None
+        trace = (validation or {}).get("plane_merge_trace", {})
+        trace_present = bool((self.support_validation() or {}).get("plane_merge_trace"))
+        mesh = surface.get("render_mesh")
+        mesh_summary = None if not mesh else {
+            "vertices": mesh["vertices"]["count"], "triangles": mesh["triangles"]["count"],
+            "foreign_source_vertices": mesh["foreign_source_vertices"],
+            "covered_observations": mesh["covered_observations"]}
+        incident_all = [relation for relation in self.relations()
+                        if relation["first"] == surface["id"] or relation["second"] == surface["id"]]
+        incident = incident_all[:100]
+        result = self.analyze(surface)
+        summary = surface.get("summary", {})
+        return {
+            "schema": "paramcad.face_diagnostics", "version": 1,
+            "bundle_id": str(self.bundle_id), "source": self.manifest["source"],
+            "target": {key: surface.get(key) for key in ("id", "name", "geometry", "source", "point_count",
+                "parameters", "fit_residual", "confidence", "fit_stale")}
+                | {key: summary.get(key) for key in ("bounds", "centroid")},
+            "lineage": {"status": "source_recovery_candidate_link" if source_candidate_linked else
+                ("final_validation_link" if "proposal_id" in selected else "surface_only"),
+                **({"proposal_id": selected["proposal_id"]} if "proposal_id" in selected else {}),
+                **({"patch_id": selected["patch_id"]} if "patch_id" in selected else {}),
+                **({"source_recovery_proposal_id": selected["source_recovery_proposal_id"]}
+                   if source_candidate_linked else {}),
+                "trace_available": trace_present,
+                "candidate_linked": source_candidate_linked,
+                "matching_attempt_found": merge_trace_available and bool(trace.get("attempts")),
+                "trace_truncated": trace.get("truncated")},
+            "support_validation": validation,
+            "relations": incident,
+            "relation_count": len(incident_all),
+            "relations_truncated": len(incident_all) > len(incident),
+            "display_family": self.plane_group(surface),
+            "display_mesh": mesh_summary,
+            "measured_geometry": result,
+        }
+
+    def compare_planes(self, first, second):
+        a, b = self._plane_equation(first), self._plane_equation(second)
+        alignment = min(1., abs(sum(a[i]*b[i] for i in range(3))))
+        angle = math.degrees(math.acos(alignment))
+        offset_difference = abs(a[3]-b[3])
+        first_ids, second_ids = set(self.point_indices(first)), set(self.point_indices(second))
+        overlap = len(first_ids & second_ids)
+        first_bounds = first.get("summary", {}).get("bounds")
+        second_bounds = second.get("summary", {}).get("bounds")
+        bounds_gap = None
+        if first_bounds and second_bounds:
+            gaps = [max(0., first_bounds[0][axis]-second_bounds[1][axis],
+                        second_bounds[0][axis]-first_bounds[1][axis]) for axis in range(3)]
+            bounds_gap = math.sqrt(sum(gap*gap for gap in gaps))
+
+        common = [(a[i]+b[i])*.5 for i in range(4)]
+        length = math.sqrt(sum(value*value for value in common[:3]))
+        if length <= 1e-12:
+            raise ValueError("Cannot form a diagnostic midpoint plane")
+        common = [value/length for value in common]
+
+        def residual_summary(surface):
+            residuals = sorted(abs(sum(common[axis]*point["position"][axis] for axis in range(3)) + common[3])
+                               for point in self.points(surface))
+            if not residuals:
+                return {"count": 0}
+            def percentile(q):
+                return residuals[min(len(residuals)-1, math.ceil(q*len(residuals))-1)]
+            return {"count": len(residuals), "p50": percentile(.5), "p95": percentile(.95),
+                    "p99": percentile(.99), "max": residuals[-1]}
+
+        recorded = [relation for relation in self.relations()
+                    if {relation["first"], relation["second"]} == {first["id"], second["id"]}]
+        first_group, second_group = self.plane_group(first), self.plane_group(second)
+        same_group = bool(first_group and second_group and first_group["id"] == second_group["id"])
+        report = self.support_validation()
+        trace = report.get("plane_merge_trace", {}) if report else {}
+        first_proposal = first.get("support_validation", {}).get("source_recovery_proposal_id")
+        second_proposal = second.get("support_validation", {}).get("source_recovery_proposal_id")
+        def contains(values, value):
+            return value in list(values)
+        attempts = [attempt for attempt in trace.get("attempts", [])
+                    if (contains(attempt.get("first_result_proposal_ids", []), first_proposal) and
+                        contains(attempt.get("second_result_proposal_ids", []), second_proposal)) or
+                        (contains(attempt.get("first_result_proposal_ids", []), second_proposal) and
+                         contains(attempt.get("second_result_proposal_ids", []), first_proposal))]
+        trace_available = bool(trace and first_proposal is not None and second_proposal is not None)
+        candidate_links_available = first_proposal is not None and second_proposal is not None
+        return {
+            "schema": "paramcad.face_diagnostics", "version": 1, "bundle_id": str(self.bundle_id),
+            "comparison": {"first": first["id"], "second": second["id"], "angle_degrees": angle,
+                "offset_difference": offset_difference,
+                "same_equation_within_numeric_tolerance": angle < 1e-5 and offset_difference < 1e-5,
+                "bounds_distance_lower_bound": bounds_gap, "support_overlap_points": overlap,
+                "support_overlap_fraction_of_smaller": overlap/max(1, min(len(first_ids), len(second_ids))),
+                "diagnostic_midpoint_plane_residuals": {"first": residual_summary(first),
+                                                         "second": residual_summary(second)}},
+            "recorded_relations": recorded, "same_display_group": same_group,
+            "merge_trace_available": bool(trace), "candidate_links_available": candidate_links_available,
+            "same_recovery_proposal": candidate_links_available and first_proposal == second_proposal,
+            "matching_attempt_found": bool(attempts),
+            "trace_truncated": trace.get("truncated"), "merge_attempts": attempts,
+            "interpretation": ("Geometric comparisons are measurements on the exported supports. Midpoint-plane residuals are diagnostic probes, not the detector's merge fit. Merge attempts are linked through each surface's source proposal ID."
+                if trace_available else
+                "Geometric comparisons are measurements on the exported supports. Midpoint-plane residuals are diagnostic probes, not the detector's merge fit. This bundle has no merge trace linked to both selected source proposals."),
+        }
+
     def _binary(self, name, magic, record_size):
         stream = self._path(name).open("rb")
         try:
@@ -258,7 +426,7 @@ def main(argv=None):
     listing.add_argument("--kind")
     listing.add_argument("--limit", type=int, default=20)
     listing.add_argument("--offset", type=int, default=0)
-    for command in ("show", "analyze", "points"):
+    for command in ("show", "analyze", "explain", "points"):
         sub = commands.add_parser(command)
         group = sub.add_mutually_exclusive_group(required=True)
         group.add_argument("--id", type=int)
@@ -269,6 +437,8 @@ def main(argv=None):
             sub.add_argument("--limit", type=int, default=10)
     verify = commands.add_parser("verify")
     verify.add_argument("--full", action="store_true", help="Explicitly hash binary assets as well")
+    compare = commands.add_parser("compare", help="Compare two fitted planes using their exported observations")
+    compare.add_argument("--ids", required=True, help="Exactly two comma-separated surface IDs")
     args = parser.parse_args(argv)
     bundle = Bundle(args.bundle)
     if args.command == "list":
@@ -279,6 +449,14 @@ def main(argv=None):
         result = {"total_matches": len(rows), "surfaces": rows[args.offset:args.offset+args.limit]}
     elif args.command == "verify":
         result = bundle.verify(args.full)
+    elif args.command == "compare":
+        try:
+            ids = [int(value.strip()) for value in args.ids.split(",")]
+        except ValueError as error:
+            parser.error("--ids must contain two comma-separated integers")
+        if len(ids) != 2 or ids[0] == ids[1] or any(value < 0 for value in ids):
+            parser.error("--ids must contain exactly two distinct nonnegative IDs")
+        result = bundle.compare_planes(*(bundle.surface(surface_id=value) for value in ids))
     else:
         surface = bundle.surface(surface_id=args.id, name=args.name)
         if args.command == "show":
@@ -288,6 +466,8 @@ def main(argv=None):
                           "support_validation_report": bundle.support_validation(surface)}
         elif args.command == "analyze":
             result = bundle.analyze(surface)
+        elif args.command == "explain":
+            result = bundle.diagnose(surface)
         else:
             if not 1 <= args.limit <= 100:
                 parser.error("Raw coordinate output requires limit 1..100")

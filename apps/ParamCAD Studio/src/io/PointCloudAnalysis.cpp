@@ -21,6 +21,34 @@
 namespace {
 using Vec = modeling::Vec3;
 QJsonArray array(const Vec& p) { return {p.x, p.y, p.z}; }
+QJsonObject planeMergeTrace(const reconstruction::PlaneDetectionOptions& options,
+                            const std::vector<reconstruction::PlaneMergeDiagnostic>& diagnostics,
+                            bool truncated) {
+    QJsonArray attempts;
+    for(const auto& item:diagnostics) {
+        const auto resultIds=[](const auto& ids){QJsonArray out;for(const auto value:ids)out.append(qint64(value));return out;};
+        QJsonArray residuals;for(const auto value:item.componentP95Residuals)residuals.append(value);
+        QJsonObject attempt{{"first_candidate_ids",resultIds(item.firstCandidates)},
+            {"second_candidate_ids",resultIds(item.secondCandidates)},
+            {"first_result_proposal_ids",resultIds(item.firstResultProposals)},
+            {"second_result_proposal_ids",resultIds(item.secondResultProposals)},
+            {"phase",QString::fromStdString(item.phase)},
+            {"outcome",QString::fromStdString(item.outcome)},{"reason",QString::fromStdString(item.reason)},
+            {"angle_degrees",item.angleDegrees},{"maximum_angle_degrees",item.maximumAngleDegrees},
+            {"spatial_check_evaluated",item.spatialCheckEvaluated},
+            {"maximum_allowed_residual",item.maximumAllowedResidual},
+            {"residual_check_evaluated",item.residualCheckEvaluated},
+            {"source_component_p95_residuals",residuals}};
+        if(item.spatialCheckEvaluated)attempt["spatially_connected"]=item.spatiallyConnected;
+        attempts.append(attempt);
+    }
+    return {{"version",1},{"source","desktop_source_support_recovery"},
+        {"truncated",truncated},{"event_limit",10000},
+        {"options",QJsonObject{{"distance_threshold",options.distanceThreshold},
+            {"merge_angular_tolerance_degrees",options.mergeAngularToleranceRadians*180/std::acos(-1.)},
+            {"merge_residual_tolerance_multiplier",options.mergeResidualToleranceMultiplier},
+            {"component_inlier_fraction",.95}}},{"attempts",attempts}};
+}
 PointCloudRegion describe(const reconstruction::PrimitiveEvidence& evidence, int index)
 {
     PointCloudRegion region;
@@ -188,14 +216,21 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
     // downsampled seed cannot recover a long connected face. Keep the processed
     // analysis fingerprint intact for subsequent CAD cache validation.
     auto displayEvidence=analysis.supportProposals.empty()?analysis.surfaces:analysis.supportProposals;
-    if(!reconstruction::recoverPlaneSupport(source,options.plane,displayEvidence,error,{},cancelled)) {
+    std::vector<reconstruction::PlaneMergeDiagnostic> mergeDiagnostics;
+    bool mergeDiagnosticsTruncated=false;
+    if(!reconstruction::recoverPlaneSupport(source,options.plane,displayEvidence,error,{},cancelled,&mergeDiagnostics,&mergeDiagnosticsTruncated)) {
         result.error=QString::fromStdString(error);return result;
     }
+    result.planeMergeTrace=planeMergeTrace(options.plane,mergeDiagnostics,mergeDiagnosticsTruncated);
     reconstruction::SurfaceAnalysisResult displayAnalysis;
     if(!reconstruction::indexDetectedSurfaceEvidence(source,displayEvidence,analysisOptions,displayAnalysis,error,{},cancelled,{},progress)) {
         result.error=QString::fromStdString(error);return result;
     }
     result.sourceSupportValidation=displayAnalysis.supportValidation;
+    for(size_t i=0;i<displayAnalysis.supportProposalIds.size();++i)
+        if(displayAnalysis.supportProposalIds[i])
+            result.sourceRecoveryProposalLinks.append(QJsonObject{{"proposal_id",qint64(i+1)},
+                {"source_recovery_proposal_id",qint64(displayAnalysis.supportProposalIds[i])}});
     if(!reconstruction::revalidateSurfaceSupportOnSource(points,source,result.analysis,error,cancelled,&displayAnalysis)) {
         result.error=QString::fromStdString(error);return result;
     }
@@ -246,6 +281,8 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
                 region.supportValidation["angular_span_deg"]=d.angularSpanRadians*180/std::acos(-1.);
             }
         }
+        if(j<ownership.sourceRecoveryProposalIds.size() && ownership.sourceRecoveryProposalIds[j])
+            region.supportValidation["source_recovery_proposal_id"]=qint64(ownership.sourceRecoveryProposalIds[j]);
         std::vector<vtkIdType> members;
         std::visit([&](const auto& e){for(auto id:e.supportPointIds)members.push_back(originalBySource.at(id));},evidence);
         result.surfaces.push_back({std::move(region),std::move(members)});
@@ -296,9 +333,8 @@ std::vector<DetectedPointCloudSurface> describeAnalysisPatches(
         std::sort(surface.points.begin(),surface.points.end());
         surface.points.erase(std::unique(surface.points.begin(),surface.points.end()),surface.points.end());
         if (surface.points.size() < minimum) continue;
-        if (ownedPreview && surface.surface.geometry == "sphere" && patch.surfaceId <= analysis.supportProposalIds.size()) {
-            const auto proposal = analysis.supportProposalIds[patch.surfaceId - 1];
-            surface.surface.validatedSphereTriangles = validatedSphereTriangles(analysis.supportValidation, proposal, [&](auto id) {
+        if (ownedPreview && surface.surface.geometry == "sphere") {
+            surface.surface.validatedSphereTriangles = validatedSphereTriangles(analysis.supportValidation, patch.surfaceId, [&](auto id) {
                 if (id == 0 || id > sourcePointCount) return vtkIdType(-1);
                 const auto row = static_cast<vtkIdType>(id - 1);
                 return std::binary_search(surface.points.begin(), surface.points.end(), row) ? row : vtkIdType(-1);

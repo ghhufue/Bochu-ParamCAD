@@ -14,7 +14,8 @@ struct Fixture {
     std::vector<PrimitiveEvidence> evidence;
     Fixture() {
         for(int face=0;face<3;++face) {
-            PlaneEvidence plane;plane.plane={{0,0,1},-face*50.};plane.confidence=.99;
+            PlaneEvidence plane;plane.id=static_cast<SurfaceId>(100+face);
+            plane.plane={{0,0,1},-face*50.};plane.confidence=.99;
             for(int x=0;x<20;++x)for(int y=0;y<20;++y) {
                 PointSample p;p.id=points.size()*3+17;p.position={double(x),double(y),face*50.};
                 p.normal=modeling::Vec3{0,0,1};points.push_back(p);plane.supportPointIds.push_back(p.id);
@@ -39,6 +40,11 @@ void ownershipAndModes() {
         SurfaceOwnershipResult result;
         require(resolveSurfaceOwnership(source,analysis,options,result,error),error.c_str());
         require(result.surfaces.size()==3 && result.assignedPoints==1200,"complete planes survive duplicate proposals in every mode");
+        require(result.sourceRecoveryProposalIds.size()==result.surfaces.size(),
+            "recovery proposal mapping stays aligned with published ownership surfaces");
+        const std::set<SurfaceId> origins(result.sourceRecoveryProposalIds.begin(),result.sourceRecoveryProposalIds.end());
+        require(origins==std::set<SurfaceId>{100,101,102},
+            "ownership proposal numbering does not replace original recovery proposal IDs");
         std::set<PointId> owned;
         for(const auto& evidence:result.surfaces)std::visit([&](const auto& e){
             for(auto id:e.supportPointIds)require(id!=9000000 && owned.insert(id).second,"unique source IDs without absorbing distant observations");
@@ -61,6 +67,17 @@ void ownershipAndModes() {
             require(unchanged.assignedPoints==17,"settings rejection is transactional");
         }
     }
+}
+void acceptedSurfacesRetainInputProposalIds() {
+    Fixture fixture;
+    for(size_t i=0;i<fixture.evidence.size();++i)
+        std::get<PlaneEvidence>(fixture.evidence[i]).id=static_cast<SurfaceId>(100+std::min<size_t>(i,2));
+    SurfaceAnalysisOptions settings;settings.supportValidation.mode=SupportValidationMode::Report;
+    SurfaceAnalysisResult analysis;std::string error;
+    require(indexSurfaceEvidence(PointStore(fixture.points),fixture.evidence,settings,analysis,error),error.c_str());
+    const std::set<SurfaceId> origins(analysis.supportProposalIds.begin(),analysis.supportProposalIds.end());
+    require(origins==std::set<SurfaceId>{100,101,102},
+        "accepted surface IDs map back to input proposal IDs after support validation reindexing");
 }
 void recoverSupportedPlaneHolesAndRejectedConePoints() {
     Fixture fixture;
@@ -117,6 +134,6 @@ void recoverSupportedPlaneHolesAndRejectedConePoints() {
 }
 }
 int main() {
-    try {ownershipAndModes();recoverSupportedPlaneHolesAndRejectedConePoints();std::cout<<"surface_ownership_test passed\n";return 0;}
+    try {ownershipAndModes();acceptedSurfacesRetainInputProposalIds();recoverSupportedPlaneHolesAndRejectedConePoints();std::cout<<"surface_ownership_test passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

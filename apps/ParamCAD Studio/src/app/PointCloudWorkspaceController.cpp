@@ -1527,8 +1527,11 @@ void PointCloudWorkspaceController::startPointCloudAnalysis(int regionId, bool r
         if(!regionId) {
             m_document->addSurfaces(result->surfaces, recordUndo);
             const auto report=[](const auto& r){return QJsonDocument::fromJson(QByteArray::fromStdString(reconstruction::serializeSurfaceSupportReport(r))).object();};
+            auto beforeOwnership=report(result->sourceSupportValidation);
+            beforeOwnership["source_recovery_proposal_links"]=result->sourceRecoveryProposalLinks;
             m_surfaceSupportReport={{"version",1},{"scope","detection_active_subset"},
-                {"before_ownership",report(result->sourceSupportValidation)},{"after_ownership",report(result->finalSupportValidation)}};
+                {"before_ownership",beforeOwnership},{"after_ownership",report(result->finalSupportValidation)},
+                {"plane_merge_trace",result->planeMergeTrace}};
             m_surfaceSupportReportFingerprint=surfaceSupportFingerprint(*m_document);
         }
         if (result->surfaces.empty()) {

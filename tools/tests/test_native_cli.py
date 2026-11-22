@@ -80,6 +80,12 @@ class NativeCliTests(unittest.TestCase):
         self.assertEqual(actual["observations_read"], expected["observations_read"])
         self.assertEqual(actual["mesh"], expected["mesh"])
         self.assertEqual(actual["measured_plane_residual"], expected["measured_plane_residual"])
+        explained = self.run_cli("inspect", "--bundle", bundle, "explain", "--id", 182)
+        self.assertEqual(explained, python_bundle.diagnose(python_bundle.surface(surface_id=182)))
+        compared = self.run_cli("inspect", "--bundle", bundle, "compare", "--ids", "182,418")
+        self.assertEqual(compared, python_bundle.compare_planes(
+            python_bundle.surface(surface_id=182), python_bundle.surface(surface_id=418)))
+        self.run_cli("inspect", "--bundle", bundle, "compare", "--ids", "182,182", expected=2)
         self.run_cli("inspect", "--bundle", bundle, "verify", "--full")
         point_file = bundle / "points.bin"
         raw = point_file.read_bytes()

@@ -14,6 +14,9 @@ struct SurfaceOwnershipOptions {
 struct SurfaceOwnershipResult {
     // Evidence support IDs are disjoint source PointIds, never display row indices.
     std::vector<PrimitiveEvidence> surfaces;
+    // Recovery proposal IDs aligned with surfaces. These IDs precede the
+    // ownership and final-validation proposal numbering spaces.
+    std::vector<SurfaceId> sourceRecoveryProposalIds;
     SurfaceSupportValidationReport finalSupportValidation;
     std::size_t assignedPoints = 0;
     std::size_t preferredPlaneCount = 0;

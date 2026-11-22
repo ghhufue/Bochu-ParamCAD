@@ -39,7 +39,8 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/config/GenerateBuildInfo.cmake")
 set(PARAMCAD_BUILD_INFO_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>")
 set(PARAMCAD_BUILD_INFO_STAMP "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/paramcad_build_info/$<CONFIG>.stamp")
-add_custom_command(OUTPUT "${PARAMCAD_BUILD_INFO_STAMP}"
+add_custom_target(paramcad_build_info)
+add_custom_command(TARGET paramcad_build_info PRE_BUILD
     COMMAND "${CMAKE_COMMAND}"
         "-DREPOSITORY_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/../.."
         "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
@@ -50,9 +51,7 @@ add_custom_command(OUTPUT "${PARAMCAD_BUILD_INFO_STAMP}"
         "-DOUTPUT_DIRECTORY=${PARAMCAD_BUILD_INFO_DIR}"
         "-DBUILD_INFO_STAMP=${PARAMCAD_BUILD_INFO_STAMP}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/config/GenerateBuildInfo.cmake"
-    BYPRODUCTS "${PARAMCAD_BUILD_INFO_DIR}/ParamCADBuildInfo.h"
     VERBATIM)
-add_custom_target(paramcad_build_info DEPENDS "${PARAMCAD_BUILD_INFO_STAMP}")
 
 option(CAD_CLIENT_BUILD_TESTS "Build ParamCAD Studio I/O tests" OFF)
 option(CAD_CLIENT_BUILD_CAPTURE_TESTS "Build structured-light rendering contract tests" OFF)

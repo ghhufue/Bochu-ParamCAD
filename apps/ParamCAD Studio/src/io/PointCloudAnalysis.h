@@ -2,12 +2,15 @@
 
 #include "core/PointCloudSelection.h"
 #include <reconstruction/pipeline/GuidedSolidRecognizer.h>
+#include <QJsonArray>
 
 struct PointCloudAnalysisResult
 {
     std::vector<DetectedPointCloudSurface> surfaces;
     reconstruction::SurfaceAnalysisResult analysis;
     reconstruction::SurfaceSupportValidationReport sourceSupportValidation, finalSupportValidation;
+    QJsonArray sourceRecoveryProposalLinks;
+    QJsonObject planeMergeTrace;
     QString error;
     QJsonObject cache;
     size_t processedPoints = 0;

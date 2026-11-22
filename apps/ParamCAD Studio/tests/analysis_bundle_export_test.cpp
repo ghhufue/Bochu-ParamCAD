@@ -23,8 +23,30 @@ int main(int argc,char** argv) {
         face.parameters={{"normal",QJsonArray{0,0,1}},{"offset",0}};face.source="detected";
         PointCloudRegion remote=face;remote.id=418;remote.name=QStringLiteral("平面 407");
         s.regions={face,remote};s.relations={{1,182,418,"coplanar",true,.9}};
-        s.regions[0].supportValidation={{"verdict","accepted"},{"density_ratio",1.0}};
-        s.supportValidation={{"version",1},{"scope","test_fixture"},{"reference",QJsonObject{{"available",true},{"density",1.0}}}};
+        s.regions[0].supportValidation={{"verdict","accepted"},{"density_ratio",1.0},
+            {"proposal_id",17},{"patch_id",4},{"source_recovery_proposal_id",41}};
+        s.regions[1].supportValidation={{"verdict","accepted"},{"proposal_id",18},{"patch_id",5},
+            {"source_recovery_proposal_id",42}};
+        const QJsonObject beforeDecision{{"proposal_id",3},{"patch_id",9},{"verdict","accepted"},{"point_count",3}};
+        const QJsonObject decision{{"proposal_id",17},{"patch_id",4},{"verdict","accepted"},{"point_count",3}};
+        const QJsonObject validationStage{{"mode",2},{"reference",QJsonObject{{"available",true},{"density",1.0}}},
+            {"decisions",QJsonArray{decision}}};
+        const QJsonObject mergeAttempt{{"first_candidate_ids",QJsonArray{1}},{"second_candidate_ids",QJsonArray{2}},
+            {"first_result_proposal_ids",QJsonArray{41}},{"second_result_proposal_ids",QJsonArray{42}},
+            {"phase","seed_consolidation"},{"outcome","rejected"},
+            {"reason","component_p95_residual_exceeded"},{"angle_degrees",0.1},
+            {"maximum_angle_degrees",2.5},{"spatial_check_evaluated",true},{"spatially_connected",true},
+            {"residual_check_evaluated",true},
+            {"maximum_allowed_residual",0.14},{"source_component_p95_residuals",QJsonArray{0.2,0.1}}};
+        s.supportValidation={{"version",1},{"scope","test_fixture"},
+            {"before_ownership",QJsonObject{{"mode",2},{"reference",validationStage["reference"]},
+                {"decisions",QJsonArray{beforeDecision}},
+                {"source_recovery_proposal_links",QJsonArray{QJsonObject{{"proposal_id",3},
+                    {"source_recovery_proposal_id",41}}}}}},{"after_ownership",validationStage},
+            {"plane_merge_trace",QJsonObject{{"version",1},{"source","fixture"},
+                {"truncated",false},{"event_limit",10000},
+                {"options",QJsonObject{{"distance_threshold",0.1},{"merge_angular_tolerance_degrees",2.5}}},
+                {"attempts",QJsonArray{mergeAttempt}}}}};
         s.surfaces.colorRegions={{182,182},{418,182}};s.displayedSurfaces={182};
         auto& mesh=s.surfaces.meshes[182];mesh.positions={{{0,0,0}},{{1,0,0}},{{100,50,0}}};
         mesh.sourcePointIds={0,1,3};mesh.triangles={{{0,1,2}}};mesh.coveredPointIds={0,1};

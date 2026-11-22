@@ -243,6 +243,18 @@ tools/
 python -m unittest discover -s tools/tests -p test_pcad_cli.py -v
 ```
 
+## 平面面片诊断
+
+从不可变分析包解释单面记录，或比较两个平面的观测差异：
+
+```powershell
+pcad inspect --bundle path/to/cloud.ply.pcad-analysis explain --id 118
+pcad inspect --bundle path/to/cloud.ply.pcad-analysis compare --ids 118,119
+```
+
+报告区分最终支持验证、恢复候选来源、记录的相邻/共面关系与显示分组。新 bundle 还会保留 Studio 原始点云支持恢复的候选对和门槛结果，并用 `source_recovery_proposal_links` 映射所有权前验证 ID。`trace_available`、`candidate_linked`、`matching_attempt_found` 和 `trace_truncated` 分别说明 trace 存在、所选面已关联候选、候选出现于尝试事件、事件记录是否截断。该 trace 不覆盖初始 RANSAC 或工作点云检测。只有候选 ID 匹配的事件才可用于解释合并拒绝。维护诊断流程时使用 `$paramcad-plane-diagnostics` Skill，并为新的逐阶段原因码补结构化字段和回归 fixture。
+比较报告还区分两个面是否来自同一恢复 proposal，以及是否找到两者之间的配对事件。相同恢复 proposal 的多个最终面说明后续 patch/归属处理，不表示两个最终面之间发生合并拒绝。
+
 
 ## 点云重建模块契约测试
 

@@ -145,8 +145,19 @@ bool indexEvidence(const PointStore& points, const std::vector<PrimitiveEvidence
         validateDetectedSurfaceSupport(points, proposals, options, accepted, report, error, protectedIds, cancelled, protectedSeeds, progress) :
         validateSurfaceSupport(points, proposals, options, accepted, report, error, frozenReference, cancelled, protectedIds, protectedSeeds);
     if (!validated) return false;
+    std::vector<SurfaceId> inputProposalIds;
+    inputProposalIds.reserve(proposals.size());
+    for(const auto& proposal:proposals)
+        inputProposalIds.push_back(std::visit([](const auto& surface){return surface.id;},proposal));
     std::vector<SurfaceId> origins;
-    for (const auto& e : accepted) origins.push_back(std::visit([](const auto& s) { return s.id; }, e));
+    origins.reserve(accepted.size());
+    for (const auto& e : accepted) {
+        const auto acceptedId=std::visit([](const auto& surface){return surface.id;},e);
+        origins.push_back(options.supportValidation.mode==SupportValidationMode::Enforce
+            ? (acceptedId && acceptedId<=inputProposalIds.size()
+                ? inputProposalIds[static_cast<std::size_t>(acceptedId-1)] : 0)
+            : acceptedId);
+    }
     SurfaceAnalysisResult staged;
     if (!diagnostics::profileStage("surface.index_accepted", [&] {
         return indexSurfacePatches(points, accepted, options, staged, error);

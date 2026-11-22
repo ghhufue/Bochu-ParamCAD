@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <numeric>
 #include <limits>
 #include <map>
 #include <set>
@@ -25,7 +26,7 @@ qint64 integer(const QJsonValue& v){check(v.isDouble()&&std::isfinite(v.toDouble
 struct Range{qint64 offset,count;};
 class Bundle {
 public:
-    QDir root;QJsonObject manifest;QJsonArray index;QUuid uuid;
+    QDir root;QJsonObject manifest;QJsonArray index;QUuid uuid;QJsonArray relationIndex;
     explicit Bundle(const QString& directory):root(QFileInfo(directory).canonicalFilePath()){
         check(QFileInfo(directory).isDir(),"Bundle directory does not exist");
         manifest=json("manifest.json");check(manifest["schema"]=="paramcad.analysis"&&manifest["version"].toInt()==1,"Unsupported bundle schema/version");
@@ -41,6 +42,11 @@ public:
         check(!candidate.isEmpty()&&candidate.startsWith(prefix,Qt::CaseInsensitive),"Missing asset or bundle path escapes directory");return candidate;}
     QByteArray read(const QString& name)const{QFile file(path(name));check(file.open(QIODevice::ReadOnly),file.errorString());return file.readAll();}
     QJsonObject json(const QString& name)const{return object(read(name));}
+    const QJsonArray& relations(){
+        if(relationIndex.isEmpty()&&manifest["relation_count"].toInt()>0)
+            for(const auto& line:read("relations.jsonl").split('\n'))if(!line.trimmed().isEmpty())relationIndex.append(object(line));
+        return relationIndex;
+    }
     QJsonValue supportValidation(const QJsonObject* surface=nullptr)const {
         const auto ref=manifest["support_validation"].toObject();if(ref.isEmpty())return QJsonValue::Null;
         const auto raw=read(ref["metadata"].toString());check(digest(raw)==ref["sha256"].toString().toLatin1(),"Support validation checksum mismatch");
@@ -49,7 +55,9 @@ public:
         const auto stage=report.contains("after_ownership")?report["after_ownership"].toObject():report;
         const auto selected=surface->value("support_validation").toObject();QJsonArray matches;
         if(selected.contains("proposal_id"))for(auto value:stage["decisions"].toArray()) {
-            const auto d=value.toObject();if(d["proposal_id"]==selected["proposal_id"])matches.append(d);
+            const auto d=value.toObject();
+            if(d["proposal_id"]==selected["proposal_id"]&&
+               (!selected.contains("patch_id")||d["patch_id"]==selected["patch_id"]))matches.append(d);
         }
         return QJsonObject{{"version",report["version"]},{"scope",report["scope"]},{"mode",stage["mode"]},
             {"reference",stage["reference"]},{"options",stage["options"]},{"selected_decisions",matches}};
@@ -149,6 +157,163 @@ public:
         if(length>0&&count)result["measured_plane_residual"]=QJsonObject{{"mean",residualSum/count},{"max",maximum},{"rms",std::sqrt(squared/count)}};
         if(s.contains("support_validation"))result["support_validation"]=s["support_validation"];
         return result;}
+    QJsonObject selectedValidation(const QJsonObject& s)const {
+        const auto reference=manifest["support_validation"].toObject();
+        if(reference.isEmpty())return {};
+        const auto report=supportValidation();
+        const auto selected=s["support_validation"].toObject();
+        std::set<int> beforeOwnershipProposalIds;QJsonArray selectedRecoveryLinks;
+        const int recoveryProposal=selected["source_recovery_proposal_id"].toInt(-1);
+        for(const auto& value:report["before_ownership"].toObject()["source_recovery_proposal_links"].toArray()) {
+            const auto link=value.toObject();
+            if(link["source_recovery_proposal_id"].toInt(-2)==recoveryProposal) {
+                beforeOwnershipProposalIds.insert(link["proposal_id"].toInt(-1));
+                selectedRecoveryLinks.append(link);
+            }
+        }
+        QJsonObject output{{"version",report["version"]},{"scope",report["scope"]},
+            {"proposal_id",selected["proposal_id"]},{"patch_id",selected["patch_id"]}};
+        for(const auto* stageName:{"before_ownership","after_ownership"}) {
+            const auto stage=report[stageName].toObject();
+            QJsonArray decisions;
+            const bool beforeOwnership=QString::fromUtf8(stageName)=="before_ownership";
+            for(const auto& value:stage["decisions"].toArray()) {
+                const auto decision=value.toObject();
+                const bool linked=beforeOwnership
+                    ? beforeOwnershipProposalIds.count(decision["proposal_id"].toInt(-2))!=0
+                    : decision["proposal_id"]==selected["proposal_id"] && decision["patch_id"]==selected["patch_id"];
+                if(linked)decisions.append(decision);
+            }
+            if(!decisions.isEmpty()) {
+                QJsonObject selectedStage{{"mode",stage["mode"]},{"reference",stage["reference"]},{"decisions",decisions}};
+                if(beforeOwnership)selectedStage["source_recovery_proposal_links"]=selectedRecoveryLinks;
+                output[stageName]=selectedStage;
+            }
+        }
+        const auto trace=report["plane_merge_trace"].toObject();
+        if(!trace.isEmpty() && !selected["source_recovery_proposal_id"].isUndefined()) {
+            QJsonArray attempts;
+            const auto proposal=selected["source_recovery_proposal_id"].toInt(-1);
+            for(const auto& value:trace["attempts"].toArray()) {
+                const auto attempt=value.toObject();
+                const auto firstResults=attempt["first_result_proposal_ids"].toArray(),secondResults=attempt["second_result_proposal_ids"].toArray();
+            const auto matches=[&](const QJsonArray& values) {
+                return std::any_of(values.begin(),values.end(),[&](const auto& value){return value.toInt()==proposal;});
+            };
+                if(matches(firstResults)||matches(secondResults))attempts.append(attempt);
+            }
+            output["plane_merge_trace"]=QJsonObject{{"version",trace["version"]},{"source",trace["source"]},
+                {"options",trace["options"]},{"truncated",trace["truncated"]},
+                {"event_limit",trace["event_limit"]},{"attempts",attempts}};
+        }
+        return output;
+    }
+    QJsonObject diagnose(const QJsonObject& s) {
+        const auto support=s["support_validation"].toObject();
+        const auto validation=selectedValidation(s);
+        const bool mergeTraceAvailable=validation.contains("plane_merge_trace");
+        const bool sourceCandidateLinked=!support["source_recovery_proposal_id"].isUndefined();
+        const auto trace=validation["plane_merge_trace"].toObject();
+        const bool tracePresent=supportValidation().toObject().contains("plane_merge_trace");
+        const auto mesh=s["render_mesh"].toObject();
+        QJsonArray incident;int incidentCount=0;
+        for(const auto& value:relations()) {
+            const auto relation=value.toObject();
+            if(relation["first"]==s["id"]||relation["second"]==s["id"]) {
+                ++incidentCount;
+                if(incident.size()<100)incident.append(relation);
+            }
+        }
+        QJsonObject target{{"id",s["id"]},{"name",s["name"]},{"geometry",s["geometry"]},
+            {"source",s["source"]},{"point_count",s["point_count"]},{"parameters",s["parameters"]},
+            {"fit_residual",s["fit_residual"]},{"confidence",s["confidence"]},
+            {"bounds",s["summary"].toObject()["bounds"]},{"centroid",s["summary"].toObject()["centroid"]},
+            {"fit_stale",s["fit_stale"]}};
+        QJsonObject output{{"schema","paramcad.face_diagnostics"},{"version",1},
+            {"bundle_id",manifest["bundle_id"]},{"source",manifest["source"]},{"target",target},
+            {"lineage",QJsonObject{{"status",sourceCandidateLinked?"source_recovery_candidate_link":(support.contains("proposal_id")?"final_validation_link":"surface_only")},
+                {"proposal_id",support["proposal_id"]},{"patch_id",support["patch_id"]},
+                {"source_recovery_proposal_id",support["source_recovery_proposal_id"]},
+                {"trace_available",tracePresent},
+                {"candidate_linked",sourceCandidateLinked},
+                {"matching_attempt_found",mergeTraceAvailable&&!trace["attempts"].toArray().isEmpty()},
+                {"trace_truncated",trace["truncated"]}}},
+            {"support_validation",validation},{"relations",incident},
+            {"relation_count",incidentCount},{"relations_truncated",incidentCount>incident.size()},
+            {"display_family",group(s)},
+            {"display_mesh",mesh.isEmpty()?QJsonValue(QJsonValue::Null):QJsonValue(QJsonObject{
+                {"vertices",mesh["vertices"].toObject()["count"]},{"triangles",mesh["triangles"].toObject()["count"]},
+                {"foreign_source_vertices",mesh["foreign_source_vertices"]},{"covered_observations",mesh["covered_observations"]}})},
+            {"measured_geometry",analyze(s)}};
+        return output;
+    }
+    QJsonObject comparePlanes(const QJsonObject& first,const QJsonObject& second) {
+        check(first["geometry"]=="plane"&&second["geometry"]=="plane","compare currently requires two plane surfaces");
+        auto equation=[](const QJsonObject& s){
+            const auto p=s["parameters"].toObject();const auto a=p["normal"].toArray();
+            check(a.size()==3,"Invalid plane normal");
+            std::array<double,4> e{a[0].toDouble(),a[1].toDouble(),a[2].toDouble(),p["offset"].toDouble()};
+            const auto length=std::hypot(e[0],e[1],e[2]);check(std::isfinite(length)&&length>1e-12,"Invalid plane equation");
+            for(auto& v:e)v/=length;
+            const auto major=std::max_element(e.begin(),e.begin()+3,[](double a,double b){return std::abs(a)<std::abs(b);});
+            if(*major<0)for(auto& v:e)v=-v;
+            return e;
+        };
+        const auto a=equation(first),b=equation(second);
+        const double alignment=std::clamp(std::abs(a[0]*b[0]+a[1]*b[1]+a[2]*b[2]),0.,1.);
+        const double angle=std::acos(alignment)*180/3.14159265358979323846;
+        const double offset=std::abs(a[3]-b[3]);
+        std::set<quint64> firstIds,secondIds;for(auto id:indices(first))firstIds.insert(id);for(auto id:indices(second))secondIds.insert(id);
+        qint64 overlap=0;for(auto id:firstIds)overlap+=secondIds.count(id)!=0;
+        const auto bounds=[](const QJsonObject& s){QJsonArray out;for(const auto& v:s["summary"].toObject()["bounds"].toArray())out.append(v.toArray());return out;};
+        const auto ba=bounds(first),bb=bounds(second);double gap2=0;
+        if(ba.size()==2&&bb.size()==2)for(int axis=0;axis<3;++axis){
+            const double dx=std::max({0.,ba[0].toArray()[axis].toDouble()-bb[1].toArray()[axis].toDouble(),bb[0].toArray()[axis].toDouble()-ba[1].toArray()[axis].toDouble()});gap2+=dx*dx;}
+        std::array<double,4> common{};for(int i=0;i<4;++i)common[i]=(a[i]+b[i])*.5;
+        const auto commonLength=std::hypot(common[0],common[1],common[2]);check(commonLength>1e-12,"Cannot form a diagnostic midpoint plane");
+        for(auto& value:common)value/=commonLength;
+        auto residuals=[&](const QJsonObject& s){std::vector<double> values;points(s,[&](const Point& p){values.push_back(std::abs(common[0]*p.p[0]+common[1]*p.p[1]+common[2]*p.p[2]+common[3]));});
+            std::sort(values.begin(),values.end());if(values.empty())return QJsonObject{};
+            const auto percentile=[&](double q){return values[std::min(values.size()-1,size_t(std::ceil(q*values.size())-1))];};
+            return QJsonObject{{"count",qint64(values.size())},{"p50",percentile(.5)},{"p95",percentile(.95)},
+                {"p99",percentile(.99)},{"max",values.back()}};};
+        QJsonArray relationRows;
+        for(const auto& value:relations()){const auto r=value.toObject();const auto u=r["first"].toInt(),v=r["second"].toInt();
+            if((u==first["id"].toInt()&&v==second["id"].toInt())||(v==first["id"].toInt()&&u==second["id"].toInt()))relationRows.append(r);}
+        const auto groupA=first["shared_plane"].toObject(),groupB=second["shared_plane"].toObject();
+        const bool sameDisplayGroup=!groupA.isEmpty()&&groupA["id"]==groupB["id"];
+        const auto supportReport=supportValidation().toObject();
+        const auto trace=supportReport["plane_merge_trace"].toObject();QJsonArray mergeAttempts;
+        const int firstProposal=first["support_validation"].toObject()["source_recovery_proposal_id"].toInt(-1);
+        const int secondProposal=second["support_validation"].toObject()["source_recovery_proposal_id"].toInt(-1);
+        for(const auto& value:trace["attempts"].toArray()) {
+            const auto attempt=value.toObject();
+            const auto firstResults=attempt["first_result_proposal_ids"].toArray(),secondResults=attempt["second_result_proposal_ids"].toArray();
+            const auto contains=[&](const QJsonArray& values,int value) {
+                return std::any_of(values.begin(),values.end(),[&](const auto& item){return item.toInt()==value;});
+            };
+            if((contains(firstResults,firstProposal)&&contains(secondResults,secondProposal))||
+               (contains(firstResults,secondProposal)&&contains(secondResults,firstProposal)))mergeAttempts.append(attempt);
+        }
+        const bool candidateLinksAvailable=firstProposal>=0&&secondProposal>=0;
+        const bool sameRecoveryProposal=candidateLinksAvailable&&firstProposal==secondProposal;
+        return {{"schema","paramcad.face_diagnostics"},{"version",1},{"bundle_id",manifest["bundle_id"]},
+            {"comparison",QJsonObject{{"first",first["id"]},{"second",second["id"]},
+                {"angle_degrees",angle},{"offset_difference",offset},{"same_equation_within_numeric_tolerance",angle<1e-5&&offset<1e-5},
+                {"bounds_distance_lower_bound",std::sqrt(gap2)},{"support_overlap_points",overlap},
+                {"support_overlap_fraction_of_smaller",double(overlap)/std::max<qint64>(1,std::min<qint64>(firstIds.size(),secondIds.size()))},
+                {"diagnostic_midpoint_plane_residuals",QJsonObject{{"first",residuals(first)},{"second",residuals(second)}}}}},
+            {"recorded_relations",relationRows},{"same_display_group",sameDisplayGroup},
+            {"merge_trace_available",!trace.isEmpty()},
+            {"candidate_links_available",candidateLinksAvailable},
+            {"same_recovery_proposal",sameRecoveryProposal},
+            {"matching_attempt_found",!mergeAttempts.isEmpty()},
+            {"trace_truncated",trace["truncated"]},
+            {"merge_attempts",mergeAttempts},
+            {"interpretation",!trace.isEmpty()&&firstProposal>=0&&secondProposal>=0?
+                "Geometric comparisons are measurements on the exported supports. Midpoint-plane residuals are diagnostic probes, not the detector's merge fit. Merge attempts are linked through each surface's source proposal ID.":
+                "Geometric comparisons are measurements on the exported supports. Midpoint-plane residuals are diagnostic probes, not the detector's merge fit. This bundle has no merge trace linked to both selected source proposals."}};
+    }
 };
 }
 
@@ -195,21 +360,31 @@ std::vector<AnalysisBundlePlane> loadAnalysisBundlePlanes(const QString& directo
 
 QJsonObject inspectAnalysisBundle(const QStringList& arguments){
     QMap<QString,QString> options;QString command;bool group=false,full=false;
-    const QStringList values{"--bundle","--id","--name","--filter","--kind","--limit","--offset"};
+    const QStringList values{"--bundle","--id","--name","--ids","--filter","--kind","--limit","--offset"};
     for(qsizetype i=0;i<arguments.size();++i){const auto a=arguments[i];
         if(a=="--group"){check(!group,"Duplicate --group");group=true;}else if(a=="--full"){check(!full,"Duplicate --full");full=true;}
         else if(values.contains(a)){check(i+1<arguments.size()&&!options.contains(a),"Missing or duplicate bundle query option");options[a]=arguments[++i];}
         else {check(!a.startsWith('-')&&command.isEmpty(),"Unexpected bundle query argument: "+a);command=a;}}
     check(!options.value("--bundle").isEmpty(),"pcad inspect requires --bundle DIRECTORY");
-    check(QStringList{"list","show","analyze","points","verify","manifest"}.contains(command),"Expected inspect list|show|analyze|points|verify|manifest");
+    check(QStringList{"list","show","analyze","explain","compare","points","verify","manifest"}.contains(command),"Expected inspect list|show|analyze|explain|compare|points|verify|manifest");
     for(auto it=options.begin();it!=options.end();++it){const auto key=it.key();if(key=="--bundle")continue;
-        const bool selected=command=="show"||command=="analyze"||command=="points";
+        const bool selected=command=="show"||command=="analyze"||command=="explain"||command=="points";
         check(((key=="--id"||key=="--name")&&selected)||((key=="--filter"||key=="--kind"||key=="--offset")&&command=="list")
-            ||(key=="--limit"&&(command=="list"||command=="points")),"Option not supported by inspect "+command+": "+key);}
+            ||(key=="--limit"&&(command=="list"||command=="points"))||(key=="--ids"&&command=="compare"),"Option not supported by inspect "+command+": "+key);}
     check(!group||command=="show","--group only applies to show");check(!full||command=="verify","--full only applies to verify");
     Bundle b(options["--bundle"]);if(command=="manifest")return b.manifest;
     const auto number=[&](const QString& key,int fallback,int low,int high){bool ok=true;const int n=options.contains(key)?options[key].toInt(&ok):fallback;
         check(ok&&n>=low&&n<=high,"Invalid query limit, offset or id");return n;};
+    if(command=="compare") {
+        check(!group&&!full&&!options.contains("--id")&&!options.contains("--name")&&options.contains("--ids"),
+            "inspect compare requires --ids ID,ID and accepts no other query options");
+        const auto parts=options["--ids"].split(',',Qt::KeepEmptyParts);check(parts.size()==2,"inspect compare requires exactly two IDs");
+        bool firstOk=false,secondOk=false;const int firstId=parts[0].trimmed().toInt(&firstOk),secondId=parts[1].trimmed().toInt(&secondOk);
+        check(firstOk&&secondOk&&firstId>=0&&secondId>=0&&firstId!=secondId,"Invalid IDs for inspect compare");
+        auto findSurface=[&](int wanted){for(auto row:b.index)if(row.toObject()["id"].toInt()==wanted)return b.surface(row.toObject());
+            throw std::runtime_error("Surface not found: "+std::to_string(wanted));};
+        return b.comparePlanes(findSurface(firstId),findSurface(secondId));
+    }
     if(command=="list"){check(!group&&!full,"Unsupported list flags");const int limit=number("--limit",20,1,100),offset=number("--offset",0,0,INT_MAX);QJsonArray rows;
         for(auto row:b.index){auto r=row.toObject();if(r["name"].toString().contains(options["--filter"],Qt::CaseInsensitive)
             &&(!options.contains("--kind")||r["geometry"].toString()==options["--kind"]))rows.append(r);}
@@ -227,6 +402,7 @@ QJsonObject inspectAnalysisBundle(const QStringList& arguments){
     check(matches.size()==1,matches.isEmpty()?"Surface not found":"Ambiguous name; use --id");auto s=b.surface(matches[0].toObject());
     if(command=="show")return group?QJsonObject{{"surface",s},{"shared_plane",b.group(s)},{"support_validation_report",b.supportValidation(&s)}}:s;
     if(command=="analyze")return b.analyze(s);
+    if(command=="explain")return b.diagnose(s);
     const int limit=number("--limit",10,1,100);QJsonArray points;
     b.points(s,[&](const Bundle::Point& p){points.append(QJsonObject{{"source_index",qint64(p.id)},{"position",Bundle::vector(p.p)},
         {"normal",Bundle::vector(p.n)},{"color",QJsonArray{p.color[0],p.color[1],p.color[2]}}});},limit);
