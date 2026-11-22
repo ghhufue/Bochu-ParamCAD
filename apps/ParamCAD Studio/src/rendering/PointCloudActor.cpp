@@ -293,7 +293,7 @@ void PointCloudActor::setAnnotations(const PointCloudSelection* selection)
         applySurfaceDisplay();
     }
     const vtkIdType count = m_points->GetNumberOfPoints();
-    const auto revision = selection ? selection->surfaceRevision() : 0;
+    const auto revision = selection ? selection->revision() : 0;
     const bool refreshColors = !m_baseColorsReady || m_annotationSelection != selection || m_annotationRevision != revision;
     m_selectionPoints->Initialize();
     m_selectionVertices->Initialize();
@@ -344,9 +344,9 @@ std::array<unsigned char, 3> PointCloudActor::regionColor(int region)
 
 bool PointCloudActor::refreshSurfaceMeshes(const PointCloudSelection& selection)
 {
-    if (m_surfaceSelection == &selection && m_surfaceRevision == selection.surfaceRevision()) return false;
+    if (m_surfaceSelection == &selection && m_surfaceRevision == selection.revision()) return false;
     m_surfaceSelection = &selection;
-    m_surfaceRevision = selection.surfaceRevision();
+    m_surfaceRevision = selection.revision();
     auto display = meshPointCloudSurfaces(selection);
     m_surfaceMeshes = std::move(display.meshes);
     m_surfaceSupportChecks = std::move(display.planeSupportChecks);

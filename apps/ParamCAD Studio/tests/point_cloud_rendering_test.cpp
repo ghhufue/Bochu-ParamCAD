@@ -129,8 +129,9 @@ void surfaceDisplay()
     const auto beforeRelations = surface->GetMTime();
     selection.applyInferredRelations({}, false);
     actor.setAnnotations(&selection);
-    require(surface->GetMTime() == beforeRelations && actor.surfaceMesh(id) == retained,
-            "relation updates retain the existing display mesh");
+    require(surface->GetMTime() > beforeRelations && actor.surfaceMesh(id) != retained &&
+            actor.displayedSurfaceRegions().count(id),
+            "relation updates rebuild and retain the display mesh");
     require(!selection.replacePartCandidates({{region, members}}, false) && selection.region(id),
             "identical reconstruction candidates preserve the collection and display cache");
     selection.select({0});selection.deleteSelectedPoints();actor.setPointMask(selection.deleted());actor.setAnnotations(&selection);
@@ -535,6 +536,39 @@ void fragmentedPlanes()
     require(selection.revision()==revision && selection.memberships()==memberships,"shared display meshing never merges semantic point memberships");
 }
 
+void validatedAdjacentPlanesShareDisplayFamily()
+{
+    PlyCloud cloud;
+    std::vector<DetectedPointCloudSurface> surfaces(2);
+    for(auto& detected:surfaces) {
+        detected.surface.geometry="plane";
+        detected.surface.parameters={{"normal",QJsonArray{0,0,1}},{"offset",0}};
+        detected.surface.supportValidation={{"verdict","accepted"}};
+    }
+    for(int x=0;x<=10;++x)for(int y=0;y<=10;++y) {
+        const auto id=vtkIdType(cloud.positions.size());
+        cloud.positions.push_back({float(x),float(y),0});
+        surfaces[size_t(x<=5?0:1)].points.push_back(id);
+    }
+    PointCloudSelection selection;selection.setCloud(cloud);selection.addSurfaces(surfaces);
+    PointCloudActor actor;actor.setCloud(cloud);actor.setAnnotations(&selection);
+    require(actor.surfaceDisplaySnapshot().colorRegions.at(2)==2,
+        "validated plane fragments start as separate display families without a relation");
+    require(selection.setRelation(0,1,2,"adjacent")>0,"validated plane relation is recorded");
+    actor.setAnnotations(&selection);
+    const auto display=meshPointCloudSurfaces(selection);
+    require(display.colorRegions.at(1)==1 && display.colorRegions.at(2)==1,
+        "validated adjacent plane fragments share one display family");
+    require(display.meshes.size()==2 && display.meshes.at(1).triangles.size()>0 &&
+        display.meshes.at(2).triangles.size()>0,
+        "validated plane family retains per-fragment mesh ownership");
+    const auto colors=vtkPolyDataMapper::SafeDownCast(actor.actor()->GetMapper())->GetInput()->GetPointData()->GetScalars();
+    const auto firstColor=PointCloudActor::regionColor(1);
+    for(const auto id:surfaces[1].points)for(int axis=0;axis<3;++axis)
+        require(colors->GetComponent(id,axis)==firstColor[size_t(axis)],
+            "a relation update refreshes cached point colors for the merged plane family");
+}
+
 void unsupportedPlaneSamples()
 {
     PointCloudRegion region;region.geometry="plane";
@@ -700,7 +734,7 @@ int main(int argc,char** argv) {
         if(argc==4 && QString::fromLocal8Bit(argv[1])=="--trace-surface") {
             traceSurface(QString::fromLocal8Bit(argv[2]),QString::fromLocal8Bit(argv[3]));return 0;
         }
-        unsupportedPlaneSamples();surfaceDisplay();vertexTouchingBoundaries();finalSurfaceMinimum();wideConeSupport();curvedSurfaces();validatedSphereDisplay();irregularSampling();fragmentedPlanes();narrowAndUnevenPlanes();finitePlaneBoundaries();distantCoplanarIslands();relativeDensitySurfaces();boundaryAndInteriorSupport();
+        unsupportedPlaneSamples();surfaceDisplay();vertexTouchingBoundaries();finalSurfaceMinimum();wideConeSupport();curvedSurfaces();validatedSphereDisplay();irregularSampling();fragmentedPlanes();validatedAdjacentPlanesShareDisplayFamily();narrowAndUnevenPlanes();finitePlaneBoundaries();distantCoplanarIslands();relativeDensitySurfaces();boundaryAndInteriorSupport();
         PlyCloud cloud;cloud.positions={{0,0,0},{1,0,0},{2,0,0}};
         cloud.colors={{12,34,56},{78,90,12},{34,56,78}};
         PointCloudSelection selection;selection.setCloud(cloud);

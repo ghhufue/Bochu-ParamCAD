@@ -314,16 +314,23 @@ PointCloudSurfaceDisplay meshPointCloudSurfaces(const PointCloudSelection& selec
     // The detector can publish several connected patches of one evidence
     // surface. Reuse its equation rather than refitting or moving that plane.
     std::map<std::array<double,4>,std::vector<const PointCloudRegion*>> planes;
+    std::vector<const PointCloudRegion*> validatedPlanes;
     for(const auto& region:selection.regions()) {
         const auto found=members.find(region.id);
         if(found==members.end() || found->second.size()<settings.minimumSurfacePoints)continue;
         const auto evidence=regionEvidence(region);
         if(!evidence)continue;
-        if(!region.supportValidation.isEmpty()) {
+        if(!region.supportValidation.isEmpty() &&
+           !std::holds_alternative<reconstruction::PlaneEvidence>(*evidence)) {
             auto mesh=meshPointCloudSurface(region,selection.sourceCloud(),found->second,settings);
             display.planeSupportChecks[region.id]=mesh.domainSupportChecks;
             if(!mesh.triangles.empty())display.meshes.emplace(region.id,std::move(mesh));
             display.colorRegions[region.id]=region.id;
+        } else if(!region.supportValidation.isEmpty()) {
+            // Validated planes used to bypass the family pass above, so every
+            // connected fragment received its own display color and export
+            // group. Keep them available for relation-based consolidation.
+            validatedPlanes.push_back(&region);
         } else if(const auto* plane=std::get_if<reconstruction::PlaneEvidence>(&*evidence)) {
             auto n=plane->plane.normal;double d=plane->plane.offset;
             const double major=std::abs(n.x)>=std::abs(n.y)&&std::abs(n.x)>=std::abs(n.z)?n.x:
@@ -335,8 +342,7 @@ PointCloudSurfaceDisplay meshPointCloudSurfaces(const PointCloudSelection& selec
             if(!mesh.triangles.empty())display.meshes.emplace(region.id,std::move(mesh));
         }
     }
-    for(const auto& family:planes) {
-        const auto& regions=family.second;
+    const auto emitPlaneFamily = [&](const std::vector<const PointCloudRegion*>& regions) {
         const auto* representative=*std::min_element(regions.begin(),regions.end(),[](const auto* a,const auto* b){return a->id<b->id;});
         std::vector<vtkIdType> combined;
         for(const auto* region:regions) {
@@ -368,6 +374,43 @@ PointCloudSurfaceDisplay meshPointCloudSurfaces(const PointCloudSelection& selec
             const int owner=selection.memberships()[size_t(id)];const auto found=display.meshes.find(owner);
             if(found!=display.meshes.end())found->second.coveredPointIds.push_back(id);
         }
+    };
+    for(const auto& family:planes) emitPlaneFamily(family.second);
+
+    if(!validatedPlanes.empty()) {
+        std::unordered_map<int,std::size_t> index;
+        for(std::size_t i=0;i<validatedPlanes.size();++i) index.emplace(validatedPlanes[i]->id,i);
+        std::vector<std::size_t> parent(validatedPlanes.size());
+        std::iota(parent.begin(),parent.end(),0);
+        const auto root = [&](std::size_t value) {
+            auto current=value;
+            while(parent[current]!=current) {
+                parent[current]=parent[parent[current]];
+                current=parent[current];
+            }
+            return current;
+        };
+        const auto join = [&](std::size_t first,std::size_t second) {
+            const auto a=root(first),b=root(second);
+            if(a!=b)parent[b]=a;
+        };
+        constexpr double relationAngle=5*pi/180;
+        for(const auto& relation:selection.relations()) {
+            if(relation.type!="adjacent")continue;
+            const auto first=index.find(relation.first),second=index.find(relation.second);
+            if(first==index.end() || second==index.end())continue;
+            const auto firstEvidence=regionEvidence(*validatedPlanes[first->second]);
+            const auto secondEvidence=regionEvidence(*validatedPlanes[second->second]);
+            if(!firstEvidence || !secondEvidence)continue;
+            const auto* firstPlane=std::get_if<reconstruction::PlaneEvidence>(&*firstEvidence);
+            const auto* secondPlane=std::get_if<reconstruction::PlaneEvidence>(&*secondEvidence);
+            if(!firstPlane || !secondPlane ||
+               std::abs(dot(firstPlane->plane.normal,secondPlane->plane.normal))<std::cos(relationAngle))continue;
+            join(first->second,second->second);
+        }
+        std::map<std::size_t,std::vector<const PointCloudRegion*>> families;
+        for(std::size_t i=0;i<validatedPlanes.size();++i)families[root(i)].push_back(validatedPlanes[i]);
+        for(const auto& family:families)emitPlaneFamily(family.second);
     }
     return display;
 }
