@@ -55,7 +55,11 @@ int main()
 
         // The tracked configuration files must always parse and validate.
         loadPreprocessingSettings(configDirectory / "preprocessing.conf");
-        loadDetectionSettings(configDirectory / "detection.conf");
+        const auto trackedDetection=loadDetectionSettings(configDirectory / "detection.conf");
+        require(std::abs(trackedDetection.options.plane.mergeAngularToleranceRadians-
+                2.5*3.14159265358979323846/180)<1e-12 &&
+                trackedDetection.options.plane.mergeResidualToleranceMultiplier==1.4,
+                "independent plane merge tolerances parse from detection.conf");
         loadAnalysisSettings(configDirectory / "analysis.conf");
         loadRecognitionSettings(configDirectory / "recognition.conf");
         loadAssemblySettings(configDirectory / "assembly.conf");
@@ -107,6 +111,17 @@ int main()
         const auto roundTrip = loadPreprocessingSettings(roundTripFile);
         require(roundTrip.voxelSizeMm == 1.25, "serialized voxel size");
         require(roundTrip.options.normalNeighborCount == 21, "serialized normal neighbor count");
+
+        DetectionSettings detection;
+        detection.options.plane.mergeAngularToleranceRadians=3*3.14159265358979323846/180;
+        detection.options.plane.mergeResidualToleranceMultiplier=1.6;
+        const auto detectionRoundTripFile=temporary/"detection-round-trip.conf";
+        writeFile(detectionRoundTripFile,serializeDetectionSettings(detection));
+        const auto detectionRoundTrip=loadDetectionSettings(detectionRoundTripFile);
+        require(std::abs(detectionRoundTrip.options.plane.mergeAngularToleranceRadians-
+                detection.options.plane.mergeAngularToleranceRadians)<1e-12 &&
+                detectionRoundTrip.options.plane.mergeResidualToleranceMultiplier==1.6,
+                "plane merge tolerances serialize and restore independently");
 
         AnalysisSettings display;display.meshing.minimumSurfacePoints=30;
         display.meshing.expectedHolePoints=40;display.meshing.boundaryDominanceRatio=.9;

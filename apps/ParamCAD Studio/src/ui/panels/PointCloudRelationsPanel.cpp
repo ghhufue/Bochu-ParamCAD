@@ -122,7 +122,7 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
     m_editRelation = makeAction(tr("编辑关系…"), "editCloudRelationAction");
     m_removeRelation = makeAction(tr("删除关系（保留点和集合）"), "removeCloudRelationAction");
     m_undo = makeAction(tr("撤销点云编辑"), "undoCloudEditAction");
-    m_reconstructAction = makeAction(tr("重建 CAD"), "rebuildCloudTemplatesAction");
+    m_reconstructAction = makeAction(tr("生成参数化 CAD"), "rebuildCloudTemplatesAction");
 
     auto* collections = new QWidget(m_pages);
     auto* collectionLayout = new QVBoxLayout(collections);
@@ -388,8 +388,8 @@ PointCloudRelationsPanel::PointCloudRelationsPanel(QWidget* parent) : QWidget(pa
     m_cloudActions = new QWidget(this);
     auto* footer = new QHBoxLayout(m_cloudActions);
     footer->setContentsMargins(0, 0, 0, 0);
-    m_detect = new QPushButton(tr("识别表面"), this); m_detect->setObjectName("detectCloudSurfacesButton");
-    m_detect->setToolTip(tr("识别未归属点的曲面，保留已有集合；此操作不生成 CAD 实体。"));
+    m_detect = new QPushButton(tr("识别曲面与关系"), this); m_detect->setObjectName("detectCloudSurfacesButton");
+    m_detect->setToolTip(tr("识别未归属点的曲面并更新关系，供检查和编辑。"));
     m_reconstruct = new QToolButton(this); m_reconstruct->setObjectName("rebuildCloudTemplatesButton");
     m_reconstruct->setDefaultAction(m_reconstructAction);
     m_reconstruct->setPopupMode(QToolButton::MenuButtonPopup);
@@ -828,7 +828,7 @@ void PointCloudRelationsPanel::updateActions()
     m_addRelation->setEnabled(m_document->regions().size() >= 2);
     m_editRelation->setEnabled(selectedRelation() != 0); m_removeRelation->setEnabled(selectedRelation() != 0);
     m_undo->setEnabled(m_document->canUndo());
-    m_detect->setEnabled(!m_busy && m_document->regionPointCount(0) >= 20);
+    m_detect->setEnabled(!m_busy && (m_document->regionPointCount(0) >= 20 || !m_document->regions().empty()));
     m_infer->setEnabled(!m_busy && m_document->regions().size() >= 2);
     m_reconstructAction->setEnabled(!m_busy && m_document->activePointCount() > 0);
     m_analysisExportAction->setEnabled(!m_busy && !m_analysisExportBusy && !m_document->regions().empty());

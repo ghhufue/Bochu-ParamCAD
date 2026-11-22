@@ -21,6 +21,7 @@ class PointCloudActor
 {
 public:
     PointCloudActor();
+    static vtkSmartPointer<vtkActor> createSurfacePreview(const PointCloudSurfaceMesh& mesh, int colorIndex);
 
     bool setCloud(const PlyCloud& cloud); // false for an empty cloud, which also clears
     void clear();

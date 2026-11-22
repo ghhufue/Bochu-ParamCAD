@@ -319,7 +319,7 @@ void MainWindow::createWorkspaceControllers()
     m_propertyPanel->reconstructPanel()->setCaptureBaseDirectory(capture->baseDirectory());
     m_pointCloudWorkspace = new PointCloudWorkspaceController(m_pointCloudDocument, modeling, reconstruction,
         {m_viewer, m_modelingPanel, m_relationsPanel, m_scenePanel,
-          m_propertyPanel, m_reconstructCadAction, m_cancelCadAction, m_reconstructToolAction,
+          m_propertyPanel, m_analyzeCadSurfacesAction, m_reconstructCadAction, m_cancelCadAction, m_reconstructToolAction,
           m_projectionDebugAction}, this, this);
     m_planarJunctionPanel = new PlanarJunctionPanel(m_pointCloudDocument, m_viewer, m_relationsPanel);
     m_relationsPanel->setJunctionPanel(m_planarJunctionPanel);
@@ -416,8 +416,11 @@ void MainWindow::createActions()
     // inspected without going through the pipeline again.
     m_openPointCloudAction = new QAction(tr("打开点云…"), this);
     m_openPointCloudAction->setToolTip(tr("将 .ply 点云载入视口"));
-    // The toolbar and Tools menu share the point-cloud-to-CAD command.
-    m_reconstructCadAction = new QAction(tr("重建 CAD"), this);
+    m_analyzeCadSurfacesAction = new QAction(tr("识别曲面与关系"), this);
+    m_analyzeCadSurfacesAction->setObjectName(QStringLiteral("analyzeCadSurfacesAction"));
+    m_analyzeCadSurfacesAction->setToolTip(tr("识别点云曲面并推断关系，供检查和编辑。"));
+    m_analyzeCadSurfacesAction->setEnabled(false);
+    m_reconstructCadAction = new QAction(tr("生成参数化 CAD"), this);
     m_reconstructCadAction->setObjectName(QStringLiteral("reconstructCadAction"));
     m_reconstructCadAction->setToolTip(
         tr("识别已载入点云中的几何并重建参数化 CAD 模型"));
@@ -584,6 +587,7 @@ void MainWindow::createMenus()
     toolsMenu->addAction(m_screenshotAction);
     toolsMenu->addAction(m_captureToolAction);
     toolsMenu->addAction(m_reconstructToolAction);
+    toolsMenu->addAction(m_analyzeCadSurfacesAction);
     toolsMenu->addAction(m_reconstructCadAction);
     toolsMenu->addAction(m_cadWithoutProjectionAction);
     toolsMenu->addAction(m_cancelCadAction);
@@ -614,6 +618,7 @@ void MainWindow::createToolBar()
     toolBar->addSeparator();
     toolBar->addAction(m_captureAction);
     toolBar->addAction(m_reconstructToolAction);
+    toolBar->addAction(m_analyzeCadSurfacesAction);
     auto* reconstructCadButton = new QToolButton(toolBar);
     reconstructCadButton->setObjectName(QStringLiteral("reconstructCadButton"));
     reconstructCadButton->setDefaultAction(m_reconstructCadAction);
@@ -800,6 +805,10 @@ void MainWindow::connectUi()
     connect(m_openAction, &QAction::triggered, m_modelViewController, &ModelViewController::openModel);
     connect(m_openPointCloudAction, &QAction::triggered, this, &MainWindow::showDocumentViewport);
     connect(m_openPointCloudAction, &QAction::triggered, m_pointCloudWorkspace, &PointCloudWorkspaceController::openPointCloud);
+    connect(m_analyzeCadSurfacesAction, &QAction::triggered, this, &MainWindow::showDocumentViewport);
+    connect(m_analyzeCadSurfacesAction, &QAction::triggered, m_pointCloudWorkspace,
+            &PointCloudWorkspaceController::reconstructCadSurfaces);
+    connect(m_reconstructCadAction, &QAction::triggered, this, &MainWindow::showDocumentViewport);
     connect(m_reconstructCadAction, &QAction::triggered, m_pointCloudWorkspace, &PointCloudWorkspaceController::reconstructCad);
     connect(m_viewer, &VTKViewer::bodyShapeChanged, this, [this](const TopoDS_Shape& shape) {
         m_openModelingTabAction->setEnabled(!shape.IsNull() && shape.IsSame(m_modelingController->bodyShape()));

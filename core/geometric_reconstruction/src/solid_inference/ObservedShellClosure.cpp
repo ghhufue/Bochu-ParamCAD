@@ -28,7 +28,7 @@ bool fail(SolidCandidate& output, const std::string& message, std::string& error
 }
 
 bool proposeObservedShell(const SurfaceScene& scene, const std::vector<PatchId>& partPatches,
-                          SolidCandidate& output, std::string& error) {
+                          SolidCandidate& output, std::string& error, const SolidPreview& preview) {
     output = {};
     output.analysisFingerprint = scene.header.analysisFingerprint;
     output.supportingPatches = partPatches;
@@ -160,6 +160,7 @@ bool proposeObservedShell(const SurfaceScene& scene, const std::vector<PatchId>&
     }
     output.boundaryBody=std::move(body);
     output.status=SolidCandidateStatus::Accepted;
+    if (preview) preview(shape);
     error.clear();
     return true;
 }

@@ -160,10 +160,18 @@ bool indexSurfaceEvidence(const PointStore& points, const std::vector<PrimitiveE
                           std::string& error, const std::vector<PointId>& protectedIds={},
                           const std::function<bool()>& cancelled={}, const SurfaceSamplingReference* frozenReference=nullptr);
 // Index automatic detection output, including validated local curved recovery.
+// Read-only preview events. Per-patch callbacks may run on validation workers.
+struct SurfaceAnalysisProgress {
+    std::function<void()> reset;
+    std::function<void(const PrimitiveEvidence&, const std::vector<PointId>&, const SurfaceFootprint*)> patch;
+};
+
+void reportSurfaceAnalysis(const SurfaceAnalysisResult& analysis, const SurfaceAnalysisProgress& progress);
+
 bool indexDetectedSurfaceEvidence(const PointStore& points, const std::vector<PrimitiveEvidence>& evidence,
     const SurfaceAnalysisOptions& options, SurfaceAnalysisResult& output, std::string& error,
     const std::vector<PointId>& protectedIds = {}, const std::function<bool()>& cancelled = {},
-    const std::vector<ProtectedSurfaceSeed>& protectedSeeds = {});
+    const std::vector<ProtectedSurfaceSeed>& protectedSeeds = {}, const SurfaceAnalysisProgress& progress = {});
 // Transactional, observation-bounded optimization of a feasible relation subset.
 bool optimizeSurfaceRelations(const PointStore& points, SurfaceAnalysisResult& analysis,
     const std::vector<SurfaceRelation>& proposals, RelationOptimizationReport& report, std::string& error);
@@ -187,5 +195,5 @@ bool recoverLocalSurfaces(const PointStore& working, const PointStore& source,
 bool analyzeSurfaces(const PointStore& points, const SurfaceAnalysisOptions& options,
                      SurfaceAnalysisResult& output, std::string& error,
                      const std::vector<PrimitiveEvidence>& seeds = {},
-                     const std::function<bool()>& cancelled = {});
+                     const std::function<bool()>& cancelled = {}, const SurfaceAnalysisProgress& progress = {});
 } // namespace reconstruction

@@ -4,18 +4,24 @@
 #include "io/ReconstructionCache.h"
 #include <modeling/ModelingCore.h>
 #include <reconstruction/data/StageProfile.h>
+#include <reconstruction/modeling/ModelingAdapter.h>
 #include <reconstruction/parts/ProjectionSettings.h>
 #include <reconstruction/settings/ModuleConfig.h>
 #include <reconstruction/surface/SurfaceOwnership.h>
 #include <reconstruction/surface/SurfaceSupportValidation.h>
 
+#include <BRepBuilderAPI_Copy.hxx>
+
 #include <QElapsedTimer>
 #include <QPointer>
 #include <QScopeGuard>
 #include <QThread>
+#include <QTimer>
 
 #include <algorithm>
 #include <exception>
+#include <iterator>
+#include <mutex>
 #include <string>
 #include <utility>
 
@@ -67,7 +73,8 @@ void prepareSourceSurfacePreview(const reconstruction::PointStore& source, doubl
 }
 
 void runCadWork(const CadWork& input, CadReconstructionResult& result,
-    const std::function<bool()>& cancelled, const std::function<void(Stage)>& stageChanged) {
+    const std::function<bool()>& cancelled, const std::function<void(Stage)>& stageChanged,
+    const reconstruction::GuidedRecognitionProgress& progress) {
     const auto& [cloud, unit, hints, sourceTolerance, analysis, relations, projectionFallback, specializedRecovery,
                  projectionOptions, shouldPrepareSurfacePreview, legacyAssembly] = input;
     using reconstruction::diagnostics::profileStage;
@@ -121,7 +128,7 @@ void runCadWork(const CadWork& input, CadReconstructionResult& result,
     const bool recognized = profileStage("cad.recognize", [&] {
         if (legacyAssembly) return false;
         return cache.recognize(points, recoverySource, planes, cylinders, hints, relations,
-            recognitionSettings, analysis ? &*analysis : nullptr, guided, failure);
+            recognitionSettings, analysis ? &*analysis : nullptr, guided, failure, progress);
     });
     if(cancelled())return;
     if (legacyAssembly) {
@@ -220,14 +227,57 @@ bool CadReconstructionTask::start(PlyCloud cloud, reconstruction::LengthUnit uni
     std::optional<reconstruction::SurfaceAnalysisResult> analysis,
     std::vector<reconstruction::SurfaceRelationHint> relations, bool projectionFallback, bool specializedRecovery,
     std::optional<reconstruction::ProjectionExtrusionOptions> projectionOptions, bool prepareSurfacePreview,
-    bool legacyAssembly)
+    bool legacyAssembly, PreviewMesher previewMesher)
 {
+    const bool livePreview = previewMesher && !legacyAssembly;
     return startWork([input = CadWork{std::move(cloud), unit, std::move(hints), sourceTolerance,
             std::move(analysis), std::move(relations), projectionFallback, specializedRecovery,
-            std::move(projectionOptions), prepareSurfacePreview, legacyAssembly}]
-            (auto& result, const auto& cancelled, const auto& reportStage) {
-        runCadWork(input, result, cancelled, reportStage);
-    }, Stage::Preprocessing);
+            std::move(projectionOptions), prepareSurfacePreview, legacyAssembly}, mesher = std::move(previewMesher)]
+            (auto& result, const auto& cancelled, const auto& reportStage, const ReportPreview& reportPreview) {
+        reconstruction::GuidedRecognitionProgress progress;
+        if (reportPreview) {
+            const double scale = reconstruction::millimetersPerUnit(input.unit).value_or(1.0);
+            progress.surfaces.reset = [&] {
+                CadReconstructionPreview preview;
+                preview.resetSurfaces = true;
+                reportPreview(std::move(preview));
+            };
+            progress.surfaces.patch = [&](const auto& evidence, const auto& ids, const auto* footprint) {
+                if (cancelled()) return;
+                try {
+                    if (auto mesh = mesher(input.cloud, scale, evidence, ids, footprint)) {
+                        CadReconstructionPreview preview;
+                        preview.surfaces.push_back(std::move(mesh));
+                        reportPreview(std::move(preview));
+                    }
+                } catch (...) {
+                    // A display mesh is optional for the recognition result.
+                }
+            };
+            progress.solid = [&](const TopoDS_Shape& shape) {
+                if (cancelled()) return;
+                try {
+                    CadReconstructionPreview preview;
+                    // The viewport tessellates this copy while scoring uses the original.
+                    preview.solid = shape.IsNull() ? TopoDS_Shape{} : BRepBuilderAPI_Copy(shape).Shape();
+                    reportPreview(std::move(preview));
+                } catch (...) {
+                    // A display shape is optional for the recognition result.
+                }
+            };
+            progress.guidedSolid = [&](const reconstruction::CompoundCandidate& candidate) {
+                if (cancelled()) return;
+                try {
+                    modeling::ModelingCore previewModel;
+                    if (reconstruction::commitCompoundCandidate(candidate, previewModel).success)
+                        progress.solid(previewModel.bodyShape());
+                } catch (...) {
+                    // A display shape is optional for the recognition result.
+                }
+            };
+        }
+        runCadWork(input, result, cancelled, reportStage, progress);
+    }, Stage::Preprocessing, livePreview);
 }
 
 bool CadReconstructionTask::startProjection(PlyCloud cloud, reconstruction::LengthUnit unit,
@@ -235,7 +285,7 @@ bool CadReconstructionTask::startProjection(PlyCloud cloud, reconstruction::Leng
                                             std::optional<reconstruction::ProjectionExtrusionOptions> projectionOptions)
 {
     return startWork([cloud = std::move(cloud), unit, path, inspectOnly, injected = std::move(projectionOptions)]
-                     (auto& result, const auto& cancelled, const auto&) {
+                     (auto& result, const auto& cancelled, const auto&, const auto&) {
         QElapsedTimer timer;
         timer.start();
         auto& debug = result.projectionDebug.emplace();
@@ -266,14 +316,50 @@ bool CadReconstructionTask::startProjection(PlyCloud cloud, reconstruction::Leng
     }, Stage::Projecting);
 }
 
-bool CadReconstructionTask::startWork(Work work, Stage initialStage)
+bool CadReconstructionTask::startWork(Work work, Stage initialStage, bool livePreview)
 {
     if (m_running) return false;
     auto result = std::make_shared<CadReconstructionResult>();
     auto cancelled = std::make_shared<std::atomic_bool>(false);
     m_cancelled = cancelled;
     m_running = true;
-    m_thread = QThread::create([this, result, cancelled, work = std::move(work)] {
+    QTimer* previewTimer = nullptr;
+    ReportPreview reportPreview;
+    std::function<void()> deliverPreview;
+    if (livePreview) {
+        struct PendingPreview {
+            std::mutex mutex;
+            CadReconstructionPreview update;
+        };
+        auto pending = std::make_shared<PendingPreview>();
+        reportPreview = [pending, cancelled](CadReconstructionPreview preview) {
+            if (cancelled->load()) return;
+            const std::lock_guard<std::mutex> lock(pending->mutex);
+            auto& update = pending->update;
+            if (preview.resetSurfaces) {
+                update.resetSurfaces = true;
+                update.surfaces.clear();
+            }
+            update.surfaces.insert(update.surfaces.end(), std::make_move_iterator(preview.surfaces.begin()),
+                std::make_move_iterator(preview.surfaces.end()));
+            if (preview.solid) update.solid = std::move(preview.solid);
+        };
+        previewTimer = new QTimer(this);
+        previewTimer->setInterval(50);
+        deliverPreview = [this, pending, cancelled] {
+            if (m_cancelled != cancelled || cancelled->load()) return;
+            CadReconstructionPreview preview;
+            {
+                const std::lock_guard<std::mutex> lock(pending->mutex);
+                preview = std::exchange(pending->update, {});
+            }
+            if (preview.resetSurfaces || !preview.surfaces.empty() || preview.solid)
+                emit previewChanged(preview);
+        };
+        connect(previewTimer, &QTimer::timeout, this, deliverPreview);
+    }
+    m_thread = QThread::create([this, result, cancelled, work = std::move(work),
+                               reportPreview = std::move(reportPreview)] {
         try {
             auto reportStage = [this, cancelled](Stage stage) {
                 QMetaObject::invokeMethod(this, [this, cancelled, stage] {
@@ -281,7 +367,7 @@ bool CadReconstructionTask::startWork(Work work, Stage initialStage)
                         emit stageChanged(stage);
                 }, Qt::QueuedConnection);
             };
-            work(*result, [cancelled] { return cancelled->load(); }, reportStage);
+            work(*result, [cancelled] { return cancelled->load(); }, reportStage, reportPreview);
         } catch (const std::exception& error) {
             result->outcome = CadReconstructionResult::Outcome::Failed;
             result->error = QString::fromUtf8(error.what());
@@ -292,12 +378,18 @@ bool CadReconstructionTask::startWork(Work work, Stage initialStage)
     });
     auto* thread = m_thread;
     thread->setParent(this);
-    connect(thread, &QThread::finished, this, [this, result, cancelled] {
+    connect(thread, &QThread::finished, this, [this, result, cancelled, previewTimer, deliverPreview] {
+        if (previewTimer) {
+            previewTimer->stop();
+            previewTimer->deleteLater();
+        }
         m_thread = nullptr;
         // Cancellation also wins if computation has finished but delivery is
         // still queued. Keep the job busy throughout the result handler.
-        if (cancelled->load()) result->outcome = CadReconstructionResult::Outcome::Cancelled;
         QPointer<CadReconstructionTask> guard(this);
+        if (deliverPreview) deliverPreview();
+        if (!guard) return;
+        if (cancelled->load()) result->outcome = CadReconstructionResult::Outcome::Cancelled;
         emit finished(*result);
         if (!guard) return;
         m_running = false;
@@ -306,6 +398,7 @@ bool CadReconstructionTask::startWork(Work work, Stage initialStage)
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     emit runningChanged(true);
     if (!cancelled->load()) emit stageChanged(initialStage);
+    if (previewTimer) previewTimer->start();
     thread->start();
     return true;
 }

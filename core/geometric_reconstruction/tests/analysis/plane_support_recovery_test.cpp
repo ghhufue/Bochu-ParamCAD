@@ -97,6 +97,61 @@ void disconnectedAndProtected() {
         "a face grows around protected observations without bridging an unsupported spatial gap");
     for(auto id:protectedIds) require(!std::binary_search(support.begin(),support.end(),id),"manual ownership is preserved");
 }
+std::vector<PrimitiveEvidence> tiltedAdjacentPlanes(const std::vector<PointSample>& samples, double span)
+{
+    PlaneEvidence first, second;
+    first.plane={{0,0,1},0};
+    const double slope=std::tan(2.3*std::acos(-1.0)/180.0);
+    const double cosine=1/std::sqrt(1+slope*slope);
+    const double sine=slope*cosine;
+    second.plane={{-sine,0,cosine},sine*span};
+    const auto columns=std::size_t(span/10)+1;
+    for(std::size_t i=0;i<samples.size();++i) {
+        (i/11<=columns-1?first.supportPointIds:second.supportPointIds).push_back(samples[i].id);
+    }
+    return {first,second};
+}
+void relaxedAdjacentPlaneMerge()
+{
+    constexpr double span=400;
+    std::vector<PointSample> samples;
+    const double slope=std::tan(2.3*std::acos(-1.0)/180.0);
+    for(int x=0;x<=80;++x) for(int y=0;y<=10;++y) {
+        PointSample p;
+        p.id=samples.size()+1;
+        const double positionX=x*10.0;
+        p.position={positionX,y*10.0,positionX<=span?0:slope*(positionX-span)};
+        p.normal=positionX<=span?modeling::Vec3{0,0,1}:
+            modeling::Vec3{-slope/std::sqrt(1+slope*slope),0,1/std::sqrt(1+slope*slope)};
+        samples.push_back(p);
+    }
+    PointStore points(samples);
+    std::string error;
+    auto planes=tiltedAdjacentPlanes(samples,span);
+    auto strictAngle=options();
+    strictAngle.distanceThreshold=0.05;
+    strictAngle.mergeAngularToleranceRadians=2*std::acos(-1.0)/180;
+    require(recoverPlaneSupport(points,strictAngle,planes,error),error.c_str());
+    require(planes.size()==2,"the plane merge angle independently gates tilted regions");
+
+    planes=tiltedAdjacentPlanes(samples,span);
+    auto strictDistance=options();
+    strictDistance.distanceThreshold=3.4;
+    strictDistance.mergeResidualToleranceMultiplier=1.0;
+    require(recoverPlaneSupport(points,strictDistance,planes,error),error.c_str());
+    require(planes.size()==2,"the per-region merge residual independently gates offset planes");
+
+    planes=tiltedAdjacentPlanes(samples,span);
+    auto permissive=options();
+    permissive.distanceThreshold=3.4;
+    permissive.mergeAngularToleranceRadians=2.5*std::acos(-1.0)/180;
+    permissive.mergeResidualToleranceMultiplier=1.4;
+    require(recoverPlaneSupport(points,permissive,planes,error),error.c_str());
+    require(planes.size()==1,"adjacent tilted patches merge after a shared plane fit passes each patch's 95th-percentile residual");
+    const auto& merged=std::get<PlaneEvidence>(planes.front());
+    require(merged.supportPointIds.size()==samples.size() && merged.maxAbsoluteResidual>permissive.distanceThreshold,
+        "merge keeps full patch support while its bounded outliers do not widen detection tolerance");
+}
 void curvedSurfaceCannotDrift() {
     std::vector<PointSample> samples;PlaneEvidence initial;
     for(int x=-60;x<=60;++x) for(int y=0;y<20;++y) {
@@ -136,7 +191,7 @@ void sparseIslandsAndCachePolicy() {
 }
 }
 int main() {
-    try {largeFaceAndDuplicateSeeds();changingDensity();uncertainSmallSeedCanCorrectItsTilt();thinWallsAndEdges();disconnectedAndProtected();curvedSurfaceCannotDrift();cancellationAndSnapshots();sparseIslandsAndCachePolicy();
+    try {largeFaceAndDuplicateSeeds();changingDensity();uncertainSmallSeedCanCorrectItsTilt();thinWallsAndEdges();disconnectedAndProtected();relaxedAdjacentPlaneMerge();curvedSurfaceCannotDrift();cancellationAndSnapshots();sparseIslandsAndCachePolicy();
         std::cout<<"Plane support recovery tests passed\n";return 0;}
     catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

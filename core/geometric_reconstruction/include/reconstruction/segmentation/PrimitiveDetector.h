@@ -21,6 +21,8 @@ struct PlaneDetectionOptions {
     double duplicatePlaneAngularToleranceRadians =
         0.03490658503988659;  // 2 degrees
     double duplicatePlaneDistanceMultiplier = 3.0;
+    double mergeAngularToleranceRadians = 0.04363323129985824;  // 2.5 degrees
+    double mergeResidualToleranceMultiplier = 1.4;
     std::uint32_t randomSeed = 4500;
 };
 

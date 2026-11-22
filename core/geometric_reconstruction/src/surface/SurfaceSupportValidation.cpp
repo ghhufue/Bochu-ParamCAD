@@ -349,7 +349,7 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
     const SurfaceAnalysisOptions& options,std::vector<PrimitiveEvidence>& accepted,
     SurfaceSupportValidationReport& output,std::string& error,const SurfaceSamplingReference* frozen,
     const std::function<bool()>& cancelled,const std::vector<PointId>& protectedIds,
-    const std::vector<ProtectedSurfaceSeed>& protectedSeeds) {
+    const std::vector<ProtectedSurfaceSeed>& protectedSeeds,const SurfaceAnalysisProgress& progress) {
     try {
     error.clear();if(!validSurfaceSupportOptions(options.supportValidation)){error="Invalid surface support validation options";return false;}
     if(cancelled && cancelled()){error="Cancelled";return false;}
@@ -468,6 +468,7 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
     }
     });
     std::vector<std::optional<PrimitiveEvidence>> results(metrics.size());
+    if (progress.reset && report.mode == SupportValidationMode::Enforce) progress.reset();
     if (!evaluatePatches("support.check_domains", metrics,
         [](const auto& entry) { return entry.decision.supportPointIds.size(); }, [&](std::size_t index) {
         auto& m = metrics[index];
@@ -503,6 +504,8 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
                 results[index] = std::move(e);
             }
         }
+        if (progress.patch && report.mode == SupportValidationMode::Enforce && results[index])
+            progress.patch(*results[index], detail::analysis::ids(*results[index]), &m.domain);
         if(d.verdict==SupportVerdict::Accepted && (d.kind==PrimitiveKind::Plane || d.kind==PrimitiveKind::Sphere))
             d.footprint=std::make_shared<SurfaceFootprint>(std::move(m.domain));
     })) {
@@ -596,7 +599,7 @@ std::string serializeSurfaceSupportReport(const SurfaceSupportValidationReport& 
 }
 
 bool revalidateSurfaceSupportOnSource(const PointStore& working,const PointStore& source,
-    SurfaceAnalysisResult& analysis,std::string& error,const std::function<bool()>& cancelled,const SurfaceAnalysisResult* validatedSource) {
+    SurfaceAnalysisResult& analysis,std::string& error,const std::function<bool()>& cancelled,const SurfaceAnalysisResult* validatedSource,const SurfaceAnalysisProgress& progress) {
     if(analysis.options.supportValidation.mode==SupportValidationMode::Off)return true;
     if(working.unit()!=source.unit()){error="Surface validation source unit mismatch";return false;}
     const auto sourceFingerprint=pointStoreFingerprint(source);
@@ -624,7 +627,7 @@ bool revalidateSurfaceSupportOnSource(const PointStore& working,const PointStore
             return recoverPlaneSupport(source, analysis.options.detection.plane, proposals, error, {}, cancelled);
         }) || !diagnostics::profileStage("source.validate", [&] {
             return detail::analysis::validateDetectedSurfaceSupport(source, proposals, analysis.options,
-                sourceAccepted, report, error, {}, cancelled);
+                sourceAccepted, report, error, {}, cancelled, {}, progress);
         })) return false;
     }
     if(analysis.options.supportValidation.mode==SupportValidationMode::Report){analysis.sourceSupportValidation=std::move(report);return true;}

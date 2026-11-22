@@ -79,7 +79,7 @@ std::shared_ptr<const SphereSourceTriangles> validatedSphereTriangles(
 
 PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
     const std::vector<vtkIdType>& originalIds, double distanceTolerance, const QString& geometry,
-    reconstruction::LengthUnit unit)
+    reconstruction::LengthUnit unit, const reconstruction::SurfaceAnalysisProgress& progress)
 {
     PointCloudAnalysisResult result;
     if (cloud.positions.size() < 20 || cloud.positions.size() != originalIds.size()) {
@@ -180,7 +180,7 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
     analysisOptions.recoveryConnectivityToleranceMultiplier=analysisSettings.recoveryConnectivityToleranceMultiplier;
     analysisOptions.recoveryConnectivityAdaptiveMultiplier=analysisSettings.recoveryConnectivityAdaptiveMultiplier;
     reconstruction::SurfaceAnalysisResult analysis;
-    if (!cache.analyze(points, analysisOptions, analysis, error)) {
+    if (!cache.analyze(points, analysisOptions, analysis, error, progress)) {
         result.error = QString::fromStdString(error); return result;
     }
     result.analysis = analysis;
@@ -192,7 +192,7 @@ PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
         result.error=QString::fromStdString(error);return result;
     }
     reconstruction::SurfaceAnalysisResult displayAnalysis;
-    if(!reconstruction::indexDetectedSurfaceEvidence(source,displayEvidence,analysisOptions,displayAnalysis,error,{},cancelled)) {
+    if(!reconstruction::indexDetectedSurfaceEvidence(source,displayEvidence,analysisOptions,displayAnalysis,error,{},cancelled,{},progress)) {
         result.error=QString::fromStdString(error);return result;
     }
     result.sourceSupportValidation=displayAnalysis.supportValidation;

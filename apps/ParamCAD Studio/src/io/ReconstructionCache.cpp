@@ -276,11 +276,11 @@ bool ReconstructionCache::preprocess(const ObservationSnapshot& source,
 }
 
 bool ReconstructionCache::analyze(const PointStore& working, const SurfaceAnalysisOptions& options,
-    SurfaceAnalysisResult& analysis, std::string& error)
+    SurfaceAnalysisResult& analysis, std::string& error, const SurfaceAnalysisProgress& progress)
 {
     if (!enabled()) {
         note("working_analysis", "bypass", "disabled");
-        return analyzeSurfaces(working, options, analysis, error, {}, m_cancelled);
+        return analyzeSurfaces(working, options, analysis, error, {}, m_cancelled, progress);
     }
     const auto proposalKey = evidenceKey(working, options);
     const auto snapshotKey = analysisKey(proposalKey, options);
@@ -289,6 +289,7 @@ bool ReconstructionCache::analyze(const PointStore& working, const SurfaceAnalys
     if (load(stage, snapshotKey, stored)) {
         if (analysisMatches(working, stored) && validAnalysisReferences(working, stored)) {
             analysis = std::move(stored);
+            reportSurfaceAnalysis(analysis, progress);
             return true;
         }
         note(stage, "miss", "invalid_analysis_snapshot");
@@ -302,7 +303,7 @@ bool ReconstructionCache::analyze(const PointStore& working, const SurfaceAnalys
         if (!cancelled()) write(evidenceStage, proposalKey, encode(proposals));
     }
     if (!profileStage("surface.validate_and_index", [&] {
-        return indexDetectedSurfaceEvidence(working, proposals.evidence, options, analysis, error, {}, m_cancelled);
+        return indexDetectedSurfaceEvidence(working, proposals.evidence, options, analysis, error, {}, m_cancelled, {}, progress);
     })) return false;
     analysis.detectionPasses = proposals.detectionPasses;
     if (!cancelled()) write(stage, snapshotKey, encode(analysis));
@@ -325,7 +326,8 @@ bool ReconstructionCache::detect(const PointStore& working, const PrimitiveDetec
 }
 
 bool ReconstructionCache::analyzeSource(const PointStore& working, const PointStore& source,
-    const SurfaceAnalysisOptions& options, SurfaceAnalysisResult& result, std::string& error, bool& reused)
+    const SurfaceAnalysisOptions& options, SurfaceAnalysisResult& result, std::string& error, bool& reused,
+    const SurfaceAnalysisProgress& progress)
 {
     const QString stage = "source_analysis";
     const auto cacheKey = enabled() ? key(versions::analysis,
@@ -339,13 +341,14 @@ bool ReconstructionCache::analyzeSource(const PointStore& working, const PointSt
               stored.sourceSupportValidation.settingsSignature == surfaceSupportSettingsSignature(options)))) {
             result = std::move(stored);
             reused = true;
+            reportSurfaceAnalysis(result, progress);
             return true;
         }
         note(stage, "miss", "invalid_source_snapshot");
     }
-    if (!profileStage("recognition.surface_analysis", [&] { return analyze(working, options, result, error); }) ||
+    if (!profileStage("recognition.surface_analysis", [&] { return analyze(working, options, result, error, progress); }) ||
         !profileStage("recognition.source_revalidation", [&] {
-            return revalidateSurfaceSupportOnSource(working, source, result, error, m_cancelled);
+            return revalidateSurfaceSupportOnSource(working, source, result, error, m_cancelled, nullptr, progress);
         })) return false;
     if (enabled() && !cancelled()) write(stage, cacheKey, encode(result));
     return true;
@@ -355,12 +358,12 @@ bool ReconstructionCache::recognize(const PointStore& working, const PointStore&
     const PlaneDetectionOptions& planes, const CylinderDetectionOptions& cylinders,
     const std::vector<TemplateHint>& hints, const std::vector<SurfaceRelationHint>& relations,
     const RecognitionSettings& settings, const SurfaceAnalysisResult* sharedAnalysis,
-    GuidedSolidResult& result, std::string& error)
+    GuidedSolidResult& result, std::string& error, const GuidedRecognitionProgress& progress)
 {
     if (!enabled()) {
         note("recognition", "bypass", "disabled");
         return reconstructGuidedSolid(working, planes, cylinders, hints, result, error, m_cancelled,
-            sharedAnalysis, relations, &source, &settings);
+            sharedAnalysis, relations, &source, &settings, nullptr, progress);
     }
 
     std::optional<SurfaceAnalysisOptions> options;
@@ -372,7 +375,8 @@ bool ReconstructionCache::recognize(const PointStore& working, const PointStore&
             validated = *sharedAnalysis;
             reused = true;
             note("source_analysis", "memory");
-        } else if (!analyzeSource(working, source, *options, validated, error, reused)) {
+            reportSurfaceAnalysis(validated, progress.surfaces);
+        } else if (!analyzeSource(working, source, *options, validated, error, reused, progress.surfaces)) {
             result.analysis = std::move(validated);
             return false;
         }
@@ -392,7 +396,7 @@ bool ReconstructionCache::recognize(const PointStore& working, const PointStore&
         return recognized;
     }
     recognized = reconstructGuidedSolid(working, planes, cylinders, hints, result, error,
-        m_cancelled, sharedAnalysis, relations, &source, &settings, options ? &*options : nullptr);
+        m_cancelled, sharedAnalysis, relations, &source, &settings, options ? &*options : nullptr, progress);
     if (options) result.analysisReused = reused;
     // A completed geometric rejection can be replayed. A failed analysis,
     // inconsistent snapshot or cancelled operation has no completed candidate.

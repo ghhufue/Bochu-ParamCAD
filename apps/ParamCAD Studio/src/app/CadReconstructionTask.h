@@ -15,6 +15,13 @@
 #include <memory>
 
 class QThread;
+struct PointCloudSurfaceMesh;
+
+struct CadReconstructionPreview {
+    bool resetSurfaces = false;
+    std::vector<std::shared_ptr<const PointCloudSurfaceMesh>> surfaces;
+    std::optional<TopoDS_Shape> solid;
+};
 
 struct CadProjectionDebugResult
 {
@@ -62,13 +69,17 @@ public:
 
     explicit CadReconstructionTask(QObject* parent = nullptr);
     ~CadReconstructionTask() override;
+    using PreviewMesher = std::function<std::shared_ptr<const PointCloudSurfaceMesh>(const PlyCloud&,
+        double, const reconstruction::PrimitiveEvidence&, const std::vector<reconstruction::PointId>&,
+        const reconstruction::SurfaceFootprint*)>;
+
     bool start(PlyCloud cloud, reconstruction::LengthUnit unit,
                std::vector<reconstruction::TemplateHint> hints = {}, double sourceTolerance = 0,
                std::optional<reconstruction::SurfaceAnalysisResult> analysis = {},
                std::vector<reconstruction::SurfaceRelationHint> relations = {},
                bool projectionFallback = true, bool specializedRecovery = true,
                std::optional<reconstruction::ProjectionExtrusionOptions> projectionOptions = {},
-               bool prepareSurfacePreview = true, bool legacyAssembly = false);
+               bool prepareSurfacePreview = true, bool legacyAssembly = false, PreviewMesher previewMesher = {});
     bool startProjection(PlyCloud cloud, reconstruction::LengthUnit unit,
                          reconstruction::ProjectionPath path = reconstruction::ProjectionPath::Automatic,
                          bool inspectOnly = false,
@@ -80,13 +91,15 @@ public:
 signals:
     void runningChanged(bool running);
     void stageChanged(CadReconstructionTask::Stage stage);
+    void previewChanged(const CadReconstructionPreview& preview);
     // Delivered on this object's owning thread, while isRunning() is still true.
     void finished(const CadReconstructionResult& result);
 
 private:
+    using ReportPreview = std::function<void(CadReconstructionPreview)>;
     using Work = std::function<void(CadReconstructionResult&, const std::function<bool()>&,
-                                    const std::function<void(Stage)>&)>;
-    bool startWork(Work work, Stage initialStage);
+                                    const std::function<void(Stage)>&, const ReportPreview&)>;
+    bool startWork(Work work, Stage initialStage, bool livePreview = false);
 
     QThread* m_thread = nullptr;
     bool m_running = false;

@@ -1060,6 +1060,22 @@
 <context>
     <name>MainWindow</name>
     <message>
+        <source>识别曲面与关系</source>
+        <translation>Analyze Surfaces and Relations</translation>
+    </message>
+    <message>
+        <source>识别点云曲面并推断关系，供检查和编辑。</source>
+        <translation>Detect point cloud surfaces and infer relations for inspection and editing.</translation>
+    </message>
+    <message>
+        <source>生成参数化 CAD</source>
+        <translation>Generate Parametric CAD</translation>
+    </message>
+    <message>
+        <source>曲面与关系已就绪。检查或编辑后，可点击「生成参数化 CAD」。</source>
+        <translation>Surfaces and relations are ready. Review or edit them, then select Generate Parametric CAD.</translation>
+    </message>
+    <message>
         <source>直线 %1 条，整圆 %2 个，圆弧 %3 段。橙色点表示较大残差。</source>
         <translation>%1 straight segments, %2 circles, %3 arcs. Orange points show larger residuals.</translation>
     </message>
@@ -1286,6 +1302,14 @@ Maximum deviation ≤ %3 %5, P95 deviation %4 %5</translation>
         <location filename="../src/app/MainWindow.cpp" line="333"/>
         <source>取消 CAD 重建</source>
         <translation>Cancel CAD Reconstruction</translation>
+    </message>
+    <message>
+        <source>重建预览 · %1 个曲面 · 正在验证实体候选</source>
+        <translation>Reconstruction preview · %1 surfaces · Checking solid candidate</translation>
+    </message>
+    <message>
+        <source>重建预览 · %1 个曲面 · 正在识别</source>
+        <translation>Reconstruction preview · %1 surfaces · Recognizing geometry</translation>
     </message>
     <message>
         <location filename="../src/app/MainWindow.cpp" line="337"/>
@@ -1970,6 +1994,18 @@ Executable path %7</translation>
 </context>
 <context>
     <name>PointCloudRelationsPanel</name>
+    <message>
+        <source>识别曲面与关系</source>
+        <translation>Analyze Surfaces and Relations</translation>
+    </message>
+    <message>
+        <source>识别未归属点的曲面并更新关系，供检查和编辑。</source>
+        <translation>Detect surfaces from unassigned points and update relations for inspection and editing.</translation>
+    </message>
+    <message>
+        <source>生成参数化 CAD</source>
+        <translation>Generate Parametric CAD</translation>
+    </message>
     <message>
         <source>工程轮廓</source>
         <translation>Engineering contour</translation>

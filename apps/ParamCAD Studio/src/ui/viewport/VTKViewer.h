@@ -92,6 +92,10 @@ public:
                                         double scaleToCloud, int selectedStep = -1);
     void setProjectionPreviewBodyVisible(bool visible);
     void clearProjectionPreview();
+    void updateCadPreview(bool resetSurfaces,
+        const std::vector<std::shared_ptr<const PointCloudSurfaceMesh>>& surfaces,
+        const std::optional<TopoDS_Shape>& solid, double scaleToCloud);
+    void clearCadPreview();
     void clearBody();
     bool hasBody() const noexcept;
     const TopoDS_Shape& displayedBody() const { return m_displayedBody; }
@@ -296,6 +300,9 @@ private:
     vtkSmartPointer<SketchInteractorStyle> m_interactorStyle;
     BodyActor m_bodyActor;
     ProjectionPreviewActor m_projectionPreview;
+    ProjectionPreviewActor m_cadSolidPreview;
+    std::vector<vtkSmartPointer<vtkActor>> m_cadSurfacePreviews;
+    bool m_hasCadSolidPreview = false;
     bool m_hasProjectionPreview = false;
     TopoDS_Shape m_displayedBody;
     int m_pickedFaceId = -1;

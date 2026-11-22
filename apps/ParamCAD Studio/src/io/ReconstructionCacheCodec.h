@@ -126,7 +126,8 @@ CACHE_FIELDS(reconstruction::TorusEvidence, v.id, v.torus, v.supportPointIds, v.
 
 CACHE_FIELDS(reconstruction::PlaneDetectionOptions, v.distanceThreshold, v.minimumSupportPoints,
     v.maximumPlanes, v.probability, v.minimumNormalAlignment, v.clusterEpsilon,
-    v.duplicatePlaneAngularToleranceRadians, v.duplicatePlaneDistanceMultiplier, v.randomSeed)
+    v.duplicatePlaneAngularToleranceRadians, v.duplicatePlaneDistanceMultiplier,
+    v.mergeAngularToleranceRadians, v.mergeResidualToleranceMultiplier, v.randomSeed)
 
 CACHE_FIELDS(reconstruction::CylinderDetectionOptions, v.distanceThreshold, v.minimumNormalAlignment,
     v.minimumSupportPoints, v.maximumCylinders, v.probability, v.clusterEpsilon, v.minimumRadius,

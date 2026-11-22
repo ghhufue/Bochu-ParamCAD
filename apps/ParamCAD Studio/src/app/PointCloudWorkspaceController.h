@@ -35,6 +35,7 @@ struct PointCloudWorkspaceUi
     PointCloudRelationsPanel* relationsPanel;
     ScenePanel* scenePanel;
     PropertyPanel* propertyPanel;
+    QAction* analyzeCadSurfacesAction;
     QAction* reconstructCadAction;
     QAction* cancelCadAction;
     QAction* reconstructToolAction;
@@ -56,6 +57,7 @@ public:
     void openPointCloud();
     void importPointCloudFromFile(const QString& filePath);
     void loadPointCloudFromFile(const QString& filePath);
+    void reconstructCadSurfaces();
     void reconstructCad();
     void reconstructCadLegacy();
     void reconstructCadWithoutProjection();
@@ -77,6 +79,7 @@ private:
     std::optional<reconstruction::LengthUnit> confirmCloudUnit();
     void showProjectionDebugResult(const CadReconstructionResult& result);
     void updateCadActions();
+    void clearStaleCadPreview();
     void inspectCloudBoundary(int regionId);
     void invalidateContourPreview();
     void closeContourInspection();
@@ -86,8 +89,8 @@ private:
     void frameImportedCloud(const QString& filePath);
     void reportCloudLoadError(const QString& error);
     void onCadReconstructionFinished(const CadReconstructionResult& result);
-    void startPointCloudAnalysis(int regionId = 0, bool recordUndo = true);
-    void startRelationInference(bool recordUndo = true);
+    void startPointCloudAnalysis(int regionId = 0, bool recordUndo = true, bool prepareCad = false);
+    void startRelationInference(bool recordUndo = true, bool prepareCad = false);
     void startAnalysisExport();
     void startAnalysisExportTo(const QString& path);
     void finishCliOperation(bool success,const QString& error={},QJsonObject details={});
@@ -126,7 +129,9 @@ private:
     bool m_cadOverwriteManual = false;
     bool m_analyseAfterCad = false;
     bool m_inferAfterCad = false;
-    bool m_reconstructAfterCad = false;
+    double m_cadPreviewScale = 1;
+    std::size_t m_cadPreviewSurfaces = 0;
+    bool m_cadPreviewSolid = false;
     quint64 m_cadCloudRevision = 0;
     quint64 m_cadBodyRevision = 0;
     modeling::ModelRevision m_cadModelRevision = 0;

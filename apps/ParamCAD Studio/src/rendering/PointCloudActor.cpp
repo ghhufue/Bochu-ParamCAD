@@ -14,6 +14,18 @@
 #include <algorithm>
 #include <array>
 
+namespace {
+void appendSurfaceMesh(const PointCloudSurfaceMesh& mesh, vtkPoints* points, vtkCellArray* triangles)
+{
+    const auto offset = points->GetNumberOfPoints();
+    for (const auto& point : mesh.positions) points->InsertNextPoint(point.data());
+    for (const auto& triangle : mesh.triangles) {
+        const vtkIdType ids[]{offset + triangle[0], offset + triangle[1], offset + triangle[2]};
+        triangles->InsertNextCell(3, ids);
+    }
+}
+}
+
 PointCloudActor::PointCloudActor()
 {
     m_points = vtkSmartPointer<vtkPoints>::New();
@@ -392,6 +404,30 @@ void PointCloudActor::setRegionSurfaceDisplay(int region, bool enabled)
     applySurfaceDisplay();
 }
 
+vtkSmartPointer<vtkActor> PointCloudActor::createSurfacePreview(const PointCloudSurfaceMesh& mesh, int colorIndex)
+{
+    auto points = vtkSmartPointer<vtkPoints>::New();
+    points->SetDataTypeToDouble();
+    auto triangles = vtkSmartPointer<vtkCellArray>::New();
+    appendSurfaceMesh(mesh, points, triangles);
+    auto data = vtkSmartPointer<vtkPolyData>::New();
+    data->SetPoints(points);
+    data->SetPolys(triangles);
+    auto mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    mapper->SetInputData(data);
+    mapper->SetResolveCoincidentTopologyToPolygonOffset();
+    mapper->SetRelativeCoincidentTopologyPolygonOffsetParameters(-1, -1);
+    auto actor = vtkSmartPointer<vtkActor>::New();
+    actor->SetMapper(mapper);
+    actor->PickableOff();
+    actor->UseBoundsOff();
+    const auto color = regionColor(colorIndex);
+    actor->GetProperty()->SetColor(color[0] / 255., color[1] / 255., color[2] / 255.);
+    actor->GetProperty()->LightingOff();
+    actor->GetProperty()->SetOpacity(.72);
+    return actor;
+}
+
 void PointCloudActor::applySurfaceDisplay()
 {
     m_surfaceCellRegions.clear();
@@ -404,13 +440,10 @@ void PointCloudActor::applySurfaceDisplay()
     colors->SetNumberOfComponents(3);
     for (int region : displayed) {
         const auto& mesh = m_surfaceMeshes.at(region);
-        const auto offset = points->GetNumberOfPoints();
-        for (const auto& p : mesh.positions) points->InsertNextPoint(p.data());
+        appendSurfaceMesh(mesh, points, triangles);
         const auto color = surfaceColor(region);
-        for (const auto& t : mesh.triangles) {
-            const vtkIdType ids[]{offset+t[0],offset+t[1],offset+t[2]};
-            triangles->InsertNextCell(3, ids);
-            m_surfaceCellRegions.push_back(region);
+        m_surfaceCellRegions.insert(m_surfaceCellRegions.end(), mesh.triangles.size(), region);
+        for (std::size_t i = 0; i < mesh.triangles.size(); ++i) {
             colors->InsertNextTypedTuple(color.data());
         }
     }

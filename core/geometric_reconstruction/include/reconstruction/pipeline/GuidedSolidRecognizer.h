@@ -3,6 +3,8 @@
 #include <functional>
 #include <optional>
 
+class TopoDS_Shape;
+
 namespace reconstruction {
 enum class TemplateKind { Plane, Cylinder, Sphere, Cone, Torus, Box };
 struct TemplateHint
@@ -47,6 +49,12 @@ struct GuidedRecognitionOptions {
     double minimumMatchFraction = 0.9;
     std::size_t minimumSeedPoints = 20;
 };
+struct GuidedRecognitionProgress {
+    SurfaceAnalysisProgress surfaces;
+    std::function<void(const TopoDS_Shape&)> solid;
+    std::function<void(const CompoundCandidate&)> guidedSolid;
+};
+
 bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOptions& planes,
                             const CylinderDetectionOptions& cylinders,
                             const std::vector<TemplateHint>& hints, GuidedSolidResult& output,
@@ -55,5 +63,6 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
                             const std::vector<SurfaceRelationHint>& relationHints = {},
                             const PointStore* source = nullptr,
                             const RecognitionSettings* settings = nullptr,
-                            const SurfaceAnalysisOptions* conventionalOptions = nullptr);
+                            const SurfaceAnalysisOptions* conventionalOptions = nullptr,
+                            const GuidedRecognitionProgress& progress = {});
 } // namespace reconstruction

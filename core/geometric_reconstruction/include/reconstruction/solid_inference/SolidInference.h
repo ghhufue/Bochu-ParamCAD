@@ -52,15 +52,18 @@ struct SolidCandidate {
     std::vector<std::string> diagnostics;
 };
 
+// A non-null shape is a provisional body. An empty shape withdraws it.
+using SolidPreview = std::function<void(const TopoDS_Shape&)>;
+
 // Proposes a direct shell closure for an explicit part hypothesis. The input
 // patches must carry observed closed planar boundaries and known orientation.
 bool proposeObservedShell(const SurfaceScene& scene, const std::vector<PatchId>& partPatches,
-                          SolidCandidate& output, std::string& error);
+                          SolidCandidate& output, std::string& error, const SolidPreview& preview = {});
 
 // Builds a prism hypothesis from two supported, parallel planar patches with
 // matching finite boundary rings. Its end caps are explicitly inferred.
 bool proposeParallelCapExtrusion(const SurfaceScene& scene, PatchId first, PatchId second,
-                                SolidCandidate& output, std::string& error);
+                                SolidCandidate& output, std::string& error, const SolidPreview& preview = {});
 
 struct SolidInferenceResult {
     std::vector<SolidCandidate> candidates;
@@ -76,7 +79,7 @@ struct SolidInferenceOptions {
 
 bool inferSolids(const SurfaceScene& scene, SolidInferenceResult& output, std::string& error,
                  const SolidInferenceOptions& options = {},
-                 const PointStore* workingObservations = nullptr);
+                 const PointStore* workingObservations = nullptr, const SolidPreview& preview = {});
 
 struct SolidScoringOptions {
     double minimumObservationCoverage = 0.9;
@@ -88,7 +91,7 @@ struct SolidScoringOptions {
 bool scoreSolidCandidate(const SolidCandidate& candidate, const SurfaceScene& scene,
                          const PointStore& observations, double tolerance,
                          SolidCandidate& scored, std::string& error,
-                         const SolidScoringOptions& options = {});
+                         const SolidScoringOptions& options = {}, const SolidPreview& preview = {});
 
 // A near tie is ambiguous only when the candidates describe distinct material.
 const SolidCandidate* selectSolidCandidate(const std::vector<SolidCandidate>& scored,

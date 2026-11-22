@@ -137,12 +137,12 @@ bool indexEvidence(const PointStore& points, const std::vector<PrimitiveEvidence
     const SurfaceAnalysisOptions& options, SurfaceAnalysisResult& output, std::string& error,
     const std::vector<PointId>& protectedIds, const std::function<bool()>& cancelled,
     const SurfaceSamplingReference* frozenReference, bool detected,
-    const std::vector<ProtectedSurfaceSeed>& protectedSeeds = {}) {
+    const std::vector<ProtectedSurfaceSeed>& protectedSeeds = {}, const SurfaceAnalysisProgress& progress = {}) {
     std::vector<PrimitiveEvidence> accepted;
     SurfaceSupportValidationReport report;
     auto proposals = evidence;
     const bool validated = detected ?
-        validateDetectedSurfaceSupport(points, proposals, options, accepted, report, error, protectedIds, cancelled, protectedSeeds) :
+        validateDetectedSurfaceSupport(points, proposals, options, accepted, report, error, protectedIds, cancelled, protectedSeeds, progress) :
         validateSurfaceSupport(points, proposals, options, accepted, report, error, frozenReference, cancelled, protectedIds, protectedSeeds);
     if (!validated) return false;
     std::vector<SurfaceId> origins;
@@ -157,6 +157,8 @@ bool indexEvidence(const PointStore& points, const std::vector<PrimitiveEvidence
     staged.supportProposalIds = std::move(origins);
     staged.supportValidation = std::move(report);
     output = std::move(staged);
+    if (progress.patch && options.supportValidation.mode != SupportValidationMode::Enforce)
+        reportSurfaceAnalysis(output, progress);
     return true;
 }
 } // namespace
@@ -171,7 +173,7 @@ bool indexSurfaceEvidence(const PointStore& points, const std::vector<PrimitiveE
 bool indexDetectedSurfaceEvidence(const PointStore& points, const std::vector<PrimitiveEvidence>& evidence,
     const SurfaceAnalysisOptions& options, SurfaceAnalysisResult& output, std::string& error,
     const std::vector<PointId>& protectedIds, const std::function<bool()>& cancelled,
-    const std::vector<ProtectedSurfaceSeed>& protectedSeeds) {
-    return indexEvidence(points, evidence, options, output, error, protectedIds, cancelled, nullptr, true, protectedSeeds);
+    const std::vector<ProtectedSurfaceSeed>& protectedSeeds, const SurfaceAnalysisProgress& progress) {
+    return indexEvidence(points, evidence, options, output, error, protectedIds, cancelled, nullptr, true, protectedSeeds, progress);
 }
 } // namespace reconstruction

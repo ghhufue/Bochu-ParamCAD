@@ -92,6 +92,8 @@ const std::vector<settings::Setting<DetectionSettings>>& detectionSchema()
         REAL(options.plane.clusterEpsilon, "plane_cluster_epsilon", "平面", "聚类半径，0 为自动", 0, 10000),
         DEG(options.plane.duplicatePlaneAngularToleranceRadians, "plane_duplicate_angular_tolerance_deg", "平面", "重复平面角度容差"),
         REAL(options.plane.duplicatePlaneDistanceMultiplier, "plane_duplicate_distance_multiplier", "平面", "重复平面距离容差倍数", 0, 100),
+        DEG(options.plane.mergeAngularToleranceRadians, "plane_merge_angular_tolerance_deg", "平面", "平面合并角度容差"),
+        REAL(options.plane.mergeResidualToleranceMultiplier, "plane_merge_residual_tolerance_multiplier", "平面", "合并后逐片残差容差倍数", 1, 3),
         INT(options.plane.randomSeed, "plane_random_seed", "平面", "平面随机种子", 0, 4294967295),
         REAL(options.cylinder.distanceThreshold, "cylinder_distance_threshold_mm", "圆柱", "距离容差 mm，0 为自动", 0, 10000),
         INT(options.cylinder.minimumSupportPoints, "cylinder_minimum_support_points", "圆柱", "最低支持点数，0 为自动", 0, 2000000),

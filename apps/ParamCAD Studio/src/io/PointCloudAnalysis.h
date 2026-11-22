@@ -21,7 +21,8 @@ struct PointCloudAnalysisResult
 PointCloudAnalysisResult analysePointCloud(const PlyCloud& cloud,
     const std::vector<vtkIdType>& originalIds, double distanceTolerance,
     const QString& geometry = QString(),
-    reconstruction::LengthUnit unit = reconstruction::LengthUnit::Arbitrary);
+    reconstruction::LengthUnit unit = reconstruction::LengthUnit::Arbitrary,
+    const reconstruction::SurfaceAnalysisProgress& progress = {});
 PointCloudRegion describeTemplateFit(const reconstruction::TemplateFit& fit, double scaleToMillimeters);
 // Display the retained analysis without rerunning detection after CAD failure.
 std::vector<DetectedPointCloudSurface> describeAnalysisPatches(

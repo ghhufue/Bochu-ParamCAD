@@ -148,6 +148,7 @@ ProjectionPreviewActor::ProjectionPreviewActor()
 {
     m_body.setColor(QColor(100, 220, 235));
     m_body.setOpacity(.38);
+    m_body.setLightingEnabled(false);
     configureOverlay(m_body.surfaceActor());
     configureOverlay(m_body.edgeActor());
     m_body.surfaceActor()->UseBoundsOn();

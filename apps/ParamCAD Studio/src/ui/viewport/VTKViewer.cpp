@@ -212,6 +212,7 @@ VTKViewer::VTKViewer(QWidget* parent, PointCloudDocument* document, bool renderi
     m_renderWindow->AddRenderer(m_referenceRenderer);
     m_boxReferenceActor.attach(m_referenceRenderer);
     m_projectionPreview.attach(m_renderer, m_referenceRenderer);
+    m_cadSolidPreview.attach(m_renderer, m_referenceRenderer);
 
     CameraParameters initialCamera;
     CameraController::apply(m_renderer->GetActiveCamera(), initialCamera);
@@ -291,6 +292,39 @@ void VTKViewer::clearProjectionPreview()
     m_projectionPreview.clear();
     m_hasProjectionPreview = false;
     requestRender();
+}
+
+void VTKViewer::updateCadPreview(bool resetSurfaces,
+    const std::vector<std::shared_ptr<const PointCloudSurfaceMesh>>& surfaces,
+    const std::optional<TopoDS_Shape>& solid, double scaleToCloud)
+{
+    if (resetSurfaces) {
+        for (const auto& actor : m_cadSurfacePreviews) m_renderer->RemoveActor(actor);
+        m_cadSurfacePreviews.clear();
+    }
+    for (const auto& mesh : surfaces) {
+        auto actor = PointCloudActor::createSurfacePreview(*mesh, int(m_cadSurfacePreviews.size()) + 1);
+        actor->SetVisibility(m_pointCloudVisible);
+        m_renderer->AddActor(actor);
+        m_cadSurfacePreviews.push_back(std::move(actor));
+    }
+    if (solid) {
+        m_hasCadSolidPreview = !solid->IsNull();
+        if (m_hasCadSolidPreview) {
+            m_cadSolidPreview.setBody(*solid, scaleToCloud);
+            m_cadSolidPreview.setBodyVisible(m_pointCloudVisible);
+        } else {
+            m_cadSolidPreview.clear();
+        }
+        m_renderer->ResetCameraClippingRange();
+    }
+    requestRender();
+}
+
+void VTKViewer::clearCadPreview()
+{
+    if (m_cadSurfacePreviews.empty() && !m_hasCadSolidPreview) return;
+    updateCadPreview(true, {}, TopoDS_Shape{}, 1.0);
 }
 
 void VTKViewer::clearBody()
@@ -1047,6 +1081,7 @@ QSize VTKViewer::captureSourceSize() const
 
 void VTKViewer::syncPointCloud()
 {
+    clearCadPreview();
     closeBoundaryInspection();
     clearProjectionPreview();
     setAssemblyBoundaries({},{});
@@ -1133,6 +1168,8 @@ void VTKViewer::setPointCloudVisible(bool visible)
 {
     m_pointCloudVisible = visible;
     m_pointCloudActor.setVisible(visible);
+    for (const auto& actor : m_cadSurfacePreviews) actor->SetVisibility(visible);
+    if (m_hasCadSolidPreview) m_cadSolidPreview.setBodyVisible(visible);
     m_assemblyBoundaryActor->SetVisibility(visible && m_boundaryPointCount==m_pointCloudDocument->pointCount() && m_assemblyBoundaryActor->GetMapper()!=nullptr);
     emit pointCloudVisibilityChanged(visible);
     renderNow();

@@ -16,7 +16,13 @@ bool validPlaneOptions(const PlaneDetectionOptions& options) {
         options.duplicatePlaneAngularToleranceRadians > 0.0 &&
         options.duplicatePlaneAngularToleranceRadians < kPi / 2.0 &&
         std::isfinite(options.duplicatePlaneDistanceMultiplier) &&
-        options.duplicatePlaneDistanceMultiplier >= 1.0;
+        options.duplicatePlaneDistanceMultiplier >= 1.0 &&
+        std::isfinite(options.mergeAngularToleranceRadians) &&
+        options.mergeAngularToleranceRadians > 0.0 &&
+        options.mergeAngularToleranceRadians <= 10.0 * kPi / 180.0 &&
+        std::isfinite(options.mergeResidualToleranceMultiplier) &&
+        options.mergeResidualToleranceMultiplier >= 1.0 &&
+        options.mergeResidualToleranceMultiplier <= 3.0;
 }
 
 bool validCylinderOptions(const CylinderDetectionOptions& options) {

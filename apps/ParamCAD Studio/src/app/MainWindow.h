@@ -142,6 +142,7 @@ private:
     QAction* m_openModelingTabAction = nullptr;
     QAction* m_captureToolAction = nullptr;
     QAction* m_reconstructToolAction = nullptr;
+    QAction* m_analyzeCadSurfacesAction = nullptr;
     QAction* m_reconstructCadAction = nullptr;
     QAction* m_cadWithoutProjectionAction = nullptr;
     QAction* m_projectionDebugAction = nullptr;

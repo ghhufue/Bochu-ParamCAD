@@ -1,6 +1,7 @@
 #pragma once
 
 #include <reconstruction/parts/AssemblyReconstruction.h>
+#include <reconstruction/pipeline/GuidedSolidRecognizer.h>
 #include <reconstruction/preprocessing/PointCloudPreprocessor.h>
 #include <reconstruction/surface/SurfaceAnalysis.h>
 
@@ -29,19 +30,20 @@ public:
         reconstruction::PointStore& working, reconstruction::PointCloudPreprocessingReport& report,
         std::string& error);
     bool analyze(const reconstruction::PointStore& working, const reconstruction::SurfaceAnalysisOptions& options,
-        reconstruction::SurfaceAnalysisResult& analysis, std::string& error);
+        reconstruction::SurfaceAnalysisResult& analysis, std::string& error,
+        const reconstruction::SurfaceAnalysisProgress& progress = {});
     bool detect(const reconstruction::PointStore& working, const reconstruction::PrimitiveDetectionOptions& options,
         reconstruction::PrimitiveDetectionResult& evidence, std::string& error);
     bool analyzeSource(const reconstruction::PointStore& working, const reconstruction::PointStore& source,
         const reconstruction::SurfaceAnalysisOptions& options, reconstruction::SurfaceAnalysisResult& result,
-        std::string& error, bool& reused);
+        std::string& error, bool& reused, const reconstruction::SurfaceAnalysisProgress& progress = {});
     bool recognize(const reconstruction::PointStore& working, const reconstruction::PointStore& source,
         const reconstruction::PlaneDetectionOptions& planes, const reconstruction::CylinderDetectionOptions& cylinders,
         const std::vector<reconstruction::TemplateHint>& hints,
         const std::vector<reconstruction::SurfaceRelationHint>& relations,
         const reconstruction::RecognitionSettings& settings,
         const reconstruction::SurfaceAnalysisResult* sharedAnalysis, reconstruction::GuidedSolidResult& result,
-        std::string& error);
+        std::string& error, const reconstruction::GuidedRecognitionProgress& progress = {});
     bool assemble(const reconstruction::PointStore& source, const reconstruction::AssemblyOptions& options,
         reconstruction::AssemblyReconstructionResult& result, std::string& error);
 

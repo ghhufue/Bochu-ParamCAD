@@ -319,9 +319,9 @@ bool validateDetectedSurfaceSupport(const PointStore& points, std::vector<Primit
     const SurfaceAnalysisOptions& options, std::vector<PrimitiveEvidence>& accepted,
     SurfaceSupportValidationReport& report, std::string& error,
     const std::vector<PointId>& protectedIds, const std::function<bool()>& cancelled,
-    const std::vector<ProtectedSurfaceSeed>& protectedSeeds) {
+    const std::vector<ProtectedSurfaceSeed>& protectedSeeds, const SurfaceAnalysisProgress& progress) {
     if (!validateSurfaceSupport(points, proposals, options, accepted, report, error, nullptr,
-                                cancelled, protectedIds, protectedSeeds)) return false;
+                                cancelled, protectedIds, protectedSeeds, progress)) return false;
     std::vector<PrimitiveEvidence> recovered;
     if (!diagnostics::profileStage("surface.recover_curved_fragments", [&] {
         return recoverCurvedFragments(points, proposals, accepted, report, options, protectedIds,
@@ -336,7 +336,7 @@ bool validateDetectedSurfaceSupport(const PointStore& points, std::vector<Primit
                          std::make_move_iterator(recovered.end()));
         const auto reference = report.reference;
         return validateSurfaceSupport(points, proposals, options, accepted, report, error,
-                                      &reference, cancelled, protectedIds, protectedSeeds);
+                                      &reference, cancelled, protectedIds, protectedSeeds, progress);
     }
     if (recovered.empty()) return true;
 
@@ -345,7 +345,7 @@ bool validateDetectedSurfaceSupport(const PointStore& points, std::vector<Primit
     std::vector<PrimitiveEvidence> extraAccepted;
     SurfaceSupportValidationReport extraReport;
     if (!validateSurfaceSupport(points, recovered, options, extraAccepted, extraReport, error,
-                                &report.reference, cancelled, protectedIds)) return false;
+                                &report.reference, cancelled, protectedIds, {}, {{}, progress.patch})) return false;
     const auto proposalOffset = proposals.size();
     PatchId patchOffset = 0;
     for (const auto& decision : report.decisions) patchOffset = std::max(patchOffset, decision.patchId);

@@ -184,7 +184,8 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
                             std::string& error, const std::function<bool()>& cancelled,
                             const SurfaceAnalysisResult* sharedAnalysis,
                             const std::vector<SurfaceRelationHint>& relationHints, const PointStore* source,
-                            const RecognitionSettings* settings, const SurfaceAnalysisOptions* conventionalOptions)
+                            const RecognitionSettings* settings, const SurfaceAnalysisOptions* conventionalOptions,
+                            const GuidedRecognitionProgress& progress)
 {
     output = {};
     const GuidedRecognitionOptions& guided = settings
@@ -199,12 +200,13 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
              sharedAnalysis->sourceSupportValidation.pointFingerprint==pointStoreFingerprint(*source))) {
             output.analysis = *sharedAnalysis;
             output.analysisReused = true;
+            if (!conventionalOptions) reportSurfaceAnalysis(output.analysis, progress.surfaces);
         }
         else if (!diagnostics::profileStage("recognition.surface_analysis", [&] {
-            return analyzeSurfaces(points, options, output.analysis, error, {}, cancelled);
+            return analyzeSurfaces(points, options, output.analysis, error, {}, cancelled, progress.surfaces);
         })) return false;
         if (source && !diagnostics::profileStage("recognition.source_revalidation", [&] {
-            return revalidateSurfaceSupportOnSource(points, *source, output.analysis, error, cancelled);
+            return revalidateSurfaceSupportOnSource(points, *source, output.analysis, error, cancelled, nullptr, progress.surfaces);
         })) return false;
         return diagnostics::profileStage("recognition.solid_inference", [&] {
             PointStore materialized({}, points.unit());
@@ -218,7 +220,7 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
             SurfaceScene scene;
             if (!exportSurfaceScene(*working, output.analysis, scene, error, source)) return false;
             SolidInferenceResult inferred;
-            if (!inferSolids(scene, inferred, error, {}, working) || inferred.candidates.empty()) return false;
+            if (!inferSolids(scene, inferred, error, {}, working, progress.solid) || inferred.candidates.empty()) return false;
             std::vector<PointSample> screeningPoints;
             const auto screeningCount=std::min<std::size_t>(256,working->size());
             screeningPoints.reserve(screeningCount);
@@ -245,7 +247,7 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
                 std::string scoringError;
                 if (scoreSolidCandidate(proposal, screeningScene, screeningStore,
                         scoringTolerance(proposal),
-                        candidate, scoringError, screeningOptions) && candidate.status == SolidCandidateStatus::Accepted)
+                        candidate, scoringError, screeningOptions, progress.solid) && candidate.status == SolidCandidateStatus::Accepted)
                     screened.emplace_back(proposal,std::move(candidate));
                 else if (!scoringError.empty()) screeningFailures.push_back(scoringError);
                 else if (!candidate.diagnostics.empty()) screeningFailures.push_back(candidate.diagnostics.back());
@@ -273,11 +275,12 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
                 SolidCandidate candidate;
                 std::string scoringError;
                 if(scoreSolidCandidate(item.first,scene,evidence,
-                    scoringTolerance(item.first),candidate,scoringError,finalOptions)&&
+                    scoringTolerance(item.first),candidate,scoringError,finalOptions,progress.solid)&&
                     candidate.status==SolidCandidateStatus::Accepted)
                     scored.push_back(std::move(candidate));
             }
             const auto* best = selectSolidCandidate(scored, error);
+            if (!best && progress.solid) progress.solid({});
             if (!best) {
                 if (error == "No candidate passed B-Rep and evidence scoring") {
                     error += ": ";
@@ -359,7 +362,7 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
         PointStore local(remaining, points.unit());
         if (!analyzeSurfaces(local, recognitionAnalysisOptions(local, planes, cylinders,
                                 settings ? settings->analysis : RecognitionAnalysisSettings{}),
-                             output.analysis, error, seeds, cancelled) ||
+                             output.analysis, error, seeds, cancelled, progress.surfaces) ||
             !recognizeParametricSolidFromAnalysis(local, output.analysis, output.candidate, error, nullptr, nullptr, settings)) return false;
     }
     output.candidate.curvedSolids.insert(output.candidate.curvedSolids.end(), closed.begin(),
@@ -369,9 +372,12 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
         error = "No supported material";
         return false;
     }
+    if (progress.guidedSolid) progress.guidedSolid(output.candidate);
     if (!verifyHints(points, hints, output.candidate, output.fits, planes.distanceThreshold,
-                     output.failedRegionId, error, cancelled, guided))
+                     output.failedRegionId, error, cancelled, guided)) {
+        if (progress.solid) progress.solid({});
         return false;
+    }
     output.candidate.surfaceCoverage =
         (remaining.size() * output.candidate.surfaceCoverage + (points.size() - remaining.size())) /
         points.size();
@@ -381,7 +387,7 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
         // Relationship endpoints still refer to the original full snapshot.
         if(!analyzeSurfaces(points,recognitionAnalysisOptions(points,planes,cylinders,
                 settings ? settings->analysis : RecognitionAnalysisSettings{}),
-                output.analysis,error,{},cancelled) ||
+                output.analysis,error,{},cancelled,progress.surfaces) ||
            !applySurfaceRelationHints(points,relationHints,output.analysis,error)) return false;
     }
     error.clear();

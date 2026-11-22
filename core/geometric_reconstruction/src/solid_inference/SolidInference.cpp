@@ -206,7 +206,7 @@ bool sameHypothesis(const SolidCandidate& first,const SolidCandidate& second) {
 bool scoreSolidCandidate(const SolidCandidate& candidate,const SurfaceScene& scene,
                          const PointStore& observations,double tolerance,
                          SolidCandidate& scored,std::string& error,
-                         const SolidScoringOptions& options) {
+                         const SolidScoringOptions& options,const SolidPreview& preview) {
     scored=candidate;
     if(candidate.status==SolidCandidateStatus::Rejected) {
         error="Rejected solid candidates cannot enter observation scoring";
@@ -235,7 +235,10 @@ bool scoreSolidCandidate(const SolidCandidate& candidate,const SurfaceScene& sce
         scored.diagnostics.push_back(error);
         return false;
     }
-    return scoreCandidateShape(candidate,scene,observations,tolerance,core.bodyShape(),scored,error,options);
+    if (preview) preview(core.bodyShape());
+    const bool valid = scoreCandidateShape(candidate,scene,observations,tolerance,core.bodyShape(),scored,error,options);
+    if (preview && (!valid || scored.status != SolidCandidateStatus::Accepted)) preview({});
+    return valid;
 }
 
 const SolidCandidate* selectSolidCandidate(const std::vector<SolidCandidate>& scored,
@@ -426,7 +429,7 @@ bool scoreCandidateShape(const SolidCandidate& candidate,const SurfaceScene& sce
 } // namespace
 
 bool inferSolids(const SurfaceScene& scene,SolidInferenceResult& output,std::string& error,
-                 const SolidInferenceOptions& options,const PointStore* workingObservations) {
+                 const SolidInferenceOptions& options,const PointStore* workingObservations,const SolidPreview& preview) {
     output={};
     if(const auto valid=validateSurfaceScene(scene);!valid){error=valid.message;return false;}
     if(options.beamWidth==0||options.maximumFeatureOperations==0||options.maximumFeatureOperations>8||
@@ -482,7 +485,7 @@ bool inferSolids(const SurfaceScene& scene,SolidInferenceResult& output,std::str
         if (component.size() < 4||output.candidates.size()>=options.maximumCandidates) continue;
         SolidCandidate shell;
         std::string shellError;
-        if (proposeObservedShell(scene, component, shell, shellError)) {
+        if (proposeObservedShell(scene, component, shell, shellError, preview)) {
             shell.status = SolidCandidateStatus::Proposed;
             shell.diagnostics.push_back("Observed closed planar shell proposed from shared boundary edges");
             output.candidates.push_back(std::move(shell));
@@ -495,7 +498,7 @@ bool inferSolids(const SurfaceScene& scene,SolidInferenceResult& output,std::str
       for(std::size_t j=i+1;j<planar.size()&&output.candidates.size()<maximumPairHypotheses&&
           output.candidates.size()<options.maximumCandidates;++j) {
         SolidCandidate candidate;std::string reason;
-        if(proposeParallelCapExtrusion(scene,planar[i],planar[j],candidate,reason))output.candidates.push_back(std::move(candidate));
+        if(proposeParallelCapExtrusion(scene,planar[i],planar[j],candidate,reason,preview))output.candidates.push_back(std::move(candidate));
     }
     const auto attachEvidenceTrace = [&](SolidCandidate& candidate) {
         std::sort(candidate.supportingPatches.begin(), candidate.supportingPatches.end());
@@ -608,6 +611,7 @@ bool inferSolids(const SurfaceScene& scene,SolidInferenceResult& output,std::str
                     output.candidates.push_back(std::move(combined));
                     continue;
                 }
+                if (preview) preview(verification.bodyShape());
                 output.candidates.push_back(combined);
                 expanded.push_back(std::move(combined));
             }

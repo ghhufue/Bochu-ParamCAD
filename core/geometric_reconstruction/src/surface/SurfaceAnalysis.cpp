@@ -116,9 +116,17 @@ bool collectSurfaceEvidence(const PointStore& points, const SurfaceAnalysisOptio
     return true;
 }
 
+void reportSurfaceAnalysis(const SurfaceAnalysisResult& analysis, const SurfaceAnalysisProgress& progress) {
+    if (!progress.patch) return;
+    if (progress.reset) progress.reset();
+    for (const auto& patch : analysis.patches)
+        progress.patch(analysis.surfaces.at(patch.surfaceId - 1), patch.supportPointIds, nullptr);
+}
+
 bool analyzeSurfaces(const PointStore& points, const SurfaceAnalysisOptions& options,
     SurfaceAnalysisResult& output, std::string& error,
-    const std::vector<PrimitiveEvidence>& seeds, const std::function<bool()>& cancelled) {
+    const std::vector<PrimitiveEvidence>& seeds, const std::function<bool()>& cancelled,
+    const SurfaceAnalysisProgress& progress) {
     output = {};
     SurfaceEvidenceCollection collected;
     if (!diagnostics::profileStage("surface.collect_evidence", [&] {
@@ -133,7 +141,7 @@ bool analyzeSurfaces(const PointStore& points, const SurfaceAnalysisOptions& opt
     }
     if (!diagnostics::profileStage("surface.validate_and_index", [&] {
         return indexDetectedSurfaceEvidence(points, collected.evidence, options, output, error,
-            protectedIds, cancelled, protectedSeeds);
+            protectedIds, cancelled, protectedSeeds, progress);
     })) return false;
     output.detectionPasses = collected.detectionPasses;
     return true;

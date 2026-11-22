@@ -125,6 +125,7 @@ std::uint64_t surfaceSceneSettingsFingerprint(const SurfaceAnalysisOptions& opti
     addDetection(d.cone, double(d.cone.maximumCones));
     addDetection(d.torus, double(d.torus.maximumTori));
     for (double value : {d.plane.duplicatePlaneAngularToleranceRadians, d.plane.duplicatePlaneDistanceMultiplier,
+        d.plane.mergeAngularToleranceRadians, d.plane.mergeResidualToleranceMultiplier,
         d.cylinder.minimumRadius, d.cylinder.maximumRadius, d.sphere.minimumRadius, d.sphere.maximumRadius,
         d.cone.minimumOpeningAngleRadians, d.cone.maximumOpeningAngleRadians,
         d.torus.minimumMajorRadius, d.torus.maximumMajorRadius, d.torus.minimumMinorRadius,

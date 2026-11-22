@@ -135,7 +135,7 @@ void verifyExport(MainWindow& window, const QString& chosenPath,
 void waitForCad(MainWindow& window, bool includeAnalysis = false)
 {
     auto* task = window.findChild<CadReconstructionTask*>();
-    auto* reconstruct = action(window, "Reconstruct CAD");
+    auto* reconstruct = action(window, "Generate Parametric CAD");
     QElapsedTimer elapsed;
     elapsed.start();
     while ((task->isRunning() || (includeAnalysis && !reconstruct->isEnabled()))
@@ -184,11 +184,29 @@ void replayDenseCloud(const QString& path, const QString& previewPath = {})
     auto* document = window.findChild<PointCloudDocument*>();
     auto* model = window.findChild<ModelingController*>();
     auto* task = window.findChild<CadReconstructionTask*>();
-    auto* reconstruct = action(window, "Reconstruct CAD");
+    auto* reconstruct = action(window, "Generate Parametric CAD");
     QElapsedTimer elapsed;
     elapsed.start();
     QString error;
     require(document->load(path, error), error.toStdString().c_str());
+    const auto originalCloudRevision = document->revision();
+    const auto originalModelRevision = model->revision();
+    bool previewedSurfaces = false;
+    bool previewedSolid = false;
+    bool previewPreservedRevisions = true;
+    QObject::connect(task, &CadReconstructionTask::previewChanged, &window,
+        [&](const CadReconstructionPreview& preview) {
+            if (!previewedSurfaces && !preview.surfaces.empty()) {
+                previewedSurfaces = true;
+                std::cout << "First surface preview at " << elapsed.elapsed() << " ms." << std::endl;
+            }
+            if (!previewedSolid && preview.solid && !preview.solid->IsNull()) {
+                previewedSolid = true;
+                std::cout << "First solid preview at " << elapsed.elapsed() << " ms." << std::endl;
+            }
+            previewPreservedRevisions &= task->isRunning() && document->revision() == originalCloudRevision
+                && model->revision() == originalModelRevision;
+        });
     std::cout << "Dense cloud load: " << elapsed.elapsed() << " ms, "
               << document->pointCount() << " points." << std::endl;
     QObject::connect(task, &CadReconstructionTask::stageChanged, &window,
@@ -218,6 +236,9 @@ void replayDenseCloud(const QString& path, const QString& previewPath = {})
     require(!task->isRunning() && reconstruct->isEnabled(), "dense CAD and analysis complete");
     require(!model->features().empty() && BRepCheck_Analyzer(model->bodyShape()).IsValid(),
             "dense reconstruction publishes a valid parametric body");
+    if (qEnvironmentVariableIntValue("PCAD_DISABLE_CACHE"))
+        require(previewedSurfaces && previewedSolid && previewPreservedRevisions,
+                "dense CAD previews surfaces and a solid before editing the documents");
     require(longestDispatch < 5000, "dense reconstruction must keep GUI dispatches below Windows hang detection");
     verifyFeatureDetails(window);
     if (!previewPath.isEmpty()) {
@@ -233,19 +254,27 @@ void testCadReconstruction(MainWindow& window, const QString& cloudPath)
     auto* model = window.findChild<ModelingController*>();
     auto* workspace = window.findChild<PointCloudWorkspaceController*>();
     auto* task = window.findChild<CadReconstructionTask*>();
-    auto* reconstruct = action(window, "Reconstruct CAD");
+    auto* reconstruct = action(window, "Generate Parametric CAD");
     auto* cancel = action(window, "Cancel CAD Reconstruction");
     auto* cancelButton = window.findChild<QPushButton*>("cancelCadReconstructionButton");
     auto* status = window.findChild<QLabel*>("pointCloudRelationStatus");
     QString error;
     require(viewer->pointCloudDocument()->load(cloudPath, error), "load metric CAD fixture");
     const auto initialRevision = model->revision();
+    const auto initialBodyRevision = viewer->bodyRevision();
     int starts = 0;
     bool commitsOnOwner = true;
     const auto started = QObject::connect(task, &CadReconstructionTask::runningChanged, &window,
         [&](bool running) { starts += running; });
     const auto rebuilt = QObject::connect(model, &ModelingController::modelRebuilt, &window,
         [&] { commitsOnOwner &= QThread::currentThread() == window.thread(); });
+    action(window, "Analyze Surfaces and Relations")->trigger();
+    require(!task->isRunning() && !reconstruct->isEnabled(), "surface phase does not start solid recognition");
+    waitForCad(window, true);
+    const auto& selection = viewer->pointCloudDocument()->selection();
+    require(starts == 0 && model->revision() == initialRevision && viewer->bodyRevision() == initialBodyRevision
+            && !selection.regions().empty() && !selection.relations().empty(),
+            "surface phase publishes surfaces and relations and waits for explicit CAD generation");
     window.findChild<QToolButton*>("reconstructCadButton")->click();
     require(task->isRunning() && !reconstruct->isEnabled() && cancel->isEnabled()
             && !cancelButton->isHidden(), "running reconstruction exposes cancel and prevents duplicate commands");
@@ -351,7 +380,7 @@ void testCadReconstruction(MainWindow& window, const QString& cloudPath)
 
     auto closing = std::make_unique<MainWindow>();
     require(closing->findChild<VTKViewer*>()->pointCloudDocument()->load(cloudPath, error), "load CAD shutdown fixture");
-    action(*closing, "Reconstruct CAD")->trigger();
+    action(*closing, "Generate Parametric CAD")->trigger();
     require(closing->findChild<CadReconstructionTask*>()->isRunning(), "worker running when window is destroyed");
     closing.reset();
     QCoreApplication::processEvents();
@@ -386,7 +415,8 @@ void testGuidedReconstruction(const QString& cloudPath)
     });
     assign->trigger();
     require(created, "menu creates a manual collection through the template dialog");
-    require(task->isRunning(), "assigning a metric template automatically starts CAD reconstruction");
+    require(!task->isRunning() && model->features().empty(), "assigning a template waits for explicit CAD generation");
+    rebuild->click();
     waitForCad(window, true);
     const auto* region = document->selection().region(1);
     require(region && region->templateLocked && region->source == "manual" && !region->fitStale
@@ -407,25 +437,24 @@ void testGuidedReconstruction(const QString& cloudPath)
             "rebuilding replaces generated features and preserves independent authored history");
     const auto revision = model->revision();
     relations->editRegionRequested(1, "wrong sphere", "sphere");
+    require(!task->isRunning() && model->revision() == revision, "editing a template does not start CAD generation");
+    rebuild->click();
     waitForCad(window);
     require(model->revision() == revision && status->text().contains("模板")
             && status->text().contains("失败"), "wrong template reports conflict without changing CAD");
-    // Rapid changes cancel the obsolete job and reconstruct the latest template.
+    // The next manual run uses the latest template after rapid edits.
     relations->editRegionRequested(1, "obsolete sphere", "sphere");
     relations->editRegionRequested(1, "corrected plane", "plane");
-    QElapsedTimer deadline;
-    deadline.start();
-    while ((model->revision() == revision || task->isRunning()
-            || !action(window, "Reconstruct CAD")->isEnabled()) && deadline.elapsed() < 30000) {
-        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
-        QThread::msleep(1);
-    }
+    require(!task->isRunning() && model->revision() == revision, "rapid edits wait for a manual run");
+    rebuild->click();
+    waitForCad(window, true);
     require(model->revision() > revision && model->features().size() == 2
             && document->selection().region(1)->geometry == "plane"
             && document->selection().regionPoints(1) == selected,
-            "queued retry uses latest template snapshot without duplicating generated features");
+            "explicit CAD generation uses latest template snapshot without duplicating generated features");
     // A complete cuboid can also be specified using a local observed face.
     relations->editRegionRequested(1, "cuboid patch", "cuboid");
+    rebuild->click();
     waitForCad(window, true);
     require(document->selection().region(1)->parameters.contains("size_x")
             && model->features().size() == 2, "cuboid template completes from whole-cloud observations");
@@ -434,8 +463,9 @@ void testGuidedReconstruction(const QString& cloudPath)
     require(document->selection().region(1)->geometry == "plane"
             && document->selection().region(1)->parameters.contains("offset")
             && model->features().size() == 2,
-            "one undo restores the template edit and reconstructs it without an automatic-fit undo loop");
+            "one undo restores the prior template and fit without rebuilding CAD");
     relations->editRegionRequested(1, "cuboid patch", "cuboid");
+    rebuild->click();
     waitForCad(window, true);
 
     document->selectRegion(1);
@@ -474,8 +504,8 @@ void testGuidedReconstruction(const QString& cloudPath)
     metadata.write("{\"unit\":\"arbitrary\"}"); metadata.close();
     const auto beforeScale = model->revision();
     relations->editRegionRequested(1, "unknown-scale cuboid", "cuboid");
-    require(!task->isRunning() && status->text().contains("尺度未知"),
-            "automatic template reconstruction requires explicit unknown-scale confirmation");
+    require(!task->isRunning() && model->revision() == beforeScale,
+            "unknown-scale template edits wait for explicit generation and confirmation");
     bool declined = false;
     QTimer::singleShot(0, &window, [&] {
         if (auto* box = window.findChild<QMessageBox*>()) {
@@ -514,7 +544,7 @@ void failedCadRetainsDetectedPlanes()
     MainWindow window;window.setAttribute(Qt::WA_DontShowOnScreen);
     auto* document=window.findChild<PointCloudDocument*>();QString error;
     require(document->load(path,error),error.toStdString().c_str());
-    action(window,"Reconstruct CAD")->trigger();waitForCad(window);
+    action(window,"Generate Parametric CAD")->trigger();waitForCad(window);
     require(window.findChild<ModelingController*>()->features().empty(),"an open unsigned plane must not fabricate a solid");
     const auto& regions=document->selection().regions();
     require(std::any_of(regions.begin(),regions.end(),[](const auto& r) {

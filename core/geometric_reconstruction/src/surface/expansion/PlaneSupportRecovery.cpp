@@ -10,7 +10,8 @@ namespace {
 using namespace math3;
 using Index = std::size_t;
 using Neighbors = std::vector<std::pair<double, Index>>;
-constexpr double angularLimit = 0.03490658503988659; // two degrees for merging reliable equations
+constexpr double angularLimit = 0.03490658503988659; // two degrees for growing one fitted region
+constexpr double mergeInlierFraction = 0.95;
 
 double residual(const PlaneEquation& plane, Vec3 p) { return std::abs(dot(plane.normal,p)+plane.offset); }
 
@@ -37,6 +38,8 @@ bool fit(const PointStore& points, const std::vector<Index>& support, PlaneEquat
 struct Region {
     PlaneEvidence evidence;
     std::vector<Index> support;
+    // Keep seed and growth supports separate so every source patch has its own merge gate.
+    std::vector<std::vector<Index>> mergeComponents;
     PlaneEquation anchor;
     std::optional<Vec3> material;
     double angularBudget=angularLimit;
@@ -59,6 +62,10 @@ public:
         for(Index i=0;i<p.size();++i) blocked[i]=protectedSet.count(p.points()[i].id)!=0;
     }
     bool check() { return stopped=cancelled && cancelled(); }
+    void blockSeedSupports(const std::vector<Region>& regions) {
+        for (const auto& region : regions)
+            for (const auto index : region.support) blocked[index] = true;
+    }
     const Neighbors& near(Index i) {
         if(neighbors[i].empty()) {
             neighbors[i]=tree.nearest(i,std::min<Index>(24,points.size()-1));
@@ -143,10 +150,9 @@ public:
         e.confidence=std::clamp(1-e.meanAbsoluteResidual/options.distanceThreshold,0.0,1.0);
     }
     bool merge(Region& a,const Region& b) {
-        if(std::abs(dot(a.evidence.plane.normal,b.evidence.plane.normal))<std::cos(angularLimit) ||
+        if(std::abs(dot(a.evidence.plane.normal,b.evidence.plane.normal))<
+                std::cos(options.mergeAngularToleranceRadians) ||
             (a.material && b.material && dot(*a.material,*b.material)<0)) return false;
-        for(auto i:b.support) if(residual(a.evidence.plane,points.points()[i].position)>options.distanceThreshold) return false;
-        for(auto i:a.support) if(residual(b.evidence.plane,points.points()[i].position)>options.distanceThreshold) return false;
         std::unordered_set<Index> included(a.support.begin(),a.support.end());
         bool connected=false;
         for(auto i:b.support) {
@@ -157,15 +163,30 @@ public:
         if(!connected) return false;
         auto combined=a;
         for(auto i:b.support) if(included.insert(i).second) combined.support.push_back(i);
+        combined.mergeComponents.insert(combined.mergeComponents.end(), b.mergeComponents.begin(), b.mergeComponents.end());
         auto proposed=combined.evidence.plane;
-        if(!fit(points,combined.support,proposed) || std::abs(dot(proposed.normal,a.anchor.normal))<std::cos(a.angularBudget)) return false;
-        for(auto i:combined.support) if(residual(proposed,points.points()[i].position)>options.distanceThreshold) return false;
+        const double minimumAlignment = std::cos(options.mergeAngularToleranceRadians);
+        if(!fit(points,combined.support,proposed) ||
+            std::abs(dot(proposed.normal,a.anchor.normal))<minimumAlignment ||
+            std::abs(dot(proposed.normal,b.anchor.normal))<minimumAlignment) return false;
+        const double maximumResidual = options.distanceThreshold * options.mergeResidualToleranceMultiplier;
+        for (const auto& component : combined.mergeComponents) {
+            if (component.empty()) continue;
+            std::vector<double> residuals;
+            residuals.reserve(component.size());
+            for (auto i : component) residuals.push_back(residual(proposed, points.points()[i].position));
+            const auto index = static_cast<std::size_t>(std::ceil(mergeInlierFraction * residuals.size())) - 1;
+            std::nth_element(residuals.begin(), residuals.begin() + index, residuals.end());
+            if (residuals[index] > maximumResidual) return false;
+        }
         combined.evidence.plane=proposed;
+        combined.anchor=proposed;
         if(!combined.material) combined.material=b.material;
         a=std::move(combined);
         return true;
     }
     bool grow(Region& r) {
+        const auto initialSupportSize = r.support.size();
         std::vector<bool> accepted(points.size()),deferredFlag(points.size());
         for(auto i:r.support) accepted[i]=true;
         auto frontier=r.support;
@@ -196,6 +217,8 @@ public:
             frontier=std::move(next);
         }
         refit(r);describe(r);
+        if (r.support.size() > initialSupportSize)
+            r.mergeComponents.emplace_back(r.support.begin() + initialSupportSize, r.support.end());
         return true;
     }
 };
@@ -207,7 +230,14 @@ bool recoverPlaneSupport(const PointStore& points,const PlaneDetectionOptions& o
     error.clear();
     if(cancelled && cancelled()) {error="Cancelled";return false;}
     if(points.empty() || std::none_of(evidence.begin(),evidence.end(),[](const auto& e){return std::holds_alternative<PlaneEvidence>(e);})) return true;
-    if(!std::isfinite(options.distanceThreshold) || options.distanceThreshold<=0) {error="Invalid plane support tolerance";return false;}
+    if(!std::isfinite(options.distanceThreshold) || options.distanceThreshold<=0 ||
+       !std::isfinite(options.mergeAngularToleranceRadians) || options.mergeAngularToleranceRadians<=0 ||
+       options.mergeAngularToleranceRadians>10*std::acos(-1.0)/180 ||
+       !std::isfinite(options.mergeResidualToleranceMultiplier) ||
+       options.mergeResidualToleranceMultiplier<1 || options.mergeResidualToleranceMultiplier>3) {
+        error="Invalid plane support or merge tolerance";
+        return false;
+    }
     std::unordered_map<PointId,Index> indices;
     for(Index i=0;i<points.size();++i) indices.emplace(points.points()[i].id,i);
     const std::unordered_set<PointId> protectedSet(protectedIds.begin(),protectedIds.end());
@@ -239,10 +269,12 @@ bool recoverPlaneSupport(const PointStore& points,const PlaneDetectionOptions& o
                 r.angularBudget=std::clamp(std::atan2(options.distanceThreshold*2,span),angularLimit,.17453292519943295);
             }
         }
+        r.mergeComponents.push_back(r.support);
         regions.push_back(std::move(r));
     }
     std::stable_sort(regions.begin(),regions.end(),[](const auto& a,const auto& b){return a.support.size()>b.support.size();});
     Recovery recovery(points,options,protectedIds,cancelled);
+    recovery.blockSeedSupports(regions);
     const auto consolidate=[&]() {
         for(Index i=0;i<regions.size();++i) {
             if(recovery.check()) return false;

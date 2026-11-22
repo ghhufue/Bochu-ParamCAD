@@ -183,7 +183,7 @@ bool isSampledRectangle(const std::vector<modeling::Point2D>& polygon) {
 }
 
 bool proposeParallelCapExtrusion(const SurfaceScene& scene,PatchId firstId,PatchId secondId,
-                                SolidCandidate& output,std::string& error) {
+                                SolidCandidate& output,std::string& error, const SolidPreview& preview) {
     output={};output.analysisFingerprint=scene.header.analysisFingerprint;
     output.supportingPatches={firstId,secondId};
     if(const auto valid=validateSurfaceScene(scene);!valid){error=valid.message;output.diagnostics.push_back(error);return false;}
@@ -375,6 +375,7 @@ bool proposeParallelCapExtrusion(const SurfaceScene& scene,PatchId firstId,Patch
     output.diagnostics.push_back(cuts.empty()
         ? "Extrusion depth is supported by parallel patch separation; side walls are inferred"
         : "Cuts are supported by cap openings, observed cylinder walls and a matching exit or floor; outer side walls are inferred");
+    if (preview) preview(shape);
     error.clear();
     return true;
 }

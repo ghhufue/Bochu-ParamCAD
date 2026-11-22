@@ -21,6 +21,7 @@ bool analysisSettingsMatch(const SurfaceAnalysisOptions& a,const SurfaceAnalysis
         add(d.plane,double(d.plane.maximumPlanes));add(d.cylinder,double(d.cylinder.maximumCylinders));
         add(d.sphere,double(d.sphere.maximumSpheres));add(d.cone,double(d.cone.maximumCones));add(d.torus,double(d.torus.maximumTori));
         v.insert(v.end(),{d.plane.duplicatePlaneAngularToleranceRadians,d.plane.duplicatePlaneDistanceMultiplier,
+            d.plane.mergeAngularToleranceRadians,d.plane.mergeResidualToleranceMultiplier,
             d.cylinder.minimumRadius,d.cylinder.maximumRadius,d.sphere.minimumRadius,d.sphere.maximumRadius,
             d.cone.minimumOpeningAngleRadians,d.cone.maximumOpeningAngleRadians,
             d.torus.minimumMajorRadius,d.torus.maximumMajorRadius,d.torus.minimumMinorRadius,d.torus.maximumMinorRadius});
