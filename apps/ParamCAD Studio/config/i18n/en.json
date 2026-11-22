@@ -65,6 +65,8 @@
     "相对密度孔洞": "Relative-density holes",
     "边界内部支撑": "Boundary and interior support",
     "孔槽边界": "Slot boundaries"
+    ,"面密度与曲面展开验证": "Surface density and curved-support validation"
+    ,"密度参考与高级验证": "Density reference and advanced validation"
   },
   "fields": {
     "worker_count": "Preprocessing workers, 0 = auto, 1 = serial",
@@ -474,5 +476,25 @@
     "slot_minimum_side_spacings": "Minimum supported length of each slot rim / spacing",
     "slot_edge_alignment": "Minimum directional alignment of slot edges",
     "slot_perimeter_support_ratio": "Minimum supported rim length / slot perimeter"
+    ,"support_validation_mode": "Support validation mode"
+    ,"support_validation_worker_count": "Support validation workers, 0 = auto, 1 = serial"
+    ,"plane_density_ratio_max": "Maximum plane density deviation ratio"
+    ,"sphere_min_solid_angle_sr": "Minimum sphere support solid angle (sr)"
+    ,"sphere_min_minor_angular_span_deg": "Minimum sphere minor angular span"
+    ,"cylinder_min_angular_span_deg": "Minimum cylinder angular span"
+    ,"curvature_min_sagitta_noise_ratio": "Minimum curvature sagitta / noise ratio"
+    ,"density_reference_min_confidence": "Minimum confidence for density reference planes"
+    ,"density_reference_min_points": "Minimum points for density reference planes"
+    ,"density_reference_min_planes": "Minimum density reference planes"
+    ,"density_reference_area_quantile": "Density reference area quantile"
+    ,"density_reference_max_log_spread": "Maximum density reference log spread"
+    ,"support_min_expected_points": "Minimum expected support points"
+    ,"support_grid_spacing_multiplier": "Support grid spacing multiplier"
+    ,"plane_min_occupied_cell_ratio": "Minimum occupied support-cell ratio"
+    ,"curvature_noise_floor_tolerance_fraction": "Curvature noise floor / fit tolerance"
+    ,"curved_model_complexity_weight": "Curved-model complexity penalty"
+    ,"curved_min_model_gain": "Minimum curved-model gain over a plane"
+    ,"plane_preference_min_reference_area_fraction": "Minimum reference area fraction for plane preference"
+    ,"family_detection_worker_count": "Independent surface-family detection workers, 0 = auto"
   }
 }

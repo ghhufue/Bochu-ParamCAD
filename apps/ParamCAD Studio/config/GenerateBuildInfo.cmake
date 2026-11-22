@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.24)
 
 file(MAKE_DIRECTORY "${OUTPUT_DIRECTORY}")
 file(LOCK "${OUTPUT_DIRECTORY}/build-info.lock" TIMEOUT 30)
-set(GIT_COMMIT "")
-set(SOURCE_STATE "unknown")
+set(GIT_COMMIT "${CONFIGURED_GIT_COMMIT}")
+set(SOURCE_STATE "${CONFIGURED_SOURCE_STATE}")
 set(WORKTREE_FINGERPRINT "")
 file(REAL_PATH "${REPOSITORY_ROOT}" root)
 
@@ -13,8 +13,12 @@ if(GIT_EXECUTABLE)
         RESULT_VARIABLE root_result OUTPUT_VARIABLE git_root OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
     if(root_result STREQUAL "0")
         file(REAL_PATH "${git_root}" git_root)
+        # Git may normalize drive-letter case or separator style differently
+        # from CMake. The Git-reported worktree is authoritative once the
+        # repository lookup succeeds.
+        set(root "${git_root}")
     endif()
-    if(root_result STREQUAL "0" AND git_root STREQUAL root)
+    if(root_result STREQUAL "0")
         execute_process(
             COMMAND "${GIT_EXECUTABLE}" -C "${root}" rev-parse --verify HEAD
             RESULT_VARIABLE head_result OUTPUT_VARIABLE head OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
@@ -83,3 +87,8 @@ endif()
 string(TIMESTAMP BUILD_TIMESTAMP "%Y-%m-%dT%H:%M:%SZ" UTC)
 configure_file("${template}" "${header}" @ONLY)
 file(WRITE "${identity_file}" "${identity}")
+if(BUILD_INFO_STAMP)
+    get_filename_component(stamp_directory "${BUILD_INFO_STAMP}" DIRECTORY)
+    file(MAKE_DIRECTORY "${stamp_directory}")
+    file(TOUCH "${BUILD_INFO_STAMP}")
+endif()

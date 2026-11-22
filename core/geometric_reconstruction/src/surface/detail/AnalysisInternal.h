@@ -74,5 +74,6 @@ bool valid(const SurfaceAnalysisOptions& o);
 bool validateDetectedSurfaceSupport(const PointStore& points, std::vector<PrimitiveEvidence>& proposals,
     const SurfaceAnalysisOptions& options, std::vector<PrimitiveEvidence>& accepted,
     SurfaceSupportValidationReport& report, std::string& error,
-    const std::vector<PointId>& protectedIds, const std::function<bool()>& cancelled);
+    const std::vector<PointId>& protectedIds, const std::function<bool()>& cancelled,
+    const std::vector<ProtectedSurfaceSeed>& protectedSeeds = {});
 } // namespace reconstruction::detail::analysis

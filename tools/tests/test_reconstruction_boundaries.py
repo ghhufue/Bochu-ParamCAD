@@ -41,7 +41,7 @@ class ReconstructionBoundaryTests(unittest.TestCase):
         sources = re.findall(r'^\s+(src/\S+\.cpp)\s*$', (CORE/'cmake/ReconstructionModules.cmake').read_text(), re.M)
         self.assertEqual(len(sources), len(set(sources)), 'Each source must have exactly one owning target')
         actual = {p.relative_to(CORE).as_posix() for directory in
-                  ['data', 'preprocessing', 'segmentation', 'surface', 'recognition', 'parts', 'pipeline', 'modeling', 'settings', 'testing']
+                  ['data', 'preprocessing', 'segmentation', 'surface', 'recognition', 'parts', 'pipeline', 'modeling', 'settings', 'testing', 'solid_inference']
                   for p in (CORE/'src'/directory).rglob('*.cpp')}
         self.assertEqual(set(sources), actual)
 

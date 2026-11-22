@@ -38,6 +38,7 @@ struct ProjectionArguments {
     std::filesystem::path file;
     bool projectionFallback = true;
     bool specializedRecovery = true;
+    bool legacyAssembly = false;
     QString path = QStringLiteral("auto");
 };
 
@@ -63,6 +64,8 @@ ProjectionArguments projectionArguments(const QStringList& args, bool assembly)
             require(!pathSpecified,"Duplicate --path");
             result.path = readValue();
             pathSpecified = true;
+        } else if (assembly && argument == "--legacy-assembly" && !result.legacyAssembly) {
+            result.legacyAssembly = true;
         } else if (assembly && argument == "--no-specialized-recovery" && result.specializedRecovery) {
             result.specializedRecovery = false;
         } else if (assembly && !projectionSpecified &&
@@ -112,7 +115,7 @@ void reconstructOfflineCad(const QStringList& args,QJsonObject& report) {
     using reconstruction::diagnostics::profileStage;
     const reconstruction::diagnostics::StageProfile profile("cad.offline");
     require(args.size()>=5,
-            "Usage: reconstruct-cloud cloud.ply report.json output.step [--no-projection-fallback] [--no-specialized-recovery] [--config file] [--set key=value] [--path mode]");
+            "Usage: reconstruct-cloud cloud.ply report.json output.step [--legacy-assembly] [--no-projection-fallback] [--no-specialized-recovery] [--config file] [--set key=value] [--path mode]");
     const auto arguments = projectionArguments(args,true);
     const auto projectionFallback = arguments.projectionFallback;
     const auto specializedRecovery = arguments.specializedRecovery;
@@ -120,8 +123,9 @@ void reconstructOfflineCad(const QStringList& args,QJsonObject& report) {
     const auto unit=PointCloudAdapter::lengthUnitFor(args[2]);
     require(unit!=reconstruction::LengthUnit::Arbitrary,"Point cloud needs mm/m unit metadata; declare its unit explicitly");
     report["input_kind"]="point_cloud_only";report["source_model_read"]=false;report["topology_correspondence_used"]=false;
-    report["specialized_recovery_enabled"]=specializedRecovery;
-    report["projection_fallback_enabled"]=projectionFallback;
+    report["legacy_assembly"]=arguments.legacyAssembly;
+    report["specialized_recovery_enabled"]=arguments.legacyAssembly && specializedRecovery;
+    report["projection_fallback_enabled"]=arguments.legacyAssembly && projectionFallback;
     report["reference_labels_used"]=false;report["source_completeness_verified"]=false;report["cad_constructed"]=false;
     report["cloud"]=QFileInfo(args[2]).absoluteFilePath();report["unit"]=unit==reconstruction::LengthUnit::Millimeter?"mm":"m";
     auto stage=[&](const QString& name){report["stage"]=name;report["status"]="running";save(args[3],report);};
@@ -133,7 +137,7 @@ void reconstructOfflineCad(const QStringList& args,QJsonObject& report) {
     QObject::connect(&task,&CadReconstructionTask::stageChanged,&loop,[&](auto value){
         stage(value==CadReconstructionTask::Stage::Preprocessing?"preprocessing":value==CadReconstructionTask::Stage::SeparatingParts?"separating_and_closing_parts":"recognizing_from_points");});
     QObject::connect(&task,&CadReconstructionTask::finished,&loop,[&](const auto& value){result=value;loop.quit();});
-    require(task.start(cloud,unit,{},0,{},{},projectionFallback,specializedRecovery,arguments.options,false),
+    require(task.start(cloud,unit,{},0,{},{},projectionFallback,specializedRecovery,arguments.options,false,arguments.legacyAssembly),
         "Cannot start point-cloud worker");
     if(!result)loop.exec();require(result.has_value(),"Point-cloud worker returned no result");
     report["cache"] = result->cache;

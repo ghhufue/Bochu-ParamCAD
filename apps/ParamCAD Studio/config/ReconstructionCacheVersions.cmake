@@ -38,6 +38,7 @@ set(surfaces "${reconstruction}/src/surface/*.cpp" "${reconstruction}/src/surfac
     "${reconstruction}/include/reconstruction/settings/SurfaceMeshingSettings.h")
 set(recognition "${reconstruction}/src/recognition/*.cpp" "${reconstruction}/src/recognition/*.h"
     "${reconstruction}/src/pipeline/*.cpp" "${reconstruction}/src/pipeline/*.h"
+    "${reconstruction}/src/solid_inference/*.cpp" "${reconstruction}/src/solid_inference/*.h"
     "${reconstruction}/include/reconstruction/pipeline/*.h"
     "${reconstruction}/include/reconstruction/recognition/*.h")
 set(cad "${modeling}/src/*.cpp" "${modeling}/src/*.h" "${modeling}/include/modeling/*.h"
@@ -51,7 +52,8 @@ set(projection "${reconstruction}/src/parts/projection/*.cpp" "${reconstruction}
 paramcad_cache_version(CACHE_PREPROCESSING ${common} ${input})
 paramcad_cache_version(CACHE_EVIDENCE ${common} ${detection})
 paramcad_cache_version(CACHE_ANALYSIS ${common} ${detection} ${surfaces})
-paramcad_cache_version(CACHE_RECOGNITION ${common} ${input} ${detection} ${surfaces} ${recognition} ${cad})
+paramcad_cache_version(CACHE_RECOGNITION ${common} ${input} ${detection} ${surfaces} ${recognition} ${cad}
+    "${app}/VERSION")
 paramcad_cache_version(CACHE_ASSEMBLY_GROUPING ${common} ${input} "${assembly}/AssemblyReconstruction.cpp"
     "${assembly}/AssemblyInternal.h")
 paramcad_cache_version(CACHE_ASSEMBLY_PREPARATION ${common} "${assembly}/AssemblyReconstruction.cpp"

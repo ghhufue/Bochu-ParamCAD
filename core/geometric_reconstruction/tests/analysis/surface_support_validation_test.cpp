@@ -52,6 +52,29 @@ void cylinder(bool narrow) {
     require(narrow?accepted.empty():!accepted.empty(),narrow?"long shallow cylinder strip is rejected":"full radius-2 cylinder keeps valid support");
     if(!narrow)require(std::get<CylinderEvidence>(accepted.front()).supportPointIds.size()>=570,"anisotropic cylinder sampling retains its rings");
 }
+void manualProtectionIsSurfaceTyped() {
+    std::vector<PointSample> samples;
+    SphereEvidence sphere;
+    sphere.sphere={{0,0,0},1};
+    for(PointId id=1;id<=24;++id) {
+        PointSample point;
+        point.id=id;
+        point.position={0,0,1};
+        samples.push_back(point);
+        sphere.supportPointIds.push_back(id);
+    }
+    SurfaceAnalysisOptions options;
+    options.detection.sphere.distanceThreshold=.02;
+    std::vector<PrimitiveEvidence> accepted;
+    SurfaceSupportValidationReport report;
+    std::string error;
+    const std::vector<PointId> protectedIds=sphere.supportPointIds;
+    const std::vector<ProtectedSurfaceSeed> protectedSeeds{{PrimitiveKind::Cylinder,protectedIds}};
+    require(validateSurfaceSupport(PointStore(std::move(samples)),{PrimitiveEvidence{sphere}},options,
+        accepted,report,error,nullptr,{},protectedIds,protectedSeeds),error.c_str());
+    require(!report.decisions.empty()&&!report.decisions.front().protectedManual,
+        "manual point protection does not cross primitive families");
+}
 void spheres() {
     Fixture f;SphereEvidence s;s.sphere={{0,0,0},3000};s.confidence=.99;
     for(int i=0;i<20;++i)for(int j=0;j<20;++j){const double u=-.02+i*.04/19,v=-.02+j*.04/19,k=3000/std::sqrt(1+u*u+v*v);PointSample p;p.position={k*u,k*v,k};f.add(p,s.supportPointIds);}f.evidence.emplace_back(s);
@@ -341,4 +364,4 @@ void parallelMatchesSerial() {
         "cancelled verification publishes no partial state");
 }
 }
-int main(){try{densityAndModes();cylinder(false);cylinder(true);spheres();recoversSphereFromPlaneFragments();cones();transactionAndSettings();heterogeneousReference();invalidRing();footprintsKeepHolesAndStrips();repeatedPlaneSamplingPreservesOpenings();irregularPlaneSamplingDoesNotInventSupport();revalidationRetainsFullResolutionSurfaceIndex();disconnectedDomainMembership();parallelMatchesSerial();std::cout<<"surface_support_validation_test passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{densityAndModes();cylinder(false);cylinder(true);manualProtectionIsSurfaceTyped();spheres();recoversSphereFromPlaneFragments();cones();transactionAndSettings();heterogeneousReference();invalidRing();footprintsKeepHolesAndStrips();repeatedPlaneSamplingPreservesOpenings();irregularPlaneSamplingDoesNotInventSupport();revalidationRetainsFullResolutionSurfaceIndex();disconnectedDomainMembership();parallelMatchesSerial();std::cout<<"surface_support_validation_test passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

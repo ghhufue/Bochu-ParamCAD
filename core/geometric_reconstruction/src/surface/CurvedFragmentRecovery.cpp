@@ -318,9 +318,10 @@ bool mergeRecoveredSpheres(const PointStore& points, const SphereDetectionOption
 bool validateDetectedSurfaceSupport(const PointStore& points, std::vector<PrimitiveEvidence>& proposals,
     const SurfaceAnalysisOptions& options, std::vector<PrimitiveEvidence>& accepted,
     SurfaceSupportValidationReport& report, std::string& error,
-    const std::vector<PointId>& protectedIds, const std::function<bool()>& cancelled) {
+    const std::vector<PointId>& protectedIds, const std::function<bool()>& cancelled,
+    const std::vector<ProtectedSurfaceSeed>& protectedSeeds) {
     if (!validateSurfaceSupport(points, proposals, options, accepted, report, error, nullptr,
-                                cancelled, protectedIds)) return false;
+                                cancelled, protectedIds, protectedSeeds)) return false;
     std::vector<PrimitiveEvidence> recovered;
     if (!diagnostics::profileStage("surface.recover_curved_fragments", [&] {
         return recoverCurvedFragments(points, proposals, accepted, report, options, protectedIds,
@@ -335,7 +336,7 @@ bool validateDetectedSurfaceSupport(const PointStore& points, std::vector<Primit
                          std::make_move_iterator(recovered.end()));
         const auto reference = report.reference;
         return validateSurfaceSupport(points, proposals, options, accepted, report, error,
-                                      &reference, cancelled, protectedIds);
+                                      &reference, cancelled, protectedIds, protectedSeeds);
     }
     if (recovered.empty()) return true;
 

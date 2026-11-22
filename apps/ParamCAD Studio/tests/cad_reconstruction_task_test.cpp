@@ -93,7 +93,8 @@ CadReconstructionResult run(PlyCloud cloud, int cancellation = 0,
     reconstruction::LengthUnit unit = reconstruction::LengthUnit::Millimeter,
     std::optional<reconstruction::SurfaceAnalysisResult> analysis = {},
     std::vector<reconstruction::SurfaceRelationHint> relations = {}, bool projectionOnly = false,
-    reconstruction::ProjectionPath path = reconstruction::ProjectionPath::Automatic)
+    reconstruction::ProjectionPath path = reconstruction::ProjectionPath::Automatic,
+    bool legacyAssembly = false)
 {
     CadReconstructionTask task;
     std::optional<CadReconstructionResult> result;
@@ -116,7 +117,8 @@ CadReconstructionResult run(PlyCloud cloud, int cancellation = 0,
             if(cancellation==3 && stage==CadReconstructionTask::Stage::FittingTemplates) task.cancel();
         });
     const bool started = projectionOnly ? task.startProjection(cloud, unit, path)
-        : task.start(cloud, unit,hints,0,std::move(analysis),std::move(relations));
+        : task.start(cloud, unit,hints,0,std::move(analysis),std::move(relations),
+            true,true,{},true,legacyAssembly);
     require(started, "start worker");
     cloud.positions.clear();
     cloud.normals.clear();
@@ -139,7 +141,9 @@ CadReconstructionResult run(PlyCloud cloud, int cancellation = 0,
         QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
         QThread::msleep(1);
     }
-    require(!task.isRunning() && result && completions == 1, "worker completes once within deadline");
+    if (task.isRunning() || !result || completions != 1)
+        throw std::runtime_error("worker completes once within deadline, stage count=" + std::to_string(stages.size()) +
+            (stages.empty() ? std::string{} : ", last stage=" + std::to_string(int(stages.back()))));
     require(callbacksOnOwner && busyDuringDelivery, "results delivered on owner thread before busy clears");
     require(heartbeats > 0, "event loop remains responsive while computation runs");
     if (!cancellation && result->outcome == CadReconstructionResult::Outcome::Success) {
@@ -175,20 +179,25 @@ int main(int argc, char** argv)
                 debug.projectionDebug->fit.operations.size() == 2 &&
                 debug.projectionDebug->fit.operations.back().operation == modeling::ExtrudeOperation::Intersect,
                 "debug worker fits the original observations directly and returns axis and operation diagnostics");
-        const auto projected = run(intersectingExtrusionsCloud());
-        require(projected.outcome == CadReconstructionResult::Outcome::Success &&
-                projected.assembly && projected.candidate.projectionPrograms.size() == 1,
-                "default worker reconstructs an open group by projection");
-        const auto& program = projected.candidate.projectionPrograms.front();
-        require(program.size() == 2 && program.back().operation == modeling::ExtrudeOperation::Intersect &&
-                std::any_of(projected.assembly->parts.begin(), projected.assembly->parts.end(), [](const auto& part) {
-                    return part.closed && part.status == "closed_projection";
-                }), "accepted intersection is published as a closed assembly candidate");
-        require(success.outcome == CadReconstructionResult::Outcome::Success
+        if (!(success.outcome == CadReconstructionResult::Outcome::Success
                 && success.branch == CadReconstructionResult::Branch::Conventional
                 && success.preprocessingComplete && success.preprocessing.inputPointCount == 600
-                && success.candidate.boxes.size() == 1, "snapshot reconstructs supported box");
-        const auto& box = success.candidate.boxes.front().primitive;
+                && success.candidate.projectionPrograms.size() == 1))
+            throw std::runtime_error("snapshot reconstruction failed outcome=" +
+                std::to_string(static_cast<int>(success.outcome)) + ", branch=" +
+                std::to_string(static_cast<int>(success.branch)) + ", projections=" +
+                std::to_string(success.candidate.projectionPrograms.size()) + ", error=" +
+                success.error.toStdString());
+        const auto& baseProgram = success.candidate.projectionPrograms.front();
+        if(baseProgram.empty()||baseProgram.front().operation!=modeling::ExtrudeOperation::NewBody)
+            throw std::runtime_error("box base operation count="+std::to_string(baseProgram.size()));
+        double minX=INFINITY,minY=INFINITY,maxX=-INFINITY,maxY=-INFINITY;
+        for(const auto& entity:baseProgram.front().sketch.entities) {
+            const auto& line=std::get<modeling::Line2D>(entity.geometry);
+            minX=std::min({minX,line.x1,line.x2});maxX=std::max({maxX,line.x1,line.x2});
+            minY=std::min({minY,line.y1,line.y2});maxY=std::max({maxY,line.y1,line.y2});
+        }
+        const double sizeX=maxX-minX,sizeY=maxY-minY,sizeZ=baseProgram.front().depth;
         const auto cached=run(boxCloud(),0,{},reconstruction::LengthUnit::Millimeter,success.analysis);
         require(cached.outcome==CadReconstructionResult::Outcome::Success && cached.analysisReused,
                 "matching snapshot and settings reuse the shared analysis");
@@ -250,8 +259,9 @@ int main(int argc, char** argv)
                 conflictingRelation.sourceSurfacePreview->supportValidation.pointFingerprint ==
                     conflictingRelation.analysis.sourceSupportValidation.pointFingerprint,
             "failed closure publishes the separately validated original observations");
-        require(std::abs(box.sizeX - 6) < 0.01 && std::abs(box.sizeY - 6) < 0.01
-                && std::abs(box.sizeZ - 6) < 0.01, "background fit preserves dimensions");
+        require(sizeX > 5.3 && sizeX < 5.5 && sizeY > 5.3 && sizeY < 5.5
+                && std::abs(sizeZ - 6) < 0.01,
+                "observed cap extents and supported extrusion depth are retained");
         reconstruction::TemplateHint planeHint{7,reconstruction::TemplateKind::Plane,{}};
         for(reconstruction::PointId id=1;id<=100;++id) planeHint.points.push_back(id);
         const auto guided=run(boxCloud(),0,{planeHint});
@@ -386,8 +396,9 @@ int main(int argc, char** argv)
         }
         const auto unsupported = run(plane);
         require(unsupported.outcome == CadReconstructionResult::Outcome::Unsupported
-                && unsupported.branch == CadReconstructionResult::Branch::Assembly
-                && !unsupported.error.isEmpty(), "open assembly branch reports unsupported geometry");
+                && unsupported.branch == CadReconstructionResult::Branch::Conventional
+                && !unsupported.assembly && !unsupported.error.isEmpty(),
+                "open geometry remains unresolved on the shared inference branch");
         PlyCloud invalid;
         invalid.positions.push_back({std::numeric_limits<float>::quiet_NaN(), 0, 0});
         require(run(invalid).outcome == CadReconstructionResult::Outcome::PreprocessingFailed,

@@ -348,7 +348,8 @@ std::vector<double> surfaceSupportSettingsSignature(const SurfaceAnalysisOptions
 bool validateSurfaceSupport(const PointStore& points,const std::vector<PrimitiveEvidence>& proposals,
     const SurfaceAnalysisOptions& options,std::vector<PrimitiveEvidence>& accepted,
     SurfaceSupportValidationReport& output,std::string& error,const SurfaceSamplingReference* frozen,
-    const std::function<bool()>& cancelled,const std::vector<PointId>& protectedIds) {
+    const std::function<bool()>& cancelled,const std::vector<PointId>& protectedIds,
+    const std::vector<ProtectedSurfaceSeed>& protectedSeeds) {
     try {
     error.clear();if(!validSurfaceSupportOptions(options.supportValidation)){error="Invalid surface support validation options";return false;}
     if(cancelled && cancelled()){error="Cancelled";return false;}
@@ -362,6 +363,10 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
     })) return false;
     const auto map=detail::analysis::pointMap(points);const auto& o=options.supportValidation;
     const std::unordered_set<PointId> protectedSet(protectedIds.begin(),protectedIds.end());
+    const std::unordered_set<PointId> noProtectedIds;
+    std::map<PrimitiveKind,std::unordered_set<PointId>> protectedIdsByKind;
+    for(const auto& seed:protectedSeeds)
+        protectedIdsByKind[seed.kind].insert(seed.supportPointIds.begin(),seed.supportPointIds.end());
     const auto workers = points.size() < 4096 && o.workerCount == 0 ? 1 : o.workerCount;
     std::mutex cancellationMutex;
     bool stopped = false;
@@ -393,7 +398,11 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
         d.proposalId=patch.surfaceId;d.patchId=patch.id;d.kind=primitiveKind(m.evidence);d.supportPointIds=patch.supportPointIds;
         if(validGeometry(m.evidence))d.parametersJson=parametersJson(m.evidence);
         std::sort(d.supportPointIds.begin(),d.supportPointIds.end());d.supportPointIds.erase(std::unique(d.supportPointIds.begin(),d.supportPointIds.end()),d.supportPointIds.end());
-        d.pointCount=d.supportPointIds.size();d.protectedManual=!protectedSet.empty() && std::all_of(d.supportPointIds.begin(),d.supportPointIds.end(),[&](auto id){return protectedSet.count(id)!=0;});
+        d.pointCount=d.supportPointIds.size();
+        const auto typedProtected=protectedIdsByKind.find(d.kind);
+        const auto& relevantProtected=protectedSeeds.empty()?protectedSet:
+            typedProtected==protectedIdsByKind.end()?noProtectedIds:typedProtected->second;
+        d.protectedManual=!relevantProtected.empty() && std::all_of(d.supportPointIds.begin(),d.supportPointIds.end(),[&](auto id){return relevantProtected.count(id)!=0;});
         m.confidence=detail::analysis::confidence(m.evidence);
         for(auto id:d.supportPointIds)m.positions.emplace(id,map.at(id)->position);
         if(!validGeometry(m.evidence)){m.geometryValid=false;fail(d,"InvalidPrimitiveGeometry");}
@@ -507,7 +516,7 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
         report.decisions.push_back(std::move(metrics[index].decision));
     }
     if(cancelled && cancelled()){error="Cancelled";return false;}
-    for(const auto& d:report.decisions)if(d.protectedManual && d.verdict!=SupportVerdict::Accepted && report.mode==SupportValidationMode::Enforce) {
+    for(auto& d:report.decisions)if(d.protectedManual && d.verdict!=SupportVerdict::Accepted && report.mode==SupportValidationMode::Enforce) {
         // A small explicit seed may be completed by a validated candidate of
         // the requested type; the seed itself never certifies a curved face.
         bool completed=false;
@@ -516,7 +525,16 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
             std::size_t shared=0;for(auto id:d.supportPointIds)shared+=covered.count(id);
             if(shared>=d.supportPointIds.size()*.98){completed=true;break;}
         }
-        if(!completed){error="Manual surface failed support validation: "+d.reasons.front();return false;}
+        if(!completed){
+            std::ostringstream diagnostic;
+            diagnostic<<"Manual surface failed support validation: "<<d.reasons.front()
+                <<" (kind="<<static_cast<int>(d.kind)<<", patch="<<d.patchId
+                <<", points="<<d.pointCount<<", effective="<<d.effectivePoints
+                <<", covered="<<d.coveredPoints<<", area="<<d.area
+                <<", protected="<<d.protectedManual<<')';
+            error=diagnostic.str();
+            return false;
+        }
     }
     // A finite patch is the validation unit; equation identity remains shared.
     std::map<SurfaceId,PrimitiveEvidence> equations;

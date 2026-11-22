@@ -85,7 +85,8 @@ PointStore makeSyntheticBoxSurface(const SyntheticBoxRequest& request) {
     points.reserve(6U * faceSamples + request.outlierCount);
     PointId nextId = 1;
     std::mt19937 generator(request.randomSeed);
-    std::normal_distribution<double> noise(0.0, request.gaussianNoiseSigma);
+    std::normal_distribution<double> noise(
+        0.0, request.gaussianNoiseSigma > 0.0 ? request.gaussianNoiseSigma : 1.0);
 
     const auto addFace = [&](const Vec3& normal, auto makeLocalPoint) {
         for (std::size_t row = 0; row < request.samplesPerEdge; ++row) {
@@ -100,9 +101,11 @@ PointStore makeSyntheticBoxSurface(const SyntheticBoxRequest& request) {
                 Vec3 position = pointInFrame(
                     request.box.pose, xAxis, yAxis, zAxis,
                     local.x, local.y, local.z);
-                position.x += noise(generator);
-                position.y += noise(generator);
-                position.z += noise(generator);
+                if (request.gaussianNoiseSigma > 0.0) {
+                    position.x += noise(generator);
+                    position.y += noise(generator);
+                    position.z += noise(generator);
+                }
                 points.push_back(PointSample{
                     nextId++,
                     position,

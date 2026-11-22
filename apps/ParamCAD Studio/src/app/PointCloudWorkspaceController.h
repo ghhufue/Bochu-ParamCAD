@@ -57,6 +57,7 @@ public:
     void importPointCloudFromFile(const QString& filePath);
     void loadPointCloudFromFile(const QString& filePath);
     void reconstructCad();
+    void reconstructCadLegacy();
     void reconstructCadWithoutProjection();
     void runProjectionDebug();
     void cancelCadReconstruction();
@@ -70,7 +71,7 @@ signals:
     void contourSketchCreated(modeling::FeatureId id);
 
 private:
-    void startCadReconstruction(bool projectionFallback);
+    void startCadReconstruction(bool projectionFallback, bool legacyAssembly = false);
     void startProjectionDebug(reconstruction::ProjectionPath path, bool inspectOnly);
     void clearProjectionDebugResult();
     std::optional<reconstruction::LengthUnit> confirmCloudUnit();
@@ -125,6 +126,7 @@ private:
     bool m_cadOverwriteManual = false;
     bool m_analyseAfterCad = false;
     bool m_inferAfterCad = false;
+    bool m_reconstructAfterCad = false;
     quint64 m_cadCloudRevision = 0;
     quint64 m_cadBodyRevision = 0;
     modeling::ModelRevision m_cadModelRevision = 0;

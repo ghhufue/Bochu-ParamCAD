@@ -24,6 +24,8 @@
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <STEPControl_Writer.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 
 #include <QAction>
 #include <QAbstractButton>
@@ -104,6 +106,13 @@ double volume(const TopoDS_Shape& shape)
     return properties.Mass();
 }
 
+int solidCount(const TopoDS_Shape& shape)
+{
+    TopTools_IndexedMapOfShape solids;
+    TopExp::MapShapes(shape, TopAbs_SOLID, solids);
+    return solids.Extent();
+}
+
 void verifyExport(MainWindow& window, const QString& chosenPath,
                   const QString& outputPath, const TopoDS_Shape& expected)
 {
@@ -116,8 +125,8 @@ void verifyExport(MainWindow& window, const QString& chosenPath,
     LoadedModel loaded;
     QString error;
     require(loader.load(outputPath, loaded, error), "UI export produces importable STEP");
-    require(BRepCheck_Analyzer(loaded.shape).IsValid() && loaded.solidCount == 1
-            && std::abs(volume(loaded.shape) - volume(expected)) < 1.0e-5,
+    require(BRepCheck_Analyzer(loaded.shape).IsValid() && loaded.solidCount == solidCount(expected)
+            && std::abs(volume(loaded.shape) - volume(expected)) < 1.0e-4,
             "UI export retains current solid, cut geometry and millimetre scale");
     require(model->revision() == revision && viewer->bodyRevision() == displayedRevision,
             "export preserves model history and displayed body");

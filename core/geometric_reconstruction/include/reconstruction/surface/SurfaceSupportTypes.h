@@ -8,6 +8,10 @@ namespace reconstruction {
 struct SurfaceFootprint;
 enum class SupportValidationMode { Off=0, Report=1, Enforce=2 };
 enum class SupportVerdict { Accepted, Rejected, NeedsMoreSupport };
+struct ProtectedSurfaceSeed {
+    PrimitiveKind kind = PrimitiveKind::Plane;
+    std::vector<PointId> supportPointIds;
+};
 struct SurfaceSupportValidationOptions {
     SupportValidationMode mode=SupportValidationMode::Enforce;
     double planeDensityRatioMax=4;

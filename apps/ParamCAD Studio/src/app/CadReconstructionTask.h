@@ -68,7 +68,7 @@ public:
                std::vector<reconstruction::SurfaceRelationHint> relations = {},
                bool projectionFallback = true, bool specializedRecovery = true,
                std::optional<reconstruction::ProjectionExtrusionOptions> projectionOptions = {},
-               bool prepareSurfacePreview = true);
+               bool prepareSurfacePreview = true, bool legacyAssembly = false);
     bool startProjection(PlyCloud cloud, reconstruction::LengthUnit unit,
                          reconstruction::ProjectionPath path = reconstruction::ProjectionPath::Automatic,
                          bool inspectOnly = false,

@@ -111,6 +111,14 @@ bool ModelingCore::restoreFeatures(const std::vector<Feature>& features) {
 
 void ModelingCore::adoptPrepared(ModelingCore&& prepared) {
     document_ = std::move(prepared.document_);
+    // A prepared snapshot normally carries the already-built B-Rep.  Some
+    // value/move paths can leave the transient shape empty while retaining a
+    // complete feature history, especially when restoring an undo entry.  A
+    // feature history is the durable source of truth, so rebuild the document
+    // before publishing that snapshot when necessary.
+    if (document_.bodyShape().IsNull() && !document_.features().empty()) {
+        document_.rebuild();
+    }
     ++revision_;
 }
 

@@ -118,6 +118,8 @@ PointCloudWorkspaceController::PointCloudWorkspaceController(
         updateCadActions();
         if (!running && std::exchange(m_analyseAfterCad, false)) startPointCloudAnalysis(0, false);
         if (!running && std::exchange(m_inferAfterCad, false)) startRelationInference(false);
+        if (!running && std::exchange(m_reconstructAfterCad, false))
+            QMetaObject::invokeMethod(this, [this] { reconstructCad(); }, Qt::QueuedConnection);
     });
     connect(m_cadTask, &CadReconstructionTask::stageChanged, this,
         [this](CadReconstructionTask::Stage stage) {
@@ -212,8 +214,26 @@ void PointCloudWorkspaceController::connectUi()
         m_ui.relationsPanel->setStatus(workspaceTr("识别未归属点以建立曲面集合。"));
         m_ui.propertyPanel->showPointCloudProperties();
     });
-    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::assignRequested,
-        m_document, &PointCloudDocument::assignRegion);
+    const auto requestReconstruction = [this] {
+        if (m_modelingController->hasProtectedReconstruction()) return;
+        if (cloudUnit(*m_document) == reconstruction::LengthUnit::Arbitrary) {
+            m_ui.relationsPanel->setStatus(workspaceTr("点云尺度未知，请手动启动 CAD 重建并确认尺度假设。"));
+            return;
+        }
+        if (m_cadTask->isRunning()) {
+            m_reconstructAfterCad = true;
+            m_analyseAfterCad = false;
+            m_cadTask->cancel();
+            return;
+        }
+        reconstructCad();
+    };
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::assignRequested, this,
+        [this, requestReconstruction](const QString& geometry, const QString& name, int id) {
+            if (m_document->assignRegion(geometry, name, id) > 0 &&
+                m_document->selection().selected().size() >= 20)
+                requestReconstruction();
+        });
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::reconstructRequested,
         this, &PointCloudWorkspaceController::reconstructCad);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::unassignRequested,
@@ -289,8 +309,10 @@ void PointCloudWorkspaceController::connectUi()
                                                    m_ui.viewer->displayedPointCloudSurfaces());
     });
     m_ui.viewer->setAutomaticPointCloudSurfaces(m_ui.relationsPanel->automaticSurfaceDisplay());
-    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::editRegionRequested,
-        m_document, &PointCloudDocument::editRegion);
+    connect(m_ui.relationsPanel, &PointCloudRelationsPanel::editRegionRequested, this,
+        [this, requestReconstruction](int id, const QString& name, const QString& geometry) {
+            if (m_document->editRegion(id, name, geometry)) requestReconstruction();
+        });
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::appendSelectionRequested, this, [this](int id) {
         const auto* region = m_document->selection().region(id);
         if (region) m_document->assignRegion(region->geometry, region->name, id);
@@ -696,6 +718,11 @@ void PointCloudWorkspaceController::reconstructCad()
     startCadReconstruction(true);
 }
 
+void PointCloudWorkspaceController::reconstructCadLegacy()
+{
+    startCadReconstruction(true, true);
+}
+
 void PointCloudWorkspaceController::reconstructCadWithoutProjection()
 {
     startCadReconstruction(false);
@@ -817,7 +844,7 @@ void PointCloudWorkspaceController::startProjectionDebug(reconstruction::Project
     m_cadTask->startProjection(m_document->sourceCloud(), *unit, path, inspectOnly);
 }
 
-void PointCloudWorkspaceController::startCadReconstruction(bool projectionFallback)
+void PointCloudWorkspaceController::startCadReconstruction(bool projectionFallback, bool legacyAssembly)
 {
     if (m_importThread || m_cadTask->isRunning() || m_startingCad || m_analysisThread || m_downsampleThread) return;
     if (m_document->sourcePath().isEmpty()) {
@@ -898,7 +925,8 @@ void PointCloudWorkspaceController::startCadReconstruction(bool projectionFallba
         relations.push_back(std::move(hint));
     }
     m_cadTask->start(std::move(cloud), *sourceUnit, std::move(hints),
-                     m_ui.relationsPanel->surfaceTolerance(), m_surfaceAnalysis,std::move(relations),projectionFallback);
+                     m_ui.relationsPanel->surfaceTolerance(), m_surfaceAnalysis,std::move(relations),projectionFallback,
+                     true, {}, true, legacyAssembly);
     emit logInfo(workspaceTr("仅点云重建：使用观测坐标、法向、单位和用户模板，不读取源模型或面对应表。"));
 }
 
@@ -1326,6 +1354,9 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
     reportStatus(!candidate.unresolvedPointIds.empty()?workspaceTr("已重建部分独立部件；不确定部件仍保留在点云中。"):
         result.assembly?workspaceTr("已显示部件候选并更新可闭合部分的 CAD；未闭合部分保留在点云集合中。"):
         workspaceTr("CAD 重建完成，已更新参数化模型。"));
+    // Guided templates consume one analysis for the selected evidence. Run the
+    // remaining unassigned subset through the same upstream analysis contract
+    // so its surface memberships remain available in the workspace.
     m_analyseAfterCad = !result.assembly && m_document->selection().regionPointCount(0) >= 20;
     applied=true;
 }

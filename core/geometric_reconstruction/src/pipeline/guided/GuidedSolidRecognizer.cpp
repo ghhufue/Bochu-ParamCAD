@@ -1,6 +1,7 @@
 #include "reconstruction/pipeline/ParametricReconstruction.h"
 #include "reconstruction/recognition/RecognitionAnalysisOptions.h"
 #include "reconstruction/surface/SurfaceSupportValidation.h"
+#include "reconstruction/solid_inference/SolidInference.h"
 #include "detail/GuidedInternal.h"
 #include "reconstruction/settings/ModuleConfig.h"
 #include "reconstruction/data/StageProfile.h"
@@ -109,7 +110,8 @@ bool fitTemplateRegions(const PointStore& points, const PlaneDetectionOptions& p
                 if (!complete && fit.surface) {
                     const auto expanded =
                         expandCurvedSupport(*fit.surface, samples, planes.distanceThreshold, options);
-                    if (expanded.size() >= options.minimumExpandedPoints) {
+                    if (expanded.size() >= options.minimumExpandedPoints &&
+                        expanded.size() > supportSize(*fit.surface)) {
                         PointStore local(expanded, points.unit());
                         SurfaceAnalysisResult expandedAnalysis;
                         if (analyzeSurfaces(local, localOptions, expandedAnalysis, incomplete,
@@ -204,13 +206,114 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
         if (source && !diagnostics::profileStage("recognition.source_revalidation", [&] {
             return revalidateSurfaceSupportOnSource(points, *source, output.analysis, error, cancelled);
         })) return false;
-        RepairTransactionReport transaction;
-        const bool recognized = diagnostics::profileStage("recognition.feature_recognition_and_repair", [&] {
-            return recognizeAndRepairParametricSolid(points, output.analysis, output.candidate, error,
-                source, &transaction, relationHints, settings);
+        return diagnostics::profileStage("recognition.solid_inference", [&] {
+            PointStore materialized({}, points.unit());
+            const PointStore* working = &points;
+            if (output.analysis.baseFingerprint) {
+                if (!materializeAnalysisPoints(points, output.analysis, materialized, error)) return false;
+                working = &materialized;
+            }
+            if (!relationHints.empty() &&
+                !applySurfaceRelationHints(*working, relationHints, output.analysis, error)) return false;
+            SurfaceScene scene;
+            if (!exportSurfaceScene(*working, output.analysis, scene, error, source)) return false;
+            SolidInferenceResult inferred;
+            if (!inferSolids(scene, inferred, error, {}, working) || inferred.candidates.empty()) return false;
+            std::vector<PointSample> screeningPoints;
+            const auto screeningCount=std::min<std::size_t>(256,working->size());
+            screeningPoints.reserve(screeningCount);
+            for(std::size_t i=0;i<screeningCount;++i)
+                screeningPoints.push_back(working->points()[i*working->size()/screeningCount]);
+            const PointStore screeningStore(std::move(screeningPoints),working->unit());
+            auto screeningScene=scene;
+            screeningScene.header.sourceFingerprint=0;
+            std::vector<std::pair<SolidCandidate,SolidCandidate>> screened;
+            std::vector<std::string> screeningFailures;
+            const auto scoringTolerance = [&](const SolidCandidate& candidate) {
+                double value = output.analysis.options.detection.plane.distanceThreshold;
+                for (const auto& patch : scene.patches)
+                    if (std::find(candidate.supportingPatches.begin(), candidate.supportingPatches.end(), patch.id) !=
+                        candidate.supportingPatches.end() && std::isfinite(patch.spacingMm))
+                        value = std::max(value, patch.spacingMm);
+                return value;
+            };
+            SolidScoringOptions screeningOptions;
+            for (const auto& proposal : inferred.candidates) {
+                if (cancelled && cancelled()) { error = "Cancelled"; return false; }
+                if (proposal.status == SolidCandidateStatus::Rejected) continue;
+                SolidCandidate candidate;
+                std::string scoringError;
+                if (scoreSolidCandidate(proposal, screeningScene, screeningStore,
+                        scoringTolerance(proposal),
+                        candidate, scoringError, screeningOptions) && candidate.status == SolidCandidateStatus::Accepted)
+                    screened.emplace_back(proposal,std::move(candidate));
+                else if (!scoringError.empty()) screeningFailures.push_back(scoringError);
+                else if (!candidate.diagnostics.empty()) screeningFailures.push_back(candidate.diagnostics.back());
+                else screeningFailures.push_back("candidate rejected");
+            }
+            std::stable_sort(screened.begin(),screened.end(),[](const auto& a,const auto& b){
+                return a.second.score<b.second.score;
+            });
+            if(screened.empty()) {
+                error="No candidate passed working-observation screening";
+                for(const auto& failure:screeningFailures) error += ": " + failure;
+                return false;
+            }
+            std::vector<std::pair<SolidCandidate,SolidCandidate>> shortlisted;
+            for(auto& item:screened) {
+                if(shortlisted.empty()||item.second.score-screened.front().second.score<.05)
+                    shortlisted.push_back(std::move(item));
+                if(shortlisted.size()==3)break;
+            }
+            const auto& evidence = source ? *source : *working;
+            std::vector<SolidCandidate> scored;
+            SolidScoringOptions finalOptions;
+            for(const auto& item:shortlisted) {
+                if(cancelled && cancelled()) { error="Cancelled"; return false; }
+                SolidCandidate candidate;
+                std::string scoringError;
+                if(scoreSolidCandidate(item.first,scene,evidence,
+                    scoringTolerance(item.first),candidate,scoringError,finalOptions)&&
+                    candidate.status==SolidCandidateStatus::Accepted)
+                    scored.push_back(std::move(candidate));
+            }
+            const auto* best = selectSolidCandidate(scored, error);
+            if (!best) {
+                if (error == "No candidate passed B-Rep and evidence scoring") {
+                    error += ": ";
+                    for (const auto& item : shortlisted) {
+                        SolidCandidate diagnostics;
+                        std::string detail;
+                        scoreSolidCandidate(item.first, scene, evidence,
+                            scoringTolerance(item.first),
+                            diagnostics, detail, finalOptions);
+                        if (!diagnostics.diagnostics.empty()) error += diagnostics.diagnostics.back() + "; ";
+                    }
+                }
+                return false;
+            }
+            const auto& selected = *best;
+            if (!selected.featureProgram.empty()) {
+                std::vector<ProjectionOperation> program;
+                for (const auto& feature : selected.featureProgram) {
+                    ProjectionOperation operation;
+                    operation.sketch.plane = feature.plane;
+                    operation.sketch.entities = feature.entities;
+                    operation.depth = feature.depth;
+                    operation.reverse = feature.reverse;
+                    operation.operation = feature.operation;
+                    program.push_back(std::move(operation));
+                }
+                output.candidate.projectionPrograms.push_back(std::move(program));
+            } else {
+                output.candidate.profileBodies.push_back(*selected.boundaryBody);
+            }
+            output.candidate.unresolvedPointIds=selected.unresolvedPoints;
+            output.candidate.surfaceCoverage=selected.observationCoverage;
+            output.candidate.confidence=std::clamp(1-selected.score,0.0,1.0);
+            error.clear();
+            return true;
         });
-        if(!recognized)output.analysis.localFailures=std::move(transaction.failures);
-        return recognized;
     }
     TemplateRegions templates;
     const bool fitted = fitTemplateRegions(points, planes, cylinders, hints, templates, error,

@@ -136,13 +136,14 @@ namespace {
 bool indexEvidence(const PointStore& points, const std::vector<PrimitiveEvidence>& evidence,
     const SurfaceAnalysisOptions& options, SurfaceAnalysisResult& output, std::string& error,
     const std::vector<PointId>& protectedIds, const std::function<bool()>& cancelled,
-    const SurfaceSamplingReference* frozenReference, bool detected) {
+    const SurfaceSamplingReference* frozenReference, bool detected,
+    const std::vector<ProtectedSurfaceSeed>& protectedSeeds = {}) {
     std::vector<PrimitiveEvidence> accepted;
     SurfaceSupportValidationReport report;
     auto proposals = evidence;
     const bool validated = detected ?
-        validateDetectedSurfaceSupport(points, proposals, options, accepted, report, error, protectedIds, cancelled) :
-        validateSurfaceSupport(points, proposals, options, accepted, report, error, frozenReference, cancelled, protectedIds);
+        validateDetectedSurfaceSupport(points, proposals, options, accepted, report, error, protectedIds, cancelled, protectedSeeds) :
+        validateSurfaceSupport(points, proposals, options, accepted, report, error, frozenReference, cancelled, protectedIds, protectedSeeds);
     if (!validated) return false;
     std::vector<SurfaceId> origins;
     for (const auto& e : accepted) origins.push_back(std::visit([](const auto& s) { return s.id; }, e));
@@ -169,7 +170,8 @@ bool indexSurfaceEvidence(const PointStore& points, const std::vector<PrimitiveE
 
 bool indexDetectedSurfaceEvidence(const PointStore& points, const std::vector<PrimitiveEvidence>& evidence,
     const SurfaceAnalysisOptions& options, SurfaceAnalysisResult& output, std::string& error,
-    const std::vector<PointId>& protectedIds, const std::function<bool()>& cancelled) {
-    return indexEvidence(points, evidence, options, output, error, protectedIds, cancelled, nullptr, true);
+    const std::vector<PointId>& protectedIds, const std::function<bool()>& cancelled,
+    const std::vector<ProtectedSurfaceSeed>& protectedSeeds) {
+    return indexEvidence(points, evidence, options, output, error, protectedIds, cancelled, nullptr, true, protectedSeeds);
 }
 } // namespace reconstruction

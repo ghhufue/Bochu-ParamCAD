@@ -1,6 +1,84 @@
 #include "reconstruction/modeling/ModelingAdapter.h"
 
+#include <cmath>
+
 namespace reconstruction {
+
+std::optional<modeling::ModelPatch> planSolidCandidate(
+    const SolidCandidate& candidate, const modeling::ModelingCore& snapshot,
+    std::string& error, modeling::ModelRevision expectedRevision) {
+    error.clear();
+    if (expectedRevision != modeling::kAnyModelRevision && expectedRevision != snapshot.revision()) {
+        error = "Model revision mismatch: expected " + std::to_string(expectedRevision) +
+            ", current " + std::to_string(snapshot.revision());
+        return std::nullopt;
+    }
+    if (candidate.status != SolidCandidateStatus::Accepted ||
+        (candidate.featureProgram.empty() && !candidate.boundaryBody)) {
+        error = "Solid candidate is not accepted or has no rebuildable feature program or boundary body";
+        return std::nullopt;
+    }
+    modeling::ModelPatch patch;
+    patch.expectedRevision = snapshot.revision();
+    patch.rebuild = true;
+    auto staged = snapshot;
+    if (!candidate.featureProgram.empty()) {
+        if (candidate.featureProgram.front().operation != modeling::ExtrudeOperation::NewBody) {
+            error = "Solid candidate feature program must begin with NewBody";
+            return std::nullopt;
+        }
+        modeling::FeatureId targetBody = modeling::kInvalidFeatureId;
+        for (const auto& operation : candidate.featureProgram) {
+            if (operation.entities.empty() || !std::isfinite(operation.depth) || operation.depth <= 0) {
+                error = "Solid candidate contains an invalid sketch or extrusion depth";
+                return std::nullopt;
+            }
+            modeling::SketchFeatureParams sketch;
+            sketch.plane = operation.plane;
+            sketch.entities = operation.entities;
+            modeling::AddFeatureCommand addSketch{sketch, true};
+            patch.commands.push_back(addSketch);
+            const auto sketchResult = staged.execute(addSketch);
+            if (!sketchResult.success) {
+                error = sketchResult.error;
+                return std::nullopt;
+            }
+            modeling::ExtrudeFeatureParams extrusion;
+            extrusion.sketchId = sketchResult.featureId;
+            extrusion.depth = operation.depth;
+            extrusion.reverse = operation.reverse;
+            extrusion.operation = operation.operation;
+            if (operation.operation != modeling::ExtrudeOperation::NewBody)
+                extrusion.targetBody = targetBody;
+            modeling::AddFeatureCommand addExtrusion{extrusion, true};
+            patch.commands.push_back(addExtrusion);
+            const auto extrusionResult = staged.execute(addExtrusion);
+            if (!extrusionResult.success) {
+                error = extrusionResult.error;
+                return std::nullopt;
+            }
+            targetBody = extrusionResult.featureId;
+        }
+    } else {
+        modeling::AddFeatureCommand addBody{*candidate.boundaryBody, true};
+        patch.commands.push_back(addBody);
+        if (!staged.apply(patch).success) {
+            error = staged.lastError();
+            if (error.empty()) error = "Solid candidate failed staged parametric rebuild";
+            return std::nullopt;
+        }
+    }
+    return patch;
+}
+
+modeling::ModelPatchResult commitSolidCandidate(
+    const SolidCandidate& candidate, modeling::ModelingCore& core,
+    modeling::ModelRevision expectedRevision) {
+    std::string error;
+    const auto patch = planSolidCandidate(candidate, core, error, expectedRevision);
+    if (!patch) return {false, core.revision(), {}, std::move(error)};
+    return core.apply(*patch);
+}
 
 std::optional<modeling::ModelPatch> planCompoundCandidate(
     const CompoundCandidate& candidate, const modeling::ModelingCore& snapshot,

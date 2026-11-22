@@ -10,17 +10,49 @@ endif()
 project(CadPointCloudClient VERSION "${PARAMCAD_VERSION}" LANGUAGES CXX)
 
 find_package(Git QUIET)
+set(PARAMCAD_CONFIGURED_GIT_COMMIT "")
+set(PARAMCAD_CONFIGURED_SOURCE_STATE "unknown")
+if(GIT_EXECUTABLE)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${CMAKE_CURRENT_SOURCE_DIR}/../.." rev-parse --verify HEAD
+        RESULT_VARIABLE configured_head_result
+        OUTPUT_VARIABLE configured_head
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    if(configured_head_result STREQUAL "0" AND configured_head MATCHES "^[0-9a-f]+$")
+        set(PARAMCAD_CONFIGURED_GIT_COMMIT "${configured_head}")
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" -C "${CMAKE_CURRENT_SOURCE_DIR}/../.." status --porcelain --untracked-files=normal
+            RESULT_VARIABLE configured_status_result
+            OUTPUT_VARIABLE configured_status
+            ERROR_QUIET)
+        if(configured_status_result STREQUAL "0")
+            if(configured_status STREQUAL "")
+                set(PARAMCAD_CONFIGURED_SOURCE_STATE "clean")
+            else()
+                set(PARAMCAD_CONFIGURED_SOURCE_STATE "dirty")
+            endif()
+        endif()
+    endif()
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/config/GenerateBuildInfo.cmake")
 set(PARAMCAD_BUILD_INFO_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>")
-add_custom_target(paramcad_build_info
+set(PARAMCAD_BUILD_INFO_STAMP "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/paramcad_build_info/$<CONFIG>.stamp")
+add_custom_command(OUTPUT "${PARAMCAD_BUILD_INFO_STAMP}"
     COMMAND "${CMAKE_COMMAND}"
         "-DREPOSITORY_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/../.."
         "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
+        "-DCONFIGURED_GIT_COMMIT=${PARAMCAD_CONFIGURED_GIT_COMMIT}"
+        "-DCONFIGURED_SOURCE_STATE=${PARAMCAD_CONFIGURED_SOURCE_STATE}"
         "-DPRODUCT_VERSION=${PROJECT_VERSION}"
         "-DBUILD_CONFIGURATION=$<CONFIG>"
         "-DOUTPUT_DIRECTORY=${PARAMCAD_BUILD_INFO_DIR}"
+        "-DBUILD_INFO_STAMP=${PARAMCAD_BUILD_INFO_STAMP}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/config/GenerateBuildInfo.cmake"
     BYPRODUCTS "${PARAMCAD_BUILD_INFO_DIR}/ParamCADBuildInfo.h"
     VERBATIM)
+add_custom_target(paramcad_build_info DEPENDS "${PARAMCAD_BUILD_INFO_STAMP}")
 
 option(CAD_CLIENT_BUILD_TESTS "Build ParamCAD Studio I/O tests" OFF)
 option(CAD_CLIENT_BUILD_CAPTURE_TESTS "Build structured-light rendering contract tests" OFF)
@@ -588,6 +620,11 @@ endif()
 
 if(CAD_CLIENT_BUILD_TESTS)
     include(CTest)
+    add_executable(surface_scene_test ../../core/geometric_reconstruction/tests/surface_scene_test.cpp)
+    target_link_libraries(surface_scene_test PRIVATE GeometricReconstruction::GeometricReconstruction)
+    add_test(NAME surface_scene_test COMMAND surface_scene_test)
+    set_tests_properties(surface_scene_test PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${OpenCASCADE_BINARY_DIR}")
     add_executable(projection_stage_test ../../core/geometric_reconstruction/tests/projection_stage_test.cpp)
     target_include_directories(projection_stage_test PRIVATE ../../core/geometric_reconstruction/src)
     target_link_libraries(projection_stage_test PRIVATE GeometricReconstruction::GeometricReconstruction)

@@ -42,6 +42,10 @@ set(RECONSTRUCTION_SURFACES_SOURCES
 )
 
 set(RECONSTRUCTION_WORKFLOW_SOURCES
+    src/solid_inference/SurfaceSceneAdapter.cpp
+    src/solid_inference/ObservedShellClosure.cpp
+    src/solid_inference/ParallelCapExtrusion.cpp
+    src/solid_inference/SolidInference.cpp
     src/pipeline/recovery/RepairTransaction.cpp
     src/modeling/ModelingAdapter.cpp
     src/settings/ModuleSettings.cpp

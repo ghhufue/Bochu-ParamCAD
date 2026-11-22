@@ -110,6 +110,11 @@ if(GEOMETRIC_RECONSTRUCTION_BUILD_TESTS)
     add_test(NAME surface_analysis_test COMMAND surface_analysis_test)
     set_tests_properties(surface_analysis_test PROPERTIES TIMEOUT 120
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${OpenCASCADE_BINARY_DIR}")
+    add_executable(surface_scene_test tests/surface_scene_test.cpp)
+    target_link_libraries(surface_scene_test PRIVATE GeometricReconstruction::GeometricReconstruction)
+    add_test(NAME surface_scene_test COMMAND surface_scene_test)
+    set_tests_properties(surface_scene_test PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${OpenCASCADE_BINARY_DIR}")
     include(cmake/RegressionSources.cmake)
     add_executable(geometric_reconstruction_test ${GEOMETRIC_RECONSTRUCTION_REGRESSION_SOURCES})
     target_link_libraries(geometric_reconstruction_test PRIVATE

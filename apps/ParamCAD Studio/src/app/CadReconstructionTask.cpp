@@ -32,6 +32,7 @@ struct CadWork {
     bool specializedRecovery;
     std::optional<reconstruction::ProjectionExtrusionOptions> projectionOptions;
     bool prepareSurfacePreview;
+    bool legacyAssembly;
 };
 
 void prepareSourceSurfacePreview(const reconstruction::PointStore& source, double supportRadius,
@@ -68,7 +69,7 @@ void prepareSourceSurfacePreview(const reconstruction::PointStore& source, doubl
 void runCadWork(const CadWork& input, CadReconstructionResult& result,
     const std::function<bool()>& cancelled, const std::function<void(Stage)>& stageChanged) {
     const auto& [cloud, unit, hints, sourceTolerance, analysis, relations, projectionFallback, specializedRecovery,
-                 projectionOptions, shouldPrepareSurfacePreview] = input;
+                 projectionOptions, shouldPrepareSurfacePreview, legacyAssembly] = input;
     using reconstruction::diagnostics::profileStage;
     const reconstruction::diagnostics::StageProfile workerProfile("cad.worker", cloud.positions.size());
     if (cancelled()) return;
@@ -78,7 +79,7 @@ void runCadWork(const CadWork& input, CadReconstructionResult& result,
     reconstruction::AssemblySettings assemblySettings;
     try {
         recognitionSettings = reconstruction::loadRecognitionSettings();
-        assemblySettings = reconstruction::loadAssemblySettings();
+        if (legacyAssembly) assemblySettings = reconstruction::loadAssemblySettings();
     } catch (const std::exception& error) {
         result.outcome = CadReconstructionResult::Outcome::Failed;
         result.error = QString::fromUtf8(error.what());
@@ -118,45 +119,23 @@ void runCadWork(const CadWork& input, CadReconstructionResult& result,
     };
     reconstruction::GuidedSolidResult guided;
     const bool recognized = profileStage("cad.recognize", [&] {
+        if (legacyAssembly) return false;
         return cache.recognize(points, recoverySource, planes, cylinders, hints, relations,
             recognitionSettings, analysis ? &*analysis : nullptr, guided, failure);
     });
     if(cancelled())return;
-    // Decompose failed/multiple-body observations before attempting
-    // finite-shell closure. Explicit user constraints stay authoritative.
-    const size_t bodies=guided.candidate.boxes.size()+guided.candidate.prisms.size()+guided.candidate.curvedSolids.size();
-    const bool refineBox = recognized && bodies == 1 && guided.candidate.boxes.size() == 1 &&
-        guided.candidate.surfaceCoverage < .99;
-    if(hints.empty() && relations.empty() && (!recognized || bodies>1 || refineBox)) {
+    if (legacyAssembly) {
         stageChanged(Stage::SeparatingParts);
         reconstruction::AssemblyOptions options = assemblySettings;
         options.enableSpecializedRecovery &= specializedRecovery;
         options.projectionOptions = projectionOptions;
-        if (!projectionFallback || refineBox) options.maximumProjectionParts = 0;
+        if (!projectionFallback) options.maximumProjectionParts = 0;
         // The decomposition estimates local noise independently of the
         // coarse, whole-cloud detection tolerance.
         result.assembly.emplace();std::string decompositionError;
         const bool separatedOk = cache.assemble(recoverySource, options, *result.assembly, decompositionError);
         if (cancelled()) return;
-        bool profileRefined = false;
-        if (refineBox && separatedOk && result.assembly->parts.size() == 1 &&
-            result.assembly->parts.front().status == "closed_analytic_profile" &&
-            result.assembly->candidate.profileBodies.size() == 1) {
-            const auto& profile = result.assembly->candidate.profileBodies.front();
-            const auto throughCuts = std::count_if(profile.cavities.begin(), profile.cavities.end(),
-                [&](const auto& entry) {
-                    return entry.start == 0 && std::any_of(profile.cavities.begin(),profile.cavities.end(),[&](const auto& exit) {
-                        return exit.end == profile.depth && exit.centerX == entry.centerX && exit.centerY == entry.centerY;
-                    });
-                });
-            profileRefined = std::size_t(throughCuts) >= guided.candidate.throughHoles.size();
-        }
-        const bool recessRefined = refineBox && separatedOk && guided.candidate.throughHoles.empty()
-            && result.assembly->parts.size() == 1
-            && result.assembly->parts.front().status == "closed_inferred_recess";
-        if (refineBox && !profileRefined && !recessRefined) {
-            result.assembly.reset();
-        } else if (separatedOk) {
+        if (separatedOk) {
             result.branch = CadReconstructionResult::Branch::Assembly;
             const auto& separated = result.assembly->candidate;
             if(!separated.profileBodies.empty() || !separated.curvedSolids.empty() ||
@@ -182,12 +161,11 @@ void runCadWork(const CadWork& input, CadReconstructionResult& result,
             } else {
                 result.error = QCoreApplication::translate("CadReconstructionTask",
                     "分离出 %1 个候选，但没有验证闭合的实体").arg(result.assembly->parts.size());
-                if (!recognized && !failure.empty())
-                    result.error += "; conventional: " + QString::fromStdString(failure);
             }
             preparePreview();
             return;
-        } else if(!recognized)failure += "; decomposition: "+decompositionError;
+        }
+        failure = std::move(decompositionError);
     }
     if (!recognized) {
         result.analysis=std::move(guided.analysis);
@@ -241,11 +219,12 @@ bool CadReconstructionTask::start(PlyCloud cloud, reconstruction::LengthUnit uni
     std::vector<reconstruction::TemplateHint> hints, double sourceTolerance,
     std::optional<reconstruction::SurfaceAnalysisResult> analysis,
     std::vector<reconstruction::SurfaceRelationHint> relations, bool projectionFallback, bool specializedRecovery,
-    std::optional<reconstruction::ProjectionExtrusionOptions> projectionOptions, bool prepareSurfacePreview)
+    std::optional<reconstruction::ProjectionExtrusionOptions> projectionOptions, bool prepareSurfacePreview,
+    bool legacyAssembly)
 {
     return startWork([input = CadWork{std::move(cloud), unit, std::move(hints), sourceTolerance,
             std::move(analysis), std::move(relations), projectionFallback, specializedRecovery,
-            std::move(projectionOptions), prepareSurfacePreview}]
+            std::move(projectionOptions), prepareSurfacePreview, legacyAssembly}]
             (auto& result, const auto& cancelled, const auto& reportStage) {
         runCadWork(input, result, cancelled, reportStage);
     }, Stage::Preprocessing);
