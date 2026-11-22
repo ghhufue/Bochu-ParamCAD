@@ -14,20 +14,22 @@ outline: [2, 3]
 | --- | --- | --- | --- |
 | 1. 曲面分割 | 哪些点支持同一个面？它是平面、圆柱还是其他解析曲面？ | 曲面方程、支持点和初步连通面片 | [预处理](/modules/preprocessing)、[曲面分割](/modules/surface-detection) |
 | 2. 曲面拓展与验证 | 首轮漏掉了哪些观测？面应到哪里停止？支撑是否足够？ | 验证后的有限面域、点归属、几何关系和拒绝原因；被平面截断的凹球面可局部补回 | [拓展、验证与修复](/modules/surface-analysis) |
-| 3. 特征与实体识别 | 哪里是孔、凸台或槽？这些面构成哪类实体？ | 带位置、方向和尺寸的建模候选 | [特征与实体识别](/modules/feature-recognition) |
-| 4. 多体分组与闭合 | 哪些面属于同一部件？边界能否围成实体？ | 部件分组、闭合候选，或保留诊断的开放部件 | [分组与闭合](/modules/assembly-reconstruction)、[投影回退](/modules/projection-fitting) |
+| 3. 特征与实体识别 | 哪里是孔、凸台或槽？这些面构成哪类实体？ | 表面场景、实体候选（闭合壳、拉伸、孔） | [特征与实体识别](/modules/feature-recognition)、[表面场景与实体推断](/algorithms/solid-inference) |
+| 4. 多体分组与闭合 | 哪些面属于同一部件？边界能否围成实体？ | 显式 legacy 的部件分组、闭合候选与诊断 | [分组与闭合](/modules/assembly-reconstruction)、[投影回退](/modules/projection-fitting) |
 | 5. 参数化建模与交付 | 如何把候选变成可修改尺寸的 CAD？ | 特征历史、B-Rep、PCAD 工程和 STEP | [参数化建模](/modules/parametric-modeling)、[编辑](/modules/studio)、[保存与导出](/modules/persistence) |
 
-输入准备包含单位确认、采样和法向处理，归在模块1。模块3和4是两种组织几何的路径：简单、完整的单体可以直接识别；复杂或不完整的输入才按条件进入分组与闭合。实际代码也会在识别失败时回到模块2做有界补证。
+输入准备包含单位确认、采样和法向处理，归在模块1。模块3的默认自动路径是“曲面分析 → SurfaceScene → 实体推断 → 评分选择”；模块4仍保留为显式 legacy 路径，用于离线对照和 `pcad assemble` 独立分析，不再自动触发。
 
 ```mermaid
 flowchart TD
     INPUT["点云 + 单位 + 稳定源点 ID"] --> SEG["1 曲面分割<br/>预处理、几何类型拟合、初步拆片"]
     SEG --> SUPPORT["2 曲面拓展与验证<br/>有限域、面密度、曲率展开、几何关系"]
-    SUPPORT --> FEATURE["3 特征与实体识别<br/>宿主、孔、凸台、槽、实体类型"]
-    FEATURE --> CAND["通过复验的建模候选"]
+    SUPPORT --> FEATURE["3 特征与实体识别<br/>场景导出、候选生成"]
+    FEATURE --> SCENE["SurfaceScene v1<br/>方程、有限边界、关系、指纹"]
+    SCENE --> INFER["实体推断<br/>候选 → 评分 → 组合搜索"]
+    INFER --> CAND["通过复验的建模候选"]
     FEATURE -. "局部支撑不足，按预算补证" .-> SUPPORT
-    FEATURE -. "符合自动分离条件" .-> PART["4 多体分组与闭合<br/>有限边界、壳闭合、专用轮廓恢复"]
+    SUPPORT -. "仅离线 --legacy-assembly" .-> PART["4 旧装配分组与闭合<br/>有限边界、壳闭合、专用轮廓恢复"]
     INPUT -. "同源全量观测" .-> PART
     PART --> CAND
     PART -. "仍开放且启用回退" .-> PROJ["二维轮廓与投影程序<br/>试建、评分"]
@@ -36,7 +38,7 @@ flowchart TD
     MODEL --> SAVE["编辑参数 / 保存 PCAD / 导出 STEP"]
 ```
 
-图中的箭头表示可用的数据路径，只有通过对应检查的结果才能继续。装配分离默认要求没有人工模板和人工关系，并且常规识别失败、出现多个实体，或单箱体覆盖不足需要细化。开放部件和未解释点保留在诊断中。
+图中的箭头表示可用的数据路径，只有通过对应检查的结果才能继续。默认自动重建只走上方实体推断链；旧装配链仅在离线 CLI 显式启用 `--legacy-assembly` 时运行，失败不会自动回退。开放部件和未解释点保留在诊断中。
 
 ## 1. 曲面分割：先确定几何类型
 
@@ -86,13 +88,15 @@ flowchart TD
 
 每条路径都有自己的条件。“短圆柱不通过贯穿孔检查”只表示它不能按通孔发布，不能直接把它确认为盲孔。二维面域中的空白或孔环也需要壁、开口、材料等证据，才能变成实体上的切除特征。
 
-常规统一入口是 `reconstructGuidedSolid()`，内部由 `recognizeParametricSolidFromAnalysis()` 组织混合特征、组合体、箱体孔和独立曲面体等分支。人工模板给出指定类型的约束，仍须经过观测和边界复验。孔、槽也可能在模块4的专用闭合或投影路径中恢复，模块号不表示所有特征都由一个识别器产出。
+上表列出的判定来自既有识别器，仍在**模板引导**和直接入口中使用。模板列表为空时，默认自动路径不调用这些识别器，而是把曲面分析导出为 `SurfaceScene`，再由 `inferSolids()` 生成候选。当前已实现的候选来源只有观测闭合壳和平行端盖拉伸；通孔与盲孔作为拉伸的 `Cut` 特征处理。评分、Beam 组合搜索和歧义判定见[表面场景与实体推断](/algorithms/solid-inference)。
 
-具体判据见[特征识别与几何判定](/algorithms/feature-inference)，对照用例见[贯穿孔与盲孔](/validation/hole-cases)。
+人工模板给出指定类型的约束，仍须经过观测和边界复验。孔、槽也可能在离线 legacy 装配或投影路径中恢复；模块号不表示所有特征都由一个识别器产出。
 
-## 4. 多体分组与闭合：判断哪些面能围成一个实体
+具体判据见[特征识别与几何判定](/algorithms/feature-inference)与[表面场景与实体推断](/algorithms/solid-inference)，对照用例见[贯穿孔与盲孔](/validation/hole-cases)。
 
-这里的“分组”对象是部件，模块1的“分割”对象是曲面。一个零件可以有许多面；一张解析平面上也可能存在属于不同零件的区域。
+## 4. 多体分组与闭合：legacy 显式路径
+
+这里的“分组”对象是部件，模块1的“分割”对象是曲面。一个零件可以有许多面；一张解析平面上也可能存在属于不同零件的区域。该路径现在只在离线 CLI 显式启用 `--legacy-assembly` 时进入生产重建，默认自动路径不会自动调用它。
 
 装配路径直接读取同源全量观测，有独立的面片提取、连接判断和分组流程，并非把客户端彩色集合直接当成部件。它恢复有限边界，检查共享边、开边、非流形边和材料冲突，再尝试壳闭合或解析轮廓、环形管、圆盘等专用恢复。
 
@@ -100,7 +104,7 @@ flowchart TD
 
 输入分成了多个组，不代表每组已闭合，也不保证恢复了原始装配实例。必须看部件的 `closed`、`status`、开边计数及拒绝原因。
 
-实现入口：`reconstructAssembly()`、`fitProjectionExtrusion()`。生产调用条件位于 `apps/ParamCAD Studio/src/app/CadReconstructionTask.cpp` 的 `runCadWork()` 中。详细判据见[装配分组与壳闭合](/algorithms/shell-closure)和[二维轮廓与投影评分](/algorithms/projection-scoring)。
+实现入口：`reconstructAssembly()`、`fitProjectionExtrusion()`。生产调用位于 `apps/ParamCAD Studio/src/app/CadReconstructionTask.cpp` 的 `runCadWork()`，仅在 `legacyAssembly` 为真时执行；`pcad assemble` 可直接运行本模块做独立分析。详细判据见[装配分组与壳闭合](/algorithms/shell-closure)和[二维轮廓与投影评分](/algorithms/projection-scoring)。
 
 ## 5. 参数化建模与交付：生成可编辑的结果
 
@@ -118,10 +122,10 @@ flowchart TD
 | --- | --- |
 | 点的单位不对、法向缺失、几何类型漏检 | 1. 曲面分割与输入处理 |
 | 大面被截成条、跨空白连接、浅球冠误识别 | 2. 曲面拓展与验证 |
-| 已有圆柱面，但没有孔或凸台特征 | 3. 特征与实体识别 |
-| 面片很多，却分不出部件或无法闭合 | 4. 多体分组与闭合 |
+| 已有圆柱面，但没有孔或凸台特征 | 3. 特征与实体识别、实体推断 |
+| 面片很多，却分不出部件或无法闭合 | 4. legacy 装配分组与闭合（离线显式启用） |
 | 识别有候选，但没有新实体、无法改参数或保存 | 5. 参数化建模与交付 |
 
-桌面的“识别表面”主要发布模块1、2的面片结果；“重建 CAD”会按条件组织分割、验证、识别、分组和建模，不要求先手动点击识别表面。操作入口见[快速上手](/getting-started/first-reconstruction)。
+桌面的“识别表面”主要发布模块1、2的面片结果；默认“重建 CAD”组织分割、验证、场景导出、实体推断和建模，不要求先手动点击识别表面，也不自动进入旧装配。操作入口见[快速上手](/getting-started/first-reconstruction)。
 
 排查时可导出[分析包](/validation/analysis-export)查看原始观测、面片参数、有限网格和支撑验证报告。修改阈值前先确认失败属于哪一层，再查看[超参数配置](/development/configuration)。

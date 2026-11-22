@@ -58,15 +58,16 @@ pcad capture structured-light --in model.step --output outputs/scan-new --scan-s
 pcad reconstruct cad --online
 pcad reconstruct cad --online --in cloud.ply --no-projection-fallback
 pcad reconstruct cad --offline --in cloud.ply --unit mm --output outputs/cad-new
+pcad reconstruct cad --offline --in cloud.ply --unit mm --output outputs/cad-legacy --legacy-assembly
 ```
 
-在线可省略 --in，以当前文档为输入。使用真实 UI 控制器，可在界面看到进度和结果，必要确认仍由客户端显示。在线参数只有 `--in`、`--no-projection-fallback`。
+在线可省略 --in，以当前文档为输入。使用真实 UI 控制器，可在界面看到进度和结果，必要确认仍由客户端显示。在线参数只有 `--in`、`--no-projection-fallback`；在线不启用 legacy 装配，因此投影回退开关当前不改变默认实体推断的结果。
 
-离线必须给 --in 和新的 --output 目录。支持 --unit mm/m、--no-projection-fallback、--no-specialized-recovery、--config、重复 --set、--path。后面三项针对投影回退配置；其他模块通过配置发现机制加载。
+离线必须给 --in 和新的 --output 目录。支持 --unit mm/m、--legacy-assembly、--no-projection-fallback、--no-specialized-recovery、--config、重复 --set、--path。默认分支是实体推断：曲面分析导出 `SurfaceScene`，再生成闭合壳或平行端盖拉伸候选，不会自动回退到装配链。`--legacy-assembly` 显式切换到旧装配路径；只有启用它时，`--no-projection-fallback`、`--no-specialized-recovery`、`--config`、`--set`、`--path` 才作用于装配与投影配置。
 
-离线成功输出 input 快照、report.json、model.pcad、model.features.json、model.step；装配路径可能另有分离诊断。检查 cad_constructed、project_round_trip_verified、step_round_trip_verified 和实际文件。cad_exported_partial 表示部分结果。
+离线成功输出 input 快照、report.json、model.pcad、model.features.json、model.step；legacy 装配路径可能另有分离诊断。报告中的 `legacy_assembly` 表示是否启用旧链，`specialized_recovery_enabled` 与 `projection_fallback_enabled` 只在 legacy 模式下可能为真。检查 cad_constructed、project_round_trip_verified、step_round_trip_verified 和实际文件。cad_exported_partial 表示部分结果。
 
-Studio 和原生 pcad 共享本地应用缓存。报告的 `cache` 对象列出本次查询阶段及其命中、未命中或绕过情况。缓存键绑定实际观测和生效设置，包含阶段实现与数据格式版本。装配按提取分组、边界准备、闭合和投影保存，单独修改投影参数可以复用前面的结果。开放部件及其诊断也可以复用。
+Studio 和原生 pcad 共享本地应用缓存。报告的 `cache` 对象列出本次查询阶段及其命中、未命中或绕过情况。缓存键绑定实际观测和生效设置，包含阶段实现与数据格式版本。实体推断的识别缓存版本还纳入实体推断源码与产品版本。legacy 装配按提取分组、边界准备、闭合和投影保存，单独修改投影参数可以复用前面的结果。开放部件及其诊断也可以复用。
 
 测试时可在启动进程前设置 `PCAD_CACHE_DIR`，把缓存放到独立目录。设置 `PCAD_DISABLE_CACHE=1` 可绕过缓存进行对照。Studio 的 **设置 → 清理点云缓存…** 可整体删除缓存；缓存的阶段、键和限制见[本地重建缓存](/modules/persistence#本地重建缓存)。打开 PLY 时只载入点云。主动执行表面识别或 CAD 重建时可复用匹配的计算缓存。保存并重开 PCAD 工程可恢复工程中的集合、关系和 CAD 模型。
 

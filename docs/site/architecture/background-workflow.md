@@ -8,8 +8,8 @@
 
 | 入口 | 参数 | 用途 |
 | --- | --- | --- |
-| 工具 → 重建 CAD | `projectionFallback = true` | 常规识别、装配闭合，必要时对开放部件做投影回退 |
-| 工具 → 重建 CAD（不使用投影回退） | `projectionFallback = false` | 只做常规识别与装配闭合，不额外生成投影体 |
+| 工具 → 重建 CAD | `projectionFallback = true` | 默认实体推断；该开关只在显式 legacy 装配时生效 |
+| 工具 → 重建 CAD（不使用投影回退） | `projectionFallback = false` | 同样运行默认实体推断；默认路径不使用投影回退开关 |
 | 调试 → 在导入的点云上拟合投影… | `startProjection` | 直接对单件点云运行投影拟合，结果进入投影调试页 |
 
 启动前的检查顺序是固定的（`apps/ParamCAD Studio/src/app/PointCloudWorkspaceController.cpp`）：
@@ -21,19 +21,11 @@
 5. 尺度未知时要求用户确认“1 个源单位 = 1 毫米”，取消则退出；
 6. 尺度确认会打开嵌套事件循环，返回后重新比对点云、模型与视口实体修订，防止期间发生导入或编辑。
 
-分支选择只取决于是否存在模板约束：`hints.empty() ? Conventional : Guided`。模板与常规两条分支最终都调用同一个 `reconstructGuidedSolid`，区别仅是是否传入模板、以及模板选区是否参与拟合与复验（`core/geometric_reconstruction/src/pipeline/guided/GuidedSolidRecognizer.cpp`）。人工关系随快照一起传入，不因为分支不同而被忽略。
+分支选择只取决于是否存在模板约束：`hints.empty() ? Conventional : Guided`。两条分支最终都调用同一个 `reconstructGuidedSolid`：空模板分支导出 `SurfaceScene` 并运行实体推断；模板分支先拟合并固定模板，再用既有识别器处理剩余材料。人工关系随快照一起传入，不因为分支不同而被忽略。
 
-装配回退必须同时满足以下条件（`apps/ParamCAD Studio/src/app/CadReconstructionTask.cpp`）：
+旧装配链不再由识别结果自动触发。只有调用方显式传入 `legacyAssembly = true` 时，`runCadWork` 才跳过实体推断并调用 `reconstructAssembly()`；当前可见入口是离线 CLI 的 `--legacy-assembly`。Studio 的默认任务始终传入 `false`，实体推断失败也不会回退到装配。
 
-```text
-hints.empty() && relations.empty() && (!recognized || bodies > 1 || refineBox)
-```
-
-其中 `bodies` 是长方体、棱柱与曲面实体数量之和；`refineBox` 表示只识别出一个长方体但表面覆盖率不足 `0.99`。有模板或有人工关系时显式约束优先，不做自动装配分解。装配选项来自 `apps/ParamCAD Studio/config/assembly.conf`，`maximum_projection_parts` 默认为 6；关闭投影回退或处于 `refineBox` 场景时，该值被置为 0。
-
-## 任务快照与取消
-
-`CadReconstructionTask` 把输入打包成值语义的 `CadWork`：点云、单位、模板、源容差、共享分析、人工关系、投影与专用恢复开关、投影选项。`start()` 只在本对象未运行时接受请求，随后创建独立 `QThread` 执行 `runCadWork`。工作线程不访问模型文档、视口或工作区状态，只读快照并产出 `CadReconstructionResult`。
+`CadReconstructionTask` 把输入打包成值语义的 `CadWork`：点云、单位、模板、源容差、共享分析、人工关系、投影与专用恢复开关、投影选项、`legacyAssembly` 标记。`start()` 只在本对象未运行时接受请求，随后创建独立 `QThread` 执行 `runCadWork`。工作线程不访问模型文档、视口或工作区状态，只读快照并产出 `CadReconstructionResult`。
 
 线程与信号的关键约定：
 
@@ -51,6 +43,17 @@ hints.empty() && relations.empty() && (!recognized || bodies > 1 || refineBox)
 
 阶段回调本身也带一致性检查：只有任务仍在运行、取消标志仍是同一个对象且未被置位时，阶段变更才会被转发。
 
+## 实时预览通道
+
+默认实体推断在计算过程中通过回调上报临时显示数据，不等待最终提交：
+
+- `SurfaceAnalysisProgress` 在支撑验证的 `Enforce` 模式中逐片上报已接受的面片；`Report` 模式在分析完成后统一上报；
+- `GuidedRecognitionProgress::solid` 接收候选试建得到的临时 `TopoDS_Shape`；空形状表示撤回上一个预览；
+- 工作线程把预览写入互斥保护的待发送缓冲，主线程用 50 ms 定时器批量投递 `previewChanged`，任务结束时再补一次；
+- 工作区在应用预览前再次比对点云、模型与视口实体修订；不一致、取消、任务结束或点云重新同步都会清除预览；
+- 预览网格或形状构造失败被视为可选显示失败，不影响识别与评分结果；
+- 预览不修改点云文档、模型修订或特征历史。legacy 装配路径不发送实时预览。
+
 ## 结果交接与修订校验
 
 结果回到工作区线程后进入 `onCadReconstructionFinished`。投影调试结果先分流到投影调试页，只更新预览与诊断，不修改 CAD。
@@ -61,7 +64,7 @@ hints.empty() && relations.empty() && (!recognized || bodies > 1 || refineBox)
 2. 通过修订校验且带点云指纹的分析才缓存为下一次可复用的表面分析；
 3. 取消时只报告“模型保持原状”；
 4. 预处理完成时把点数、降采样移除数、离群移除数与法向统计写入日志；
-5. 有装配结果时先把部件候选写回点云集合、更新闭合与开放边界显示并记录数量，即使最终结果是 `Unsupported`；
+5. 有 legacy 装配结果时先把部件候选写回点云集合、更新闭合与开放边界显示并记录数量，即使最终结果是 `Unsupported`；
 6. 非成功结果按类别提示；成功结果才提交候选。
 
 模型提交由 `ModelingController::commitReconstructedCompound` 完成：保存当前模型作为撤销快照，以当前修订作为预期修订、`replacePrevious = true` 调用 `commitCompoundCandidate`。补丁失败时只返回错误并弹窗，文档由建模核心回滚，不会留下半成品。提交成功后记录撤销历史、发出 `modelRebuilt`，工作区重新三角化并刷新显示。
@@ -77,17 +80,16 @@ hints.empty() && relations.empty() && (!recognized || bodies > 1 || refineBox)
 | 场景 | 结果 | 模型状态 | 点云与界面 |
 | --- | --- | --- | --- |
 | 预处理失败 | `PreprocessingFailed` | 不变 | 记录错误，不生成候选 |
-| 常规识别失败 | `Unsupported` | 不变 | 可显示失败选区；有检测面片时保留并显示面片 |
-| 装配只建立分组、没有闭合实体 | `Unsupported` | 不变 | 显示部件分组、边界与开放状态 |
-| 装配部分成功 | `Success`，`partialAssembly = true` | 提交通过验证的实体 | 保留开放部件与诊断 |
-| `refineBox` 未得到轮廓精修 | 保留常规结果 | 不变 | 丢弃装配结果，继续用常规候选 |
-| 装配调用失败 | 保留常规结果 | 不变 | 常规已有成功候选时仍可交接 |
-| 投影未通过 | 独立入口为 `Unsupported`；装配回退中该部件保持开放 | 不变 | 调试页保留拒绝原因与质量诊断 |
+| 实体推断失败 | `Unsupported`，`branch = Conventional` | 不变 | 可显示失败选区；有检测面片时保留并显示面片；不进入装配 |
+| legacy 装配只建立分组、没有闭合实体 | `Unsupported` | 不变 | 显示部件分组、边界与开放状态 |
+| legacy 装配部分成功 | `Success`，`partialAssembly = true` | 提交通过验证的实体 | 保留开放部件与诊断 |
+| legacy 装配调用失败 | `Unsupported` | 不变 | 不保留旧候选，因为没有先运行实体推断 |
+| 投影未通过 | 独立入口为 `Unsupported`；legacy 装配回退中该部件保持开放 | 不变 | 调试页保留拒绝原因与质量诊断 |
 | 建模补丁失败 | `Success` 但提交失败 | 整体回滚 | 弹窗显示建模错误 |
 | 计算期间点云或模型被修改 | 结果丢弃 | 不变 | 提示重新重建 |
 | 用户取消 | `Cancelled` | 不变 | 在阶段边界停止 |
 | 未捕获异常 | `Failed` | 不变 | 记录异常文本 |
 
-`partialAssembly` 的判定不只看部件是否闭合：只要存在未归属全量观测、存在未闭合部件，或出现 `closed_circular_slab_inferred_contact` 这类推断接触状态，部分成功就会被标记。这样界面不会把“显示了一部分实体”误报为完整重建。
+`partialAssembly` 的判定随分支不同：默认实体推断下，只要选中候选存在未解释观测点就标记部分结果；legacy 装配下，还会考虑未归属全量观测、未闭合部件，以及 `closed_circular_slab_inferred_contact` 这类推断接触状态。这样界面不会把“显示了一部分实体”误报为完整重建。
 
 需要强调的两条边界：识别成功不等于建模一定成功，候选必须经过 `ModelingCore::apply`；后台取消只在阶段边界生效，长耗时几何计算不会因为点击取消而立即返回。

@@ -26,6 +26,8 @@
 | 观测不可变与稳定源点 ID | `PointStore` 保存不可变源观测；降采样、过滤和修复合并不重写点，`PointId` 为 `std::uint64_t`，证据通过 ID 引用支持点。 | `core/geometric_reconstruction/include/reconstruction/data/PointStore.h` |
 | 观测快照只做尺度转换 | `ObservationSnapshot` 只把已知单位统一到工作尺度，保留源单位和比例，并以指纹标识点序、单位、ID、位置和法向证据。 | `core/geometric_reconstruction/include/reconstruction/data/PointStore.h` 中的 `ObservationSnapshot` 与 `pointStoreFingerprint` |
 | 识别候选不是 CAD | 识别输出仍是候选（如 `CompoundCandidate`）；只有转换为 `ModelPatch` 并由建模核心提交后，才产生特征历史与 B-Rep。 | `core/geometric_reconstruction/README.md`、`core/parametric_modeling/include/modeling/ModelPatch.h` |
+| 默认实体推断、旧装配显式隔离 | 模板列表为空时，生产重建走 `SurfaceScene → inferSolids → 评分选择`；旧装配链只在离线 `--legacy-assembly` 下运行，失败不自动回退。 | `GuidedSolidRecognizer.cpp` 的空模板分支、`CadReconstructionTask.cpp` 的 legacy 分支、`OfflineCadCommands.cpp` 的参数解析 |
+| 场景契约冻结观测 | 下游只消费带分析/源/设置指纹的 `SurfaceScene`；边界缺失显式标记为开放或歧义，不在下游重新提取轮廓。 | `solid_inference/SurfaceScene.h`、`SurfaceSceneAdapter.cpp` |
 | 建模补丁原子提交 | `ModelPatch` 绑定 `expectedRevision`，命令与可选重建要么全部成功，要么文档保持原状；失败不会留下部分特征。 | `core/parametric_modeling/include/modeling/ModelPatch.h`、`ModelingCore::apply`、`ModelingCore::revision` |
 | 语义特征优先于固定拓扑命名 | 长方体六个面、圆柱底面/顶面使用语义角色；草图可关联 `FeatureId + FaceRole`，而不是依赖布尔结果的面编号。任意布尔面与裁剪边界的稳定命名仍未实现。 | 根 `README.md` 第 2.4 节、`core/parametric_modeling/README.md` |
 | 配置外置 | 拍摄、预处理、检测、分析、识别、装配和投影参数放在 7 份 `.conf` 中，运行时可覆盖，算法代码只保留纯结构常量。 | `apps/ParamCAD Studio/config/*.conf`、配置加载与校验代码 |

@@ -14,8 +14,9 @@
 | [点云采样与法向估计](/algorithms/point-cloud-processing) | 体素降采样、统计离群过滤、PCA 法向与定向传播 | 说明工作点如何保留源点 ID 并建立材料方向 |
 | [解析曲面拟合和连通扩展](/algorithms/primitive-fitting) | 五类解析基元的参数、Efficient RANSAC、平面支持连通扩展、候选精修 | 说明曲面证据如何从点集变成带参数的候选 |
 | [面密度与曲面展开验证](/algorithms/surface-support-validation) | 固定密度参考、有限面域、立体角、弓高与归属复验 | 说明跨空白平面和近似平面的曲面为何被拒绝 |
-| [特征识别与几何判定](/algorithms/feature-inference) | 箱体、组合体、通孔、曲面实体与人工约束 | 说明几何判定在哪些观测条件下成立或拒绝 |
-| [装配分组与壳闭合](/algorithms/shell-closure) | 装配面片连接、点归属、有限边界、壳闭合 | 说明多体如何分组、闭合，以及开放结果如何保留 |
+| [特征识别与几何判定](/algorithms/feature-inference) | 箱体、组合体、通孔、曲面实体与人工约束 | 说明既有识别器在哪些观测条件下成立或拒绝 |
+| [表面场景与实体推断](/algorithms/solid-inference) | 场景导出、闭合壳、平行端盖拉伸、评分与 Beam 搜索 | 说明默认自动路径如何从已验证面片生成实体候选 |
+| [装配分组与壳闭合](/algorithms/shell-closure) | 装配面片连接、点归属、有限边界、壳闭合 | 说明 legacy 多体如何分组、闭合，以及开放结果如何保留 |
 | [二维轮廓与投影评分](/algorithms/projection-scoring) | 候选轴、截面轮廓、操作提案、试建评分 | 说明未闭合部件如何用二维投影回退为挤出程序 |
 
 ## 证据链与术语
@@ -41,13 +42,14 @@
 | --- | --- |
 | 1. 曲面分割 | [采样与法向](/algorithms/point-cloud-processing)、[解析曲面拟合](/algorithms/primitive-fitting) |
 | 2. 曲面拓展与验证 | [平面支持连通扩展](/algorithms/primitive-fitting#plane-support-recovery)、[有限支撑与曲率展开](/algorithms/surface-support-validation) |
-| 3. 特征与实体识别 | [孔、凸台、实体类型与人工约束](/algorithms/feature-inference) |
-| 4. 多体分组与闭合 | [面片分组与壳闭合](/algorithms/shell-closure)、[二维轮廓与投影评分](/algorithms/projection-scoring) |
+| 3. 特征与实体识别 | [表面场景与实体推断](/algorithms/solid-inference)、[孔、凸台、实体类型与人工约束](/algorithms/feature-inference) |
+| 4. 多体分组与闭合 | [legacy 面片分组与壳闭合](/algorithms/shell-closure)、[二维轮廓与投影评分](/algorithms/projection-scoring) |
 | 5. 参数化建模与交付 | 接口和提交规则见[参数化建模](/modules/parametric-modeling)，文件规则见[保存与导出](/modules/persistence) |
 
 如果只关心某类零件的失败原因，可以按现象跳转：
 
-- 箱体或组合体被判失败：看 `/algorithms/feature-inference` 中的六面配对、材料单元与边界一致性。
+- 箱体或组合体被判失败：看 `/algorithms/feature-inference` 中的六面配对、材料单元与边界一致性；默认自动路径的失败原因先看 `/algorithms/solid-inference`。
+- 实体推断没有候选或候选被覆盖率拒绝：看 `/algorithms/solid-inference` 中的生成器条件、覆盖率与占据冲突门槛。
 - 多体只分组不闭合：看 `/algorithms/shell-closure` 中的半空间求交、开边与非流形判定。
 - 投影调试页只有拒绝诊断：看 `/algorithms/projection-scoring` 中的评分门槛与搜索状态。
 - 预处理后法向大量未定向：看 `/algorithms/point-cloud-processing` 中的定向传播与退化邻域。

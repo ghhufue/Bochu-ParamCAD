@@ -28,7 +28,7 @@ COLMAP 默认使用 GPU SIFT 与 CUDA 稠密 PatchMatch。校验不只看“请�
 
 ## 点云到可编辑 CAD
 
-点云进入 `CadReconstructionTask` 后，按配置选择常规识别、人工引导或装配分支。候选通过建模适配器转成修订绑定的建模补丁，再由建模核心原子应用，生成特征历史与 B-Rep。成功路径随后写出 PCAD、特征 JSON 和 STEP，并分别执行工程重开与 STEP 回读。
+点云进入 `CadReconstructionTask` 后，模板列表为空时走实体推断，存在模板时走人工引导；离线显式启用 `--legacy-assembly` 时才走旧装配分支。候选通过建模适配器转成修订绑定的建模补丁，再由建模核心原子应用，生成特征历史与 B-Rep。成功路径随后写出 PCAD、特征 JSON 和 STEP，并分别执行工程重开与 STEP 回读。
 
 性能验证调用同一个验证可执行程序，输入为点云、`fitting_report.json`、`reconstructed.step`、源 STEP 快照和 `case.json`。报告中的关键状态包括：
 

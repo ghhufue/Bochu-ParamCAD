@@ -2,11 +2,13 @@
 
 所属主线：[模块4：多体分组与闭合](/modules/point-cloud-to-cad)。这里将面片组织成部件，与[模块1的曲面分割](/modules/surface-detection)区分；本路径会独立提取面片。闭合失败后的程序拟合见[投影回退](/modules/projection-fitting)。
 
+> **当前路径状态**：默认自动重建已经改为[表面场景与实体推断](/algorithms/solid-inference)，不再自动进入本页描述的装配链。旧链保留为显式选项：离线 CLI 使用 `pcad reconstruct cad --offline ... --legacy-assembly`；`pcad assemble` 仍可直接运行本模块做独立分析。Studio 的默认「重建 CAD」和在线命令不会启用旧装配，也不会在实体推断失败后自动回退。
+
 ## 职责与入口
 
-本模块在常规实体识别无法给出单一可信候选时，把同一份观测分解为有限面片、连接关系、部件分组和闭合实体。它只读取观测快照，不接受源模型、文件路径或参考标签；分解出的部件也不被断言为原始装配实例。
+本模块是独立的装配分解路径：把同一份观测分解为有限面片、连接关系、部件分组和闭合实体。它只读取观测快照，不接受源模型、文件路径或参考标签；分解出的部件也不被断言为原始装配实例。
 
-唯一入口是 `reconstructAssembly(points, options, output, error, cancelled)`，要求输入为毫米制 `PointStore`。生产任务在满足以下条件时调用它：没有模板、没有人工关系，并且常规识别失败、候选实体数大于一，或“单箱体但表面覆盖低于 0.99”需要拆分细化。细化时，任务可采用通孔数不少于原候选的单一解析轮廓体，或在原候选无通孔时采用由孔口和孔底确定的单一盲孔实体。未启用投影回退或处于细化模式时，生产任务把 `maximumProjectionParts` 置零。
+唯一入口是 `reconstructAssembly(points, options, output, error, cancelled)`，要求输入为毫米制 `PointStore`。只有显式启用 legacy 装配时，生产任务才会调用它；启用后任务跳过实体推断，直接以同源全量观测运行本模块。未启用投影回退时，任务把 `maximumProjectionParts` 置零，不再尝试投影拟合。
 
 装配内部固定按 `extractPatches → groupPatches → recoverBoundaries → assignSourceObservations → closeParts → 专用闭合 → recoverLocalProfiles → recoverPlanarContours → fitOpenParts` 执行。边界恢复使用工作点，全量回填在其后发生；这一顺序决定了两种点归属的语义。
 
@@ -105,6 +107,7 @@
 
 ## 已知限制
 
+- 本路径现在只在离线 CLI 显式启用 `--legacy-assembly` 时进入生产重建；默认实体推断失败不会自动回退到这里。依赖本路径专用闭合能力的零件需要显式选择 legacy，或单独运行 `pcad assemble` 做对照。
 - 分解是纯观测的凸面片方法，凹部件、接触面和被遮挡的内部结构可能保持歧义，不能保证恢复原始装配实例。
 - 闭合要求每个参与面片有闭合的有限轮廓，且共享边被相邻面一致使用；缺一个端面通常表现为开边，不会被观测凸包自动补成实体。
 - 工作点上限为 200000，超过后按坐标哈希截断；极小特征可能在采样阶段丢失，分解结果依赖截断后的采样。

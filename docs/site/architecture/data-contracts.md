@@ -55,6 +55,53 @@
 
 `FeatureId` 与 `SketchEntityId` 由 `PartDocument` 分配，0 表示无效（`core/parametric_modeling/include/modeling/Id.h`）。建模计划在模型私有副本上提前分配草图和依赖 ID，`ModelingCore::apply` 成功后返回受影响特征列表；调用方不应自行拼接或假设特征 ID。修订检查贯穿计划与应用：计划阶段比对预期修订，应用阶段再次比对，任一不符即拒绝。
 
+## SurfaceScene 契约
+
+实体推断不直接读取 `SurfaceAnalysisResult` 的内部结构，而是消费 `SurfaceScene` v1。类型定义在 `core/geometric_reconstruction/include/reconstruction/solid_inference/SurfaceScene.h`，导出与校验在 `SurfaceSceneAdapter.cpp`。
+
+### 场景头
+
+| 字段 | 约束 |
+| --- | --- |
+| `schemaVersion` | 当前为 1；其他值拒绝 |
+| `unit` | 必须是 `Millimeter` |
+| `analysisFingerprint` | 必须对应本次使用的分析快照，不能为零 |
+| `sourceFingerprint` | 绑定原始全量观测；没有源快照时取源支撑验证指纹 |
+| `settingsFingerprint` | 由检测、关系与支撑验证参数规范化生成 |
+| `distanceToleranceMm` / `angularToleranceRad` | 有限且为正 |
+
+### 场景面片与关系
+
+| 字段 | 约束 |
+| --- | --- |
+| `ScenePatch::id` | 非零、场景内唯一；与上游 `PatchId` 同义 |
+| `surfaceId` | 必须指向 `scene.surfaces` 中的有效元素 |
+| `supportPointIds` | 非零、唯一，且属于当前分析快照 |
+| `boundaryStatus` | `ObservedClosed` 时 `loops` 不能为空 |
+| `loops` | 闭合环至少 3 点，开放环至少 2 点；坐标必须有限 |
+| `SceneRelation` | 两端引用存在的面片，端点不同，误差与置信度有限 |
+
+边界环角色为 `Outer`、`Hole`、`Island` 或 `Unknown`。当前导出器只有“一个外环 + 若干孔”的简单域标记为 `ObservedClosed`；出现分离岛、多个外环或无法组环时保持 `Ambiguous`，不会在下游重新提取轮廓。
+
+### 错误码与处理策略
+
+| 错误码 | 含义 |
+| --- | --- |
+| `WrongUnit` | 场景不是毫米单位 |
+| `SnapshotMismatch` | schema、分析指纹或容差无效 |
+| `InvalidSurfaceReference` | 面片 ID、曲面引用、支撑点或关系端点无效 |
+| `MissingBoundary` | 标记闭合但没有边界环 |
+| `InvalidLoop` | 环开放、点数不足、坐标非有限或置信度越界 |
+| `MappingAmbiguous` | 面片支持点不属于当前分析快照 |
+
+单片边界不足时，该片降级为开放或歧义；快照、单位或 ID 破坏契约时整轮拒绝。校验函数不修改上游对象。
+
+### 快照与观测口径
+
+- 场景只引用同一分析快照中的 ID；跨快照复用会在导出或推断入口被拒绝。
+- 工作点用于生成候选和快速筛选；原始全量观测用于最终评分复核。两者不能混用计数分母。
+- 当前实现按值保存场景与曲面证据，包括支持点 ID；大点云会带来额外内存与复制开销。
+
 ## 修订与数据归属
 
 客户端在启动后台任务前记录三类修订与源路径；结果交接时逐项比对三类修订，源路径主要用于诊断和投影调试归属。
@@ -70,10 +117,10 @@
 
 数据归属分为两种口径：
 
-- **工作点归属**用于常规识别与模板拟合：预处理后的工作点携带原 ID，检测、面片索引和识别都在它上面计算；
-- **全量观测归属**用于装配与局部恢复：装配从全量观测重新采样出工作面片并分组，再按源点 ID 回填；投影拟合按部件点 ID 取全量观测。
+- **工作点归属**用于实体推断与模板拟合：预处理后的工作点携带原 ID，检测、面片索引、场景导出和候选生成都在它上面计算；
+- **全量观测归属**用于最终评分与 legacy 装配：实体推断最终用原始全量观测复核候选；装配从全量观测重新采样出工作面片并分组，再按源点 ID 回填；投影拟合按部件点 ID 取全量观测。
 
-局部恢复只从全量快照中取失败区域及容差 halo 内的真实样本，返回补点 ID 与源指纹；合并后的分析另外记录基线指纹、修复源指纹、补充点以及局部到全局的曲面与面片映射。装配闭合若改写轮廓，`boundaryBeforeClosure` 保留闭合前的观测边界，`loops` 才是闭合处理后的版本，避免用修订后的轮廓反向评估观测质量。
+实体推断把工作点分析导出为场景，场景中的面片支持点仍引用原 ID。最终评分时，若存在源观测则使用源观测，否则使用工作点；评分入口会校验观测指纹与场景源指纹一致。局部恢复只从全量快照中取失败区域及容差 halo 内的真实样本，返回补点 ID 与源指纹；合并后的分析另外记录基线指纹、修复源指纹、补充点以及局部到全局的曲面与面片映射。装配闭合若改写轮廓，`boundaryBeforeClosure` 保留闭合前的观测边界，`loops` 才是闭合处理后的版本，避免用修订后的轮廓反向评估观测质量。
 
 修订校验分布在链路的多个位置，而不是只做一次：
 

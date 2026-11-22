@@ -10,8 +10,8 @@
 | --- | --- | --- | --- |
 | 1. 曲面分割 | `preprocessing/`、`segmentation/` | 同名目录，检测后端在 `segmentation/cgal/` | 点、法向、曲面方程与支持点；不读取CAD实体或界面状态 |
 | 2. 曲面拓展与验证 | `surface/` | `surface/`，平面生长在 `surface/expansion/` | 有限域、关系、源点补证、唯一归属和复验；不依赖Qt/VTK或CAD引擎 |
-| 3. 特征与实体识别 | `recognition/` | `recognition/compound/`、`mixed/`、`curved/`等 | 判定宿主、孔、凸台及实体候选；不负责提交当前工作区 |
-| 4. 多体分组与闭合 | `parts/` | `parts/assembly/`、`parts/projection/` | 部件、有限边界、闭合和投影程序；允许CAD试建复验 |
+| 3. 特征与实体识别 | `recognition/`、`solid_inference/` | `recognition/compound/`、`mixed/`、`curved/`、`solid_inference/` | 场景导出、实体候选、评分与组合搜索；不重新检测曲面或分割面片；不负责提交当前工作区 |
+| 4. 多体分组与闭合 | `parts/` | `parts/assembly/`、`parts/projection/` | legacy 部件、有限边界、闭合和投影程序；允许CAD试建复验 |
 | 5. 参数化建模与交付 | `modeling/`及建模核心的 `modeling/` | 本库的 `modeling/`、`core/parametric_modeling/src/` | 候选到建模补丁的适配、特征历史与B-Rep；文件和界面适配留在客户端 |
 
 另外三个公共职责不硬归入单一算法模块：

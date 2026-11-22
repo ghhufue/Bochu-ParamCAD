@@ -17,8 +17,10 @@ flowchart TD
     EVI --> SUP["2 曲面拓展与有限支撑验证"]
     SUP --> PATCH["合格有限面片 + 几何关系"]
     PATCH --> REC["3 特征与实体识别"]
-    REC --> CAND["CompoundCandidate<br/>通过复验的候选"]
-    REC -. "无人工约束且符合分离条件" .-> ASM["4 多体分组与闭合"]
+    REC --> SCENE["SurfaceScene v1<br/>有限边界、关系、快照指纹"]
+    SCENE --> INFER["实体推断<br/>候选 → 评分 → 组合搜索"]
+    INFER --> CAND["CompoundCandidate<br/>通过复验的候选"]
+    SUP -. "仅离线 --legacy-assembly" .-> ASM["4 旧装配分组与闭合"]
     SNAP -. "同源全量观测" .-> ASM
     ASM --> CAND
     ASM -. "开放部件且启用回退" .-> PROJ["二维轮廓与投影程序试建评分"]
@@ -77,9 +79,31 @@ flowchart TD
 - 支持点必须属于当前快照，否则索引返回 `Surface support references a different point snapshot`；
 - 关系推断以面片为节点，关系端点保存的是 `PatchId`，自动关系只是假设，不强制改几何。
 
+## 表面场景与实体推断
+
+模板列表为空时，生产任务不再把面片直接交给旧装配链，而是先把分析结果导出为 `SurfaceScene`（`core/geometric_reconstruction/src/solid_inference/SurfaceSceneAdapter.cpp`）：
+
+- 场景头保存 schema 版本、单位、分析指纹、源观测指纹、设置指纹和距离/角度容差；
+- 每个场景面片保存支持点、质心、材料法向、方向是否已知、边界状态、边界环、支撑置信度、残差与间距；
+- 平面面片的有限边界从已验证支撑域的三角网格外边界提取，按嵌套关系标记外环、孔与岛；
+- 只有“一个外环 + 若干孔”的简单域标记为闭合，其余保持开放或歧义；
+- 场景关系的端点仍引用当前分析快照中的面片 ID。
+
+`inferSolids()` 消费场景并生成候选。当前实现的生成器只有观测闭合壳与平行端盖拉伸：
+
+- 观测闭合壳要求至少 4 个闭合、已定向的平面面片，边界共享且每条边恰好使用两次；
+- 平行端盖拉伸要求两个平行端盖、可匹配的外轮廓和正深度；通孔与盲孔需要同轴观测圆柱壁，盲孔还需要匹配的孔底环；
+- 深度只来自两端平面的方程间距，外壁标记为推断面。
+
+候选先经过 OCCT 重建校验，再用观测统一评分。评分包含距离分位数、法向、内部占据冲突、关系一致度和复杂度；接受门槛为覆盖率 0.90、P95 距离不超过 4 倍容差、占据冲突不超过 `max(2, 0.5% × 点数)`。通过筛选的候选进入有限 Beam Search，组合 `NewBody`、`Join`、`Cut`，最后按分差和材料等价性选择。算法细节见[表面场景与实体推断](/algorithms/solid-inference)。
+
+试建和评分阶段可以通过可选预览回调把临时 B-Rep 发送给显示层；回调失败、取消或没有订阅者都不影响评分与选择结果。预览数据不属于 `CompoundCandidate`，也不会被缓存或写回模型。
+
+旧装配链（`reconstructAssembly()`）仍在代码中，但只在离线 CLI 显式启用 `--legacy-assembly` 时进入生产任务；默认路径失败不会自动回退。`pcad assemble` 可以直接运行旧模块做独立分析。
+
 ## 候选、特征历史与 B-Rep
 
-识别阶段把面片与关系聚合为 `CompoundCandidate`（`core/geometric_reconstruction/include/reconstruction/recognition/CompoundRecognizer.h`）。它可同时携带长方体、多边形棱柱、贯穿孔、独立曲面实体、有限边界壳体与投影拉伸程序，并附带覆盖率、占据误差、置信度与诊断信息。此时仍没有 B-Rep，候选只是“可以尝试这样建模”的提案。
+默认实体推断把选中的特征程序写入 `CompoundCandidate::projectionPrograms`，把只有轮廓体的结果写入 `profileBodies`，未解释点写入 `unresolvedPointIds`。模板路径和离线 legacy 装配仍可能产生长方体、多边形棱柱、贯穿孔和独立曲面实体。所有结果都附带覆盖率、占据误差、置信度与诊断信息。此时仍没有 B-Rep，候选只是“可以尝试这样建模”的提案。
 
 提交时由 `planCompoundCandidate` 生成 `ModelPatch`（`core/geometric_reconstruction/src/modeling/ModelingAdapter.cpp`）：
 
@@ -87,6 +111,8 @@ flowchart TD
 - 生产提交以 `replacePrevious = true` 调用，替换此前的重建特征；带手动修改的重建特征受保护，除非显式允许覆盖；
 - 在模型的私有副本上按顺序追加命令，提前分配草图和依赖 ID，并确定投影布尔的目标体；
 - 补丁的 `expectedRevision` 绑定到快照修订，`rebuild` 通常为真。
+
+实体推断另提供 `planSolidCandidate()` / `commitSolidCandidate()`，可直接规划 `SolidCandidate` 的特征程序或轮廓体，并绑定预期修订。当前生产客户端仍通过 `planCompoundCandidate()` 提交；这两个入口已经实现并有测试覆盖，但尚未成为默认提交路径。
 
 `ModelingCore::apply` 是唯一的正式写入点（`core/parametric_modeling/src/ModelingCore.cpp`）。它再次核对修订，顺序执行命令；任一命令失败或 `PartDocument::rebuild` 失败时，把文档恢复为执行前的副本并返回错误，修订不变。全部成功才递增修订并返回受影响的 `FeatureId` 列表。因此“识别成功”与“建模成功”是两件事，前者不保证后者。
 

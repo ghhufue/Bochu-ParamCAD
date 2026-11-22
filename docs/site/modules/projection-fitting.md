@@ -1,6 +1,6 @@
 # 二维轮廓与投影回退
 
-所属主线：[模块4：多体分组与闭合](/modules/point-cloud-to-cad)。装配路径将开放部件交给这里尝试拉伸/布尔程序；本模块还可从调试入口独立调用。孔槽的特征意义见[模块3](/modules/feature-recognition)，最终提交见[模块5](/modules/parametric-modeling)。
+所属主线：[模块4：多体分组与闭合](/modules/point-cloud-to-cad)。legacy 装配路径将开放部件交给这里尝试拉伸/布尔程序；本模块还可从调试入口独立调用。孔槽的特征意义见[模块3](/modules/feature-recognition)，最终提交见[模块5](/modules/parametric-modeling)。默认实体推断不使用本模块的投影回退。
 
 ## 职责与入口
 
@@ -86,7 +86,7 @@
 - 完整程序生成后会尝试删除冗余操作，只有在仍可接受且分数不劣于原程序时才剪枝；
 - 终态分为 `Accepted`、`InsufficientSupport`、`NoValidBase` 和 `Cancelled`，只有 `Accepted` 才发布操作序列。
 
-装配回退中，`fitOpenParts()` 只处理未闭合、至少 2 个面片、至少 60 个全量点的部件，按点数降序最多处理 6 个；成功部件标记为 `closed_projection`，置信度取表面内点率。
+legacy 装配回退中，`fitOpenParts()` 只处理未闭合、至少 2 个面片、至少 60 个全量点的部件，按点数降序最多处理 6 个；成功部件标记为 `closed_projection`，置信度取表面内点率。
 
 ## 源码位置
 

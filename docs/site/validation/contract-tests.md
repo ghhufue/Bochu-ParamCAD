@@ -27,6 +27,28 @@
 | `m28.blind_hole.plan` → `m33.blind_hole.step_roundtrip` | 4 条命令、2 个草图面、1 个实体、材料 IoU ≥0.99999 |
 | `m34.surface_box.production` | 生产分支、取消投递、提交修订 1、1 个特征、体积 239.95–240.05 mm³ |
 
+## 实体推断回归
+
+实体推断与 `SurfaceScene` 契约使用独立 CTest，不修改上面的 34 模块清单。构建并运行：
+
+```powershell
+cmake --build "apps/ParamCAD Studio/build/msvc-debug" --config Release --target surface_scene_test
+ctest --test-dir "apps/ParamCAD Studio/build/msvc-debug" -C Release -R surface_scene_test --output-on-failure
+```
+
+`surface_scene_test` 覆盖：
+
+- 快照指纹失配与单位错误；
+- 歧义边界不进入闭合壳；
+- 六面箱体的观测闭合壳；
+- L 形凹端盖保持多边形棱柱；
+- 两级阶梯产生 Join 候选；
+- 多体组合与独立实体不重叠检查；
+- 通孔与盲孔匹配；
+- 真实检测器与支撑验证链路。
+
+客户端侧同步更新 `cad_reconstruction_task_test`、`parameter_editing_test` 和 `workspace_interaction_test`。这些用例覆盖默认重建走实体推断、开放几何不再进入装配分支、显式 legacy 装配仍可提交、导出与特征编辑的修订语义；关闭缓存时，工作区测试还会断言重建期间收到曲面与实体预览，且预览不改变点云或模型修订。
+
 ## 固定夹具与点云串联
 
 `--mode fixture` 直接读取参考上游 JSON，只执行目标阶段，不重新运行上游算法。夹具条目同时绑定数据集和期望模块号；回填用例的期望上游固定为模块 20。参考上游写入 `datasets/<dataset>/<fixture>.json`，目标阶段的产物写入 `fixture/<dataset>/<case-id>/artifact.json`，适合验证单个阶段的输入输出契约。

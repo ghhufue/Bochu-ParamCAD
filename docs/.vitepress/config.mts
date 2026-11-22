@@ -85,6 +85,7 @@ const sections = [
       { text: '解析曲面拟合和连通扩展', link: '/algorithms/primitive-fitting' },
       { text: '面密度与曲面展开验证', link: '/algorithms/surface-support-validation' },
       { text: '特征识别与几何判定', link: '/algorithms/feature-inference' },
+      { text: '表面场景与实体推断', link: '/algorithms/solid-inference' },
       { text: '装配分组与壳闭合', link: '/algorithms/shell-closure' },
       { text: '二维轮廓与投影评分', link: '/algorithms/projection-scoring' },
     ],
@@ -134,6 +135,14 @@ const sections = [
       { text: '超参数配置', link: '/development/configuration' },
       { text: '贡献指南与文档维护', link: '/development/contributing' },
       { text: '设计决策', link: '/development/design-decisions' },
+      {
+        text: '实体推断（SurfaceScene）',
+        collapsed: true,
+        items: [
+          { text: '实施方案（参考）', link: '/development/solid-inference-plan' },
+          { text: '实现状态与差距', link: '/development/solid-inference-status' },
+        ],
+      },
       { text: '曲面支撑验证修改方案', link: '/development/surface-support-validation-plan' },
       { text: '多视角图片转点云扩展方案', link: '/development/multiview-reconstruction-extension' },
       { text: '结构光实现验证记录', link: '/development/structured-light-validation' },

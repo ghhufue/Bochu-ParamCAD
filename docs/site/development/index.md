@@ -14,6 +14,8 @@
 | [性能调优](/performance/) | 分主题查看性能收益、渲染与识别优化、并发/串行状态，以及基准和正确性验证。 |
 | [贡献指南与文档维护](/development/contributing) | 说明分支与 PR 规则、代码/测试/文档同步要求，以及本地预览和 GitHub Pages 发布方式。 |
 | [设计决策](/development/design-decisions) | 给出可复用的决策记录格式，并列出从代码可验证的当前架构选择及其影响。 |
+| [实体推断实施方案（参考）](/development/solid-inference-plan) | 记录“上游唯一真源、下游多候选推断”的目标架构、数据契约、阶段计划与验收矩阵；属于方案，不是现状。 |
+| [实体推断实现状态与差距](/development/solid-inference-status) | 对照当前版本列出已实现的 SurfaceScene、候选生成、评分与 legacy 隔离，以及未完成项和风险。 |
 | [曲面支撑验证修改方案](/development/surface-support-validation-plan) | 规划可靠平面密度参考、球面/圆柱展开验证、点归属复验及Y373验收；算法尚待实施。 |
 | [多视角图片转点云扩展方案](/development/multiview-reconstruction-extension) | 规划编码结构光、Python 算法验证、现有客户端调控与后续 COLMAP 结合的阶段安排；范围截止于点云。 |
 | [结构光实现验证记录](/development/structured-light-validation) | 固定场景比较 Gray Code、相移和多曝光，记录几何误差、覆盖率、成本及离线验收边界。 |

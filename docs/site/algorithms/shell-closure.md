@@ -1,6 +1,6 @@
 # 装配分组与壳闭合
 
-装配路径只在“无模板、无人工关系，且常规识别失败或候选多体”时触发。它把全量观测分解为面片、部件和边界，再尝试闭合成实体；只有闭合候选会进入建模，开放部件和诊断仍保留。实现集中在 `core/geometric_reconstruction/src/parts/assembly`。
+装配路径只在显式启用 legacy 装配时运行，通常用于离线 CLI 的 `--legacy-assembly` 对照或 `pcad assemble` 独立分析。它把全量观测分解为面片、部件和边界，再尝试闭合成实体；只有闭合候选会进入建模，开放部件和诊断仍保留。默认自动重建改用[表面场景与实体推断](/algorithms/solid-inference)，不会自动回退到本路径。实现集中在 `core/geometric_reconstruction/src/parts/assembly`。
 
 ## 面片连接与点归属
 
