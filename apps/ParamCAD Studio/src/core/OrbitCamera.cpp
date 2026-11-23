@@ -83,21 +83,19 @@ CameraParameters OrbitCamera::toCamera(const OrbitParameters& orbit,
         result.position[2] = result.target[2] + distance * sinElevation;
     }
 
-    if (lookAtOrigin) {
-        if (atPole) {
-            // Keep +X pointing right in both pole images. This mirrors the
-            // standard Top/Bottom camera convention and stays perpendicular to
-            // the viewing direction.
-            result.up[0] = 0.0;
-            result.up[1] = sinElevation > 0.0 ? 1.0 : -1.0;
-            result.up[2] = 0.0;
-        } else {
-            // The spherical derivative keeps the horizon level away from the
-            // poles.
-            result.up[0] = -sinElevation * cosAzimuth;
-            result.up[1] = -sinElevation * sinAzimuth;
-            result.up[2] = cosElevation;
-        }
+    if (atPole) {
+        // Keep +X pointing right in both pole images. This mirrors the
+        // standard Top/Bottom camera convention and stays perpendicular to
+        // the viewing direction.
+        result.up[0] = 0.0;
+        result.up[1] = sinElevation > 0.0 ? 1.0 : -1.0;
+        result.up[2] = 0.0;
+    } else {
+        // The spherical derivative keeps the horizon level away from the
+        // poles, including when orbiting around a retained target.
+        result.up[0] = -sinElevation * cosAzimuth;
+        result.up[1] = -sinElevation * sinAzimuth;
+        result.up[2] = cosElevation;
     }
 
     return result;

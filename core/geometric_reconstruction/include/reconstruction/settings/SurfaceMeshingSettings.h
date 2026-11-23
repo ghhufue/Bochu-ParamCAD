@@ -7,6 +7,8 @@ namespace reconstruction {
 struct SurfaceMeshingSettings {
     std::size_t minimumSurfacePoints = 12;
     std::size_t meshPointBudget = 16000;
+    bool boundaryContourCorrectionEnabled = true;
+    double boundarySimplificationSpacingMultiplier = .45;
     std::size_t densityNeighborCount = 24;
     double localSupportRadiusMultiplier = 3;
     double connectivityRadiusMultiplier = 3;

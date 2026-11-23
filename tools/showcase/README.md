@@ -24,7 +24,7 @@ Run online cloud loading, surface detection, CAD reconstruction and, after a suc
 python tools/showcase/capture_cloud_stages.py --cloud outputs/performance-validation-reference/level-01/sphere/cloud.ply --output outputs/performance-showcase/level-01/sphere --session SESSION_ID
 ```
 
-The STEP capture output contains the Studio's original 62-frame capture under `capture/images/`, plus 12 direct viewport PNGs and `spin.mp4` at elevation `-30` degrees. Change the camera angle, frame size or playback rate with `--elevation`, `--width`, `--height` and `--fps`.
+The orbit camera stays 45 degrees above the XY base plane and completes one turn around the model center. The STEP capture output also contains the Studio's original 62-frame capture under `capture/images/`, plus 12 direct viewport PNGs and `spin.mp4`. Change the camera elevation, frame size or playback rate with `--elevation`, `--width`, `--height` and `--fps`.
 
 `capture_cloud_stages.py` writes the point-cloud and detected-surface videos directly. It also writes an exported STEP and CAD video when solid reconstruction succeeds. Then build a level page and synchronized four-column video:
 

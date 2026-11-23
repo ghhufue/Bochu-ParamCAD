@@ -162,6 +162,8 @@ const std::vector<settings::Setting<AnalysisSettings>>& analysisSchema()
         REAL(supportValidation.planePreferenceMinReferenceAreaFraction, "plane_preference_min_reference_area_fraction", "密度参考与高级验证", "优先保留平面的面积相对参考中位数", .001, 10),
         INT(meshing.minimumSurfacePoints, "minimum_surface_points", "最终成面支持", "最终集合及连通面片最少支持点数", 3, 1000000),
         INT(meshing.meshPointBudget, "mesh_point_budget", "显示网格", "网格采样点预算", 256, 1000000),
+        BOOL(meshing.boundaryContourCorrectionEnabled, "boundary_contour_correction_enabled", "显示网格", "启用平面边界轮廓修正"),
+        REAL(meshing.boundarySimplificationSpacingMultiplier, "boundary_simplification_spacing_multiplier", "显示网格", "边界简化容差与采样间距之比", 0, 2),
         REAL(meshing.planarAlphaRadiusMultiplier, "planar_alpha_radius_multiplier", "显示网格", "平面 Alpha 半径与局部间距之比", .1, 20),
         REAL(meshing.curvedAlphaRadiusMultiplier, "curved_alpha_radius_multiplier", "显示网格", "曲面 Alpha 半径与局部间距之比", .1, 20),
         REAL(meshing.coverageRadiusMultiplier, "coverage_radius_multiplier", "显示网格", "点支撑覆盖半径与局部间距之比", .1, 5),
@@ -432,6 +434,10 @@ void validateAnalysis(const AnalysisSettings& settings, std::string& reason) {
         reason="Invalid surface support validation settings";
     else if(settings.meshing.meshPointBudget<settings.meshing.minimumSurfacePoints)
         reason="mesh_point_budget cannot be below minimum_surface_points";
+    else if(!std::isfinite(settings.meshing.boundarySimplificationSpacingMultiplier) ||
+            settings.meshing.boundarySimplificationSpacingMultiplier<0 ||
+            settings.meshing.boundarySimplificationSpacingMultiplier>2)
+        reason="boundary_simplification_spacing_multiplier must be within 0..2";
     else if(settings.meshing.deepInteriorDistanceMultiplier<=settings.meshing.boundaryBandSpacingMultiplier)
         reason="deep_interior_distance_multiplier must exceed boundary_band_spacing_multiplier";
 }

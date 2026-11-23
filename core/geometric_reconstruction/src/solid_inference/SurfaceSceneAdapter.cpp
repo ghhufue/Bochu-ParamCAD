@@ -2,6 +2,7 @@
 
 #include "reconstruction/surface/SurfaceFootprint.h"
 #include "reconstruction/surface/SurfaceSupportValidation.h"
+#include "reconstruction/parts/PlanarSurfaceJunctions.h"
 
 #include <algorithm>
 #include <cmath>
@@ -200,6 +201,7 @@ bool exportSurfaceScene(const PointStore& points, const SurfaceAnalysisResult& a
         }
         return matches.size() == 1 ? matches.front() : nullptr;
     };
+    std::vector<PlanarSurfaceInput> contourInputs;
     for (const auto& patch : analysis.patches) {
         if (!patch.surfaceId || patch.surfaceId > analysis.surfaces.size()) {
             error = "InvalidSurfaceReference: patch references missing fitted surface"; return false;
@@ -297,7 +299,35 @@ bool exportSurfaceScene(const PointStore& points, const SurfaceAnalysisResult& a
                         converted.boundaryStatus = SceneBoundaryStatus::ObservedClosed;
                 }
         }
+        if (analysis.options.supportMeshing.boundaryContourCorrectionEnabled && decision &&
+            converted.boundaryStatus == SceneBoundaryStatus::ObservedClosed) {
+            const auto& footprint = *decision->footprint;
+            PlanarSurfaceInput input;
+            input.id = static_cast<int>(scene.patches.size() + 1);
+            input.plane = std::get<PlaneEvidence>(evidence).plane;
+            input.residual = converted.residualMm;
+            for (const auto& p : footprint.positions) {
+                const auto& o = footprint.origin;
+                const auto& u = footprint.axisU;
+                const auto& v = footprint.axisV;
+                input.vertices.push_back({o.x + p[0]*u.x + p[1]*v.x, o.y + p[0]*u.y + p[1]*v.y,
+                    o.z + p[0]*u.z + p[1]*v.z});
+            }
+            for (const auto& t : footprint.triangles)
+                input.triangles.push_back({std::size_t(t[0]), std::size_t(t[1]), std::size_t(t[2])});
+            contourInputs.push_back(std::move(input));
+        }
         scene.patches.push_back(std::move(converted));
+    }
+    const auto corrected = fitPlanarSurfaceJunctions(std::move(contourInputs),
+        {analysis.options.supportMeshing.boundarySimplificationSpacingMultiplier, true}, {});
+    for (const auto& surface : corrected.surfaces) {
+        if (!surface.boundaryAdjusted) continue;
+        auto& patch = scene.patches.at(std::size_t(surface.id - 1));
+        patch.loops.clear();
+        for (const auto& boundary : surface.boundaries)
+            patch.loops.push_back({boundary.hole ? SceneLoopRole::Hole : SceneLoopRole::Outer,
+                boundary.vertices, true, patch.supportConfidence});
     }
     for (const auto& relation : analysis.relations) {
         scene.relations.push_back({relation.first, relation.second, relation.kind,

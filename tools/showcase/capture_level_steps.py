@@ -22,7 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, default=OUTPUT_ROOT)
     parser.add_argument("--pcad", type=Path)
     parser.add_argument("--session", help="Studio session ID when more than one Studio is running")
-    parser.add_argument("--elevation", type=float, default=-30)
+    parser.add_argument("--elevation", type=float, default=45)
     parser.add_argument("--fps", type=int, default=12)
     parser.add_argument("--width", type=int, default=960)
     parser.add_argument("--height", type=int, default=540)

@@ -45,9 +45,17 @@ struct PlanarSurfaceJunctionResult {
     std::vector<PlanarSurfaceJunction> junctions;
 };
 
+struct PlanarContourCorrectionOptions {
+    double simplificationSpacingMultiplier = .45;
+    bool simplifyWithoutJunction = false;
+};
+
 // Fits local joins in the supplied observation units. Each successful face
 // remains an independent open surface and the input snapshot stays intact.
 PlanarSurfaceJunctionResult fitPlanarSurfaceJunctions(std::vector<PlanarSurfaceInput> inputs,
     const std::function<bool()>& cancelled = {});
+
+PlanarSurfaceJunctionResult fitPlanarSurfaceJunctions(std::vector<PlanarSurfaceInput> inputs,
+    const PlanarContourCorrectionOptions& options, const std::function<bool()>& cancelled);
 
 } // namespace reconstruction

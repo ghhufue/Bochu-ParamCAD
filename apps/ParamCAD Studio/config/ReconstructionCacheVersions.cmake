@@ -53,6 +53,8 @@ paramcad_cache_version(CACHE_PREPROCESSING ${common} ${input})
 paramcad_cache_version(CACHE_EVIDENCE ${common} ${detection})
 paramcad_cache_version(CACHE_ANALYSIS ${common} ${detection} ${surfaces})
 paramcad_cache_version(CACHE_RECOGNITION ${common} ${input} ${detection} ${surfaces} ${recognition} ${cad}
+    "${assembly}/PlanarSurfaceJunctions.cpp" "${assembly}/BoundaryGeometry.*"
+    "${reconstruction}/include/reconstruction/parts/PlanarSurfaceJunctions.h"
     "${app}/VERSION")
 paramcad_cache_version(CACHE_ASSEMBLY_GROUPING ${common} ${input} "${assembly}/AssemblyReconstruction.cpp"
     "${assembly}/AssemblyInternal.h")

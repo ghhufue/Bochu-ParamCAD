@@ -2,6 +2,7 @@
 #include "rendering/PlanarSurfaceDomain.h"
 #include "io/SurfaceEvidenceAdapter.h"
 #include <contour_fitting/ContourFitting.h>
+#include <reconstruction/parts/PlanarSurfaceJunctions.h>
 #include <reconstruction/settings/ModuleConfig.h>
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Delaunay_triangulation_2.h>
@@ -411,6 +412,50 @@ PointCloudSurfaceDisplay meshPointCloudSurfaces(const PointCloudSelection& selec
         std::map<std::size_t,std::vector<const PointCloudRegion*>> families;
         for(std::size_t i=0;i<validatedPlanes.size();++i)families[root(i)].push_back(validatedPlanes[i]);
         for(const auto& family:families)emitPlaneFamily(family.second);
+    }
+    if (settings.boundaryContourCorrectionEnabled) {
+        std::vector<reconstruction::PlanarSurfaceInput> inputs;
+        for (const auto& region : selection.regions()) {
+            const auto found = display.meshes.find(region.id);
+            if (found == display.meshes.end()) continue;
+            const auto evidence = regionEvidence(region);
+            if (!evidence) continue;
+            const auto* plane = std::get_if<reconstruction::PlaneEvidence>(&*evidence);
+            if (!plane) continue;
+            const auto& mesh = found->second;
+            reconstruction::PlanarSurfaceInput input;
+            input.id = region.id;
+            input.plane = plane->plane;
+            input.residual = plane->meanAbsoluteResidual;
+            for (const auto& position : mesh.positions)
+                input.vertices.push_back({position[0], position[1], position[2]});
+            for (const auto& triangle : mesh.triangles)
+                input.triangles.push_back({std::size_t(triangle[0]), std::size_t(triangle[1]), std::size_t(triangle[2])});
+            inputs.push_back(std::move(input));
+        }
+        const auto corrected = reconstruction::fitPlanarSurfaceJunctions(std::move(inputs),
+            {settings.boundarySimplificationSpacingMultiplier, true}, {});
+        for (const auto& surface : corrected.surfaces) {
+            if (!surface.boundaryAdjusted) continue;
+            auto& mesh = display.meshes.at(surface.id);
+            std::vector<vtkIdType> anchors;
+            std::vector<std::array<double, 3>> positions;
+            for (const auto vertex : surface.vertices) {
+                const auto distance = [&](const auto& point) {
+                    const auto delta = sub(vertex, {point[0], point[1], point[2]});
+                    return dot(delta, delta);
+                };
+                const auto nearest = std::min_element(mesh.positions.begin(), mesh.positions.end(),
+                    [&](const auto& first, const auto& second) { return distance(first) < distance(second); });
+                anchors.push_back(mesh.sourcePointIds[std::distance(mesh.positions.begin(), nearest)]);
+                positions.push_back({vertex.x, vertex.y, vertex.z});
+            }
+            mesh.positions = std::move(positions);
+            mesh.sourcePointIds = std::move(anchors);
+            mesh.triangles.clear();
+            for (const auto& triangle : surface.triangles)
+                mesh.triangles.push_back({vtkIdType(triangle[0]), vtkIdType(triangle[1]), vtkIdType(triangle[2])});
+        }
     }
     return display;
 }

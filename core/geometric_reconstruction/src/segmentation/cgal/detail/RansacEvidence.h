@@ -35,7 +35,8 @@ void addSupportIds(
 
 PlaneEquation fitPlane(
     const InputRange& input,
-    const std::vector<std::size_t>& indices);
+    const std::vector<std::size_t>& indices,
+    bool robust = false);
 
 modeling::Vec3 centroidOf(
     const InputRange& input,

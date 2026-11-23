@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -19,7 +20,7 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--output", required=True, type=Path, help="Output directory, which must not exist")
     parser.add_argument("--pcad", type=Path, default=DEFAULT_PCAD, help="Path to pcad.exe")
     parser.add_argument("--session", help="Studio session ID when more than one Studio is running")
-    parser.add_argument("--elevation", type=float, default=-30)
+    parser.add_argument("--elevation", type=float, default=45)
     parser.add_argument("--fps", type=int, default=12)
     parser.add_argument("--width", type=int, default=960)
     parser.add_argument("--height", type=int, default=540)

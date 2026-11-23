@@ -110,7 +110,6 @@ std::optional<PatchId> supportingCylinder(const SurfaceScene& scene,const Circul
 }
 
 struct HoleCut {
-    const BoundaryLoop3d* opening;
     CircularBoundary circle;
     double start;
     double end;
@@ -143,39 +142,9 @@ std::optional<HoleCut> matchBlindHole(const SurfaceScene& scene,const BoundaryLo
         const auto wall=supportingCylinder(scene,*circle,axis,circle->center,floorCenter,tolerance,usedCylinders);
         if(!wall)continue;
         if(match)return {};
-        match=HoleCut{&opening,*circle,openingDepth,openingDepth+direction*cutDepth,patch.id,*wall};
+        match=HoleCut{*circle,openingDepth,openingDepth+direction*cutDepth,patch.id,*wall};
     }
     return match;
-}
-
-std::vector<modeling::ProfileCurve2D> profileCurves(const BoundaryLoop3d& loop,Vec3 origin,Vec3 x,Vec3 y) {
-    std::vector<modeling::Point2D> points;
-    points.reserve(loop.vertices.size());
-    for(const auto point:loop.vertices) {
-        const auto relative=sub(point,origin);
-        points.push_back({dot(relative,x),dot(relative,y)});
-    }
-    std::vector<modeling::ProfileCurve2D> curves;
-    curves.reserve(points.size());
-    for(std::size_t i=0;i<points.size();++i) {
-        const auto first=points[i],second=points[(i+1)%points.size()];
-        modeling::ProfileCurve2D edge;
-        edge.x1=first.x;edge.y1=first.y;edge.x2=second.x;edge.y2=second.y;
-        curves.push_back(edge);
-    }
-    return curves;
-}
-
-std::vector<modeling::SketchEntity> loopSketch(const BoundaryLoop3d& loop,Vec3 origin,Vec3 x,Vec3 y) {
-    std::vector<modeling::SketchEntity> entities;
-    entities.reserve(loop.vertices.size());
-    for(std::size_t i=0;i<loop.vertices.size();++i) {
-        const auto first=sub(loop.vertices[i],origin);
-        const auto second=sub(loop.vertices[(i+1)%loop.vertices.size()],origin);
-        entities.push_back({static_cast<modeling::SketchEntityId>(i+1),modeling::Line2D{
-            dot(first,x),dot(first,y),dot(second,x),dot(second,y)}});
-    }
-    return entities;
 }
 
 bool isSampledRectangle(const std::vector<modeling::Point2D>& polygon) {
@@ -279,7 +248,13 @@ bool proposeParallelCapExtrusion(const SurfaceScene& scene,PatchId firstId,Patch
             output.diagnostics.push_back(error);return false;
         }
         holeWallPatches.insert(*wall);
-        cuts.push_back({firstHole,*circle,0,depth,{},*wall});
+        const auto* wallPatch = findPatch(scene, *wall);
+        const auto& cylinder = std::get<CylinderEvidence>(
+            scene.surfaces[std::size_t(wallPatch->surfaceId - 1)]).cylinder;
+        const auto cylinderAxis = unit(cylinder.axisDirection);
+        const auto atCap = add(cylinder.axisPoint, mul(cylinderAxis,
+            dot(sub(origin,cylinder.axisPoint),axis)/dot(cylinderAxis,axis)));
+        cuts.push_back({{atCap,cylinder.radius},0,depth,{},*wall});
     }
     for(const auto* secondHole:holes2) {
         if(matchedSecondHoles.count(secondHole))continue;
@@ -370,17 +345,12 @@ bool proposeParallelCapExtrusion(const SurfaceScene& scene,PatchId firstId,Patch
         cutOperation.plane=modeling::explicitPlane(cutOrigin,axis,x);
         cutOperation.depth=std::abs(cut.end-cut.start);
         cutOperation.reverse=cut.end<cut.start;
-        if(cut.floor) {
-            const auto center=sub(cut.circle.center,origin);
-            const double centerX=dot(center,x),centerY=dot(center,y);
-            body.cavities.push_back({centerX,centerY,std::min(cut.start,cut.end),
-                std::max(cut.start,cut.end),cut.circle.radius,cut.circle.radius});
-            cutOperation.entities.push_back({1,modeling::Circle2D{centerX,centerY,cut.circle.radius}});
-            output.supportingPatches.push_back(*cut.floor);
-        } else {
-            body.profileVoids.push_back(profileCurves(*cut.opening,origin,x,y));
-            cutOperation.entities=loopSketch(*cut.opening,cutOrigin,x,y);
-        }
+        const auto center=sub(cut.circle.center,origin);
+        const double centerX=dot(center,x),centerY=dot(center,y);
+        body.cavities.push_back({centerX,centerY,std::min(cut.start,cut.end),
+            std::max(cut.start,cut.end),cut.circle.radius,cut.circle.radius});
+        cutOperation.entities.push_back({1,modeling::Circle2D{centerX,centerY,cut.circle.radius}});
+        if(cut.floor) output.supportingPatches.push_back(*cut.floor);
         cutOperation.operation=modeling::ExtrudeOperation::Cut;
         output.featureProgram.push_back(std::move(cutOperation));
     }

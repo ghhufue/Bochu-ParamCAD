@@ -49,7 +49,29 @@ int main()
     try {
         checkPole(90.0, 10.0, 1.0);
         checkPole(-90.0, -10.0, -1.0);
-        std::cout << "Orbit camera pole test passed.\n";
+
+        CameraParameters base;
+        base.target[0] = 12.0;
+        base.target[1] = -7.0;
+        base.target[2] = 4.0;
+        base.up[0] = 0.0;
+        base.up[1] = 1.0;
+        base.up[2] = 0.0;
+        const CameraParameters orbit =
+            OrbitCamera::toCamera({20.0, 90.0, 45.0}, base, false);
+        require(near(orbit.target[0], base.target[0])
+                    && near(orbit.target[1], base.target[1])
+                    && near(orbit.target[2], base.target[2]),
+                "orbit around a retained target must preserve that target");
+        require(near(orbit.position[0], base.target[0])
+                    && near(orbit.position[1], base.target[1] + 20.0 / std::sqrt(2.0))
+                    && near(orbit.position[2], base.target[2] + 20.0 / std::sqrt(2.0)),
+                "orbit position must use the requested azimuth and elevation");
+        require(near(orbit.up[0], 0.0) && near(orbit.up[1], -1.0 / std::sqrt(2.0))
+                    && near(orbit.up[2], 1.0 / std::sqrt(2.0)),
+                "orbit around a retained target must update the horizon up vector");
+
+        std::cout << "Orbit camera tests passed.\n";
         return 0;
     } catch (const std::exception& exception) {
         std::cerr << "Orbit camera pole test failed: " << exception.what() << '\n';

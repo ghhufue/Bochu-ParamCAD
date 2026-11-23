@@ -251,23 +251,118 @@ bool replaceMesh(Face& face, const std::vector<BoundaryLoop>& rings,
     return true;
 }
 
-FittedPlanarSurface fitBoundaries(Face& face, const std::function<bool()>& cancelled) {
-    if (!face.constraints.empty()) {
+// A noisy run can contain many short edges pointing away from the junction.
+// Recover a complete convex outline only if the finite junctions support every
+// side and the resulting outline stays near the observed contour in both directions.
+BoundaryLoop outlineFromJunctions(const BoundaryLoop& observed,
+    const std::vector<BoundaryLine>& constraints, double reach) {
+    if (constraints.size() < 3) return {};
+    P center{};
+    for (const auto p : observed) {
+        center.x += p.x / observed.size();
+        center.y += p.y / observed.size();
+    }
+    using LineAtAngle = std::pair<double, BoundaryLine>;
+    std::vector<LineAtAngle> lines;
+    for (auto line : constraints) {
+        if (!line.extent) continue;
+        if (line.a * center.x + line.b * center.y + line.c > 0) {
+            line.a = -line.a;
+            line.b = -line.b;
+            line.c = -line.c;
+        }
+        const auto sameLine = std::find_if(lines.begin(), lines.end(), [&](const auto& entry) {
+            const auto& other = entry.second;
+            return std::hypot(line.a-other.a, line.b-other.b) < 1e-8 &&
+                std::abs(line.c-other.c) < 1e-8 * reach;
+        });
+        if (sameLine == lines.end()) {
+            lines.emplace_back(std::atan2(line.b, line.a), line);
+            continue;
+        }
+        auto& span = *sameLine->second.extent;
+        const auto station = [&](P p) { return -line.b*p.x + line.a*p.y; };
+        if (station(span[0]) > station(span[1])) std::swap(span[0], span[1]);
+        for (const auto point : *line.extent) {
+            if (station(point) < station(span[0])) span[0] = point;
+            if (station(point) > station(span[1])) span[1] = point;
+        }
+    }
+    lines.erase(std::remove_if(lines.begin(), lines.end(), [&](const auto& entry) {
+        const auto& span = *entry.second.extent;
+        return std::hypot(span[1].x-span[0].x, span[1].y-span[0].y) < 2 * reach;
+    }), lines.end());
+    if (lines.size() < 3) return {};
+    std::sort(lines.begin(), lines.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    BoundaryLoop candidate;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        const auto& a = lines[i].second;
+        const auto& b = lines[(i + 1) % lines.size()].second;
+        const double determinant = a.a*b.b - a.b*b.a;
+        if (determinant <= .05) return {};
+        const P corner{(a.b*b.c - b.b*a.c)/determinant, (b.a*a.c - a.a*b.c)/determinant};
+        if (boundaryDistance(observed, corner) > 3 * reach) return {};
+        candidate.push_back(corner);
+    }
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        const auto& extent = *lines[i].second.extent;
+        const auto first = extent[0], last = extent[1];
+        const double dx = last.x-first.x, dy = last.y-first.y;
+        const double span = std::hypot(dx, dy);
+        for (const auto point : {candidate[i], candidate[(i + lines.size() - 1) % lines.size()]}) {
+            const double t = ((point.x-first.x)*dx+(point.y-first.y)*dy)/span;
+            if (t < -3.5*reach || t > span+3.5*reach) return {};
+        }
+    }
+    if (!simpleBoundary(candidate)) return {};
+    for (const auto point : observed)
+        if (boundaryDistance(candidate, point) > 3 * reach) return {};
+    if (boundaryArea(candidate)*boundaryArea(observed) < 0)
+        std::reverse(candidate.begin(), candidate.end());
+    return candidate;
+}
+
+FittedPlanarSurface fitBoundaries(Face& face, const PlanarContourCorrectionOptions& options,
+    const std::function<bool()>& cancelled) {
+    if (options.simplifyWithoutJunction || !face.constraints.empty()) {
         BoundaryRecoveryDiagnostics diagnostics;
         auto simplified = face.rings;
-        for (auto& ring : simplified)
-            ring = simplifyBoundary(ring, std::min(.45 * face.spacing, .5 * face.reach), diagnostics);
-        if (!sameBoundaryTopology(face.rings, simplified)) simplified = face.rings;
+        bool simplifiedRing = false;
+        for (auto& ring : simplified) {
+            if (options.simplificationSpacingMultiplier <= 0) break;
+            const auto count = ring.size();
+            ring = simplifyBoundary(ring,
+                std::min(options.simplificationSpacingMultiplier * face.spacing, .5 * face.reach), diagnostics);
+            simplifiedRing |= ring.size() < count;
+        }
+        if (simplifiedRing && !sameBoundaryTopology(face.rings, simplified)) {
+            simplified = face.rings;
+            simplifiedRing = false;
+        }
 
         auto fitted = simplified;
         std::size_t snapped = 0;
-        for (auto& ring : fitted) {
+        const bool singleExterior = std::count(face.holes.begin(), face.holes.end(), false) == 1;
+        for (std::size_t i = 0; i < fitted.size(); ++i) {
             checkCancellation(cancelled);
-            ring = snapBoundary(ring, face.constraints, face.spacing, face.reach, diagnostics, snapped);
+            auto& ring = fitted[i];
+            if (options.simplifyWithoutJunction && singleExterior && !face.holes[i]) {
+                auto outline = outlineFromJunctions(face.rings[i], face.constraints, face.reach);
+                if (!outline.empty()) {
+                    snapped += outline.size();
+                    ring = std::move(outline);
+                    continue;
+                }
+            }
+            if (!face.constraints.empty())
+                ring = snapBoundary(ring, face.constraints, face.spacing, face.reach, diagnostics, snapped);
         }
         if (snapped && sameBoundaryTopology(face.rings, fitted) && replaceMesh(face, fitted, cancelled)) {
             face.mesh.boundaryAdjusted = true;
             face.rings = std::move(fitted);
+        } else if (options.simplifyWithoutJunction && simplifiedRing && replaceMesh(face, simplified, cancelled)) {
+            face.mesh.boundaryAdjusted = true;
+            face.rings = std::move(simplified);
         }
     }
 
@@ -283,12 +378,22 @@ FittedPlanarSurface fitBoundaries(Face& face, const std::function<bool()>& cance
 
 PlanarSurfaceJunctionResult fitPlanarSurfaceJunctions(std::vector<PlanarSurfaceInput> inputs,
     const std::function<bool()>& cancelled) {
+    return fitPlanarSurfaceJunctions(std::move(inputs), {}, cancelled);
+}
+
+PlanarSurfaceJunctionResult fitPlanarSurfaceJunctions(std::vector<PlanarSurfaceInput> inputs,
+    const PlanarContourCorrectionOptions& options, const std::function<bool()>& cancelled) {
     PlanarSurfaceJunctionResult result;
     std::vector<Face> faces;
     faces.reserve(inputs.size());
     for (auto& input : inputs) {
         checkCancellation(cancelled);
-        faces.push_back(prepare(std::move(input)));
+        try {
+            faces.push_back(prepare(std::move(input)));
+        } catch (const std::invalid_argument&) {
+            // Automatic correction can keep an unusable patch's original geometry.
+            if (!options.simplifyWithoutJunction) throw;
+        }
     }
     for (std::size_t i = 0; i < faces.size(); ++i) {
         for (std::size_t j = i + 1; j < faces.size(); ++j) {
@@ -298,7 +403,7 @@ PlanarSurfaceJunctionResult fitPlanarSurfaceJunctions(std::vector<PlanarSurfaceI
     }
     for (auto& face : faces) {
         checkCancellation(cancelled);
-        result.surfaces.push_back(fitBoundaries(face, cancelled));
+        result.surfaces.push_back(fitBoundaries(face, options, cancelled));
     }
     return result;
 }

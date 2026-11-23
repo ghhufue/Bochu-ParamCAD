@@ -339,11 +339,13 @@ int main() {
     if(!reconstruction::proposeParallelCapExtrusion(holePrism,1,2,holeCandidate,error)) {
         std::cerr<<"supported through-hole candidate: "<<error<<'\n';return 47;
     }
-    if(!holeCandidate.boundaryBody||holeCandidate.boundaryBody->profileVoids.size()!=1||
+    if(!holeCandidate.boundaryBody||holeCandidate.boundaryBody->cavities.size()!=1||
        std::find(holeCandidate.supportingPatches.begin(),holeCandidate.supportingPatches.end(),3)==
            holeCandidate.supportingPatches.end()||holeCandidate.featureProgram.size()!=2||
        holeCandidate.featureProgram.front().operation!=modeling::ExtrudeOperation::NewBody||
-       holeCandidate.featureProgram.back().operation!=modeling::ExtrudeOperation::Cut)return 48;
+       holeCandidate.featureProgram.back().operation!=modeling::ExtrudeOperation::Cut||
+       holeCandidate.featureProgram.back().entities.size()!=1||
+       !std::holds_alternative<modeling::Circle2D>(holeCandidate.featureProgram.back().entities.front().geometry))return 48;
     std::vector<reconstruction::PointSample> holeSamples;
     for(const double z:{0.0,1.0})for(int x=0;x<=4;++x)for(int y=0;y<=4;++y) {
         const double px=x*.5,py=y*.5;

@@ -86,6 +86,7 @@ CACHE_FIELDS(reconstruction::SurfaceFootprint, v.origin, v.axisU, v.axisV, v.pos
     v.holes)
 
 CACHE_FIELDS(reconstruction::SurfaceMeshingSettings, v.minimumSurfacePoints, v.meshPointBudget,
+    v.boundaryContourCorrectionEnabled, v.boundarySimplificationSpacingMultiplier,
     v.densityNeighborCount, v.localSupportRadiusMultiplier, v.connectivityRadiusMultiplier,
     v.minimumTransverseVarianceRatio, v.regularSpacingTolerance, v.regularSpacingLimitMultiplier,
     v.densityGapMultiplier, v.coverageRadiusMultiplier, v.planarAlphaRadiusMultiplier,
