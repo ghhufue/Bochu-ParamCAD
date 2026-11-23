@@ -24,12 +24,26 @@ Run online cloud loading, surface detection, CAD reconstruction and, after a suc
 python tools/showcase/capture_cloud_stages.py --cloud outputs/performance-validation-reference/level-01/sphere/cloud.ply --output outputs/performance-showcase/level-01/sphere --session SESSION_ID
 ```
 
-The orbit camera stays 45 degrees above the XY base plane and completes one turn around the model center. The STEP capture output also contains the Studio's original 62-frame capture under `capture/images/`, plus 12 direct viewport PNGs and `spin.mp4`. Change the camera elevation, frame size or playback rate with `--elevation`, `--width`, `--height` and `--fps`.
+To acquire the point cloud through the client's default structured-light workflow before the analysis stages, pass the source STEP model instead. The resulting structured-light cloud and command response are kept under the case output directory:
+
+```powershell
+python tools/showcase/capture_cloud_stages.py --model data/performance-validation/level-01/cylinder/model.step --output outputs/performance-showcase/level-01/cylinder --session SESSION_ID
+```
+
+Use `--allow-missing-solid` to keep the acquisition and surface clips when solid reconstruction fails. The reconstruction report is retained and the solid stage remains blank.
+
+The orbit camera stays 45 degrees above the XY base plane and completes one turn around the model center. The STEP capture output contains Studio's multi-angle capture under `capture/images/`, the orbit PNGs under `frames/` and `spin.mp4`. The default of 96 poses at 12 fps yields an eight-second revolution. Use `--frames` and `--fps` to control the number of poses and playback speed. Use `--elevation`, `--width` and `--height` to control the view and capture size. Near-square captures make better use of the available width in levels with few parts.
 
 `capture_cloud_stages.py` writes the point-cloud and detected-surface videos directly. It also writes an exported STEP and CAD video when solid reconstruction succeeds. Then build a level page and synchronized four-column video:
 
 ```powershell
 python tools/showcase/build_performance_showcase.py --level level-01
+```
+
+Build and concatenate multiple levels in playback order:
+
+```powershell
+python tools/showcase/build_performance_showcase.py --level level-01 --level level-02 --combined outputs/performance-showcase/levels-01-02.mp4
 ```
 
 The result is `outputs/performance-showcase/<level>/index.html` and `showcase.mp4`. The page and video include every STEP/STP case discovered under the level. Cells without a supplied stage video are marked as missing in HTML and rendered blank in the MP4.

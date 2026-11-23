@@ -493,12 +493,13 @@ void irregularSampling()
     require(meshArea(jitteredMesh)>1550,"ordinary scan spacing variation does not fragment a complete plane");
 }
 
-void fragmentedPlanes()
+void fragmentedPlanes(bool validated)
 {
     PlyCloud cloud;std::vector<DetectedPointCloudSurface> surfaces(5);
     for(size_t i=0;i<surfaces.size();++i) {
         auto& region=surfaces[i].surface;region.geometry="plane";
         region.parameters={{"normal",QJsonArray{0,0,i==1?-1:1}},{"offset",i==4?-.15:0}};
+        if (validated) region.supportValidation = {{"verdict", "accepted"}};
     }
     const auto append=[&](int owner,float x,float y,float z) {
         surfaces[size_t(owner)].points.push_back(vtkIdType(cloud.positions.size()));cloud.positions.push_back({x,y,z});
@@ -544,10 +545,12 @@ void validatedAdjacentPlanesShareDisplayFamily()
         detected.surface.geometry="plane";
         detected.surface.parameters={{"normal",QJsonArray{0,0,1}},{"offset",0}};
         detected.surface.supportValidation={{"verdict","accepted"}};
+        detected.surface.residual = .1;
     }
+    surfaces[1].surface.parameters["offset"] = -.35;
     for(int x=0;x<=10;++x)for(int y=0;y<=10;++y) {
         const auto id=vtkIdType(cloud.positions.size());
-        cloud.positions.push_back({float(x),float(y),0});
+        cloud.positions.push_back({float(x),float(y),x<=5?0.F:.35F});
         surfaces[size_t(x<=5?0:1)].points.push_back(id);
     }
     PointCloudSelection selection;selection.setCloud(cloud);selection.addSurfaces(surfaces);
@@ -567,6 +570,43 @@ void validatedAdjacentPlanesShareDisplayFamily()
     for(const auto id:surfaces[1].points)for(int axis=0;axis<3;++axis)
         require(colors->GetComponent(id,axis)==firstColor[size_t(axis)],
             "a relation update refreshes cached point colors for the merged plane family");
+}
+
+void adjacentPlaneFamilyDoesNotSpanLayers()
+{
+    PlyCloud cloud;
+    std::vector<DetectedPointCloudSurface> surfaces(3);
+    for (int layer = 0; layer < 3; ++layer) {
+        auto& detected = surfaces[layer];
+        detected.surface.geometry = "plane";
+        detected.surface.parameters = {{"normal", QJsonArray{0, 0, 1}}, {"offset", -3 * layer}};
+        detected.surface.residual = 1;
+        detected.surface.supportValidation = {{"verdict", "accepted"}};
+        for (int x = 0; x <= 10; ++x)
+            for (int y = 0; y <= 10; ++y) {
+                detected.points.push_back(vtkIdType(cloud.positions.size()));
+                cloud.positions.push_back({float(x + 11 * layer), float(y), float(3 * layer)});
+            }
+    }
+    PointCloudSelection selection;
+    selection.setCloud(cloud);
+    selection.addSurfaces(surfaces);
+    require(selection.setRelation(0, 1, 2, "adjacent") > 0 &&
+            selection.setRelation(0, 2, 3, "adjacent") > 0 &&
+            selection.setRelation(0, 1, 3, "adjacent") > 0,
+            "record adjacent relationships for the plane family");
+    reconstruction::SurfaceMeshingSettings settings;
+    settings.boundaryContourCorrectionEnabled = false;
+    const auto display = meshPointCloudSurfaces(selection, settings);
+    require(display.colorRegions.at(1) != display.colorRegions.at(3),
+            "a direct or transitive adjacent relation cannot flatten two separated layers");
+    require(display.meshes.size() == 3, "each layer retains its display mesh");
+    for (int id : {1, 3}) {
+        const auto representative = display.colorRegions.at(id);
+        for (const auto& vertex : display.meshes.at(id).positions)
+            require(std::abs(vertex[2] - 3 * (representative - 1)) < 1e-8,
+                    "display vertices lie on the compatible representative plane");
+    }
 }
 
 void unsupportedPlaneSamples()
@@ -734,7 +774,7 @@ int main(int argc,char** argv) {
         if(argc==4 && QString::fromLocal8Bit(argv[1])=="--trace-surface") {
             traceSurface(QString::fromLocal8Bit(argv[2]),QString::fromLocal8Bit(argv[3]));return 0;
         }
-        unsupportedPlaneSamples();surfaceDisplay();vertexTouchingBoundaries();finalSurfaceMinimum();wideConeSupport();curvedSurfaces();validatedSphereDisplay();irregularSampling();fragmentedPlanes();validatedAdjacentPlanesShareDisplayFamily();narrowAndUnevenPlanes();finitePlaneBoundaries();distantCoplanarIslands();relativeDensitySurfaces();boundaryAndInteriorSupport();
+        unsupportedPlaneSamples();surfaceDisplay();vertexTouchingBoundaries();finalSurfaceMinimum();wideConeSupport();curvedSurfaces();validatedSphereDisplay();irregularSampling();fragmentedPlanes(false);fragmentedPlanes(true);validatedAdjacentPlanesShareDisplayFamily();adjacentPlaneFamilyDoesNotSpanLayers();narrowAndUnevenPlanes();finitePlaneBoundaries();distantCoplanarIslands();relativeDensitySurfaces();boundaryAndInteriorSupport();
         PlyCloud cloud;cloud.positions={{0,0,0},{1,0,0},{2,0,0}};
         cloud.colors={{12,34,56},{78,90,12},{34,56,78}};
         PointCloudSelection selection;selection.setCloud(cloud);

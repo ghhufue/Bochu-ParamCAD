@@ -23,10 +23,35 @@ struct Fixture {
 };
 SurfaceSupportValidationReport run(const Fixture& f,std::vector<PrimitiveEvidence>& accepted,SurfaceAnalysisOptions options={}) {
     options.detection.plane.distanceThreshold=.02;options.detection.sphere.distanceThreshold=.02;options.detection.cylinder.distanceThreshold=.02;
-    options.detection.cone.distanceThreshold=.02;
+    options.detection.cone.distanceThreshold=.02;options.detection.torus.distanceThreshold=.02;
     PointStore points(f.points);std::string error;SurfaceSupportValidationReport report;
     require(validateSurfaceSupport(points,f.evidence,options,accepted,report,error),error.c_str());return report;
 }
+void torusNeedsTwoResolvedDirections() {
+    for (const bool narrow : {false, true}) {
+        Fixture f;
+        TorusEvidence torus;
+        torus.torus = {{0, 0, 0}, {0, 0, 1}, 12, 3};
+        for (int i = 0; i < 36; ++i) {
+            const double u = (narrow ? .08 : 2*pi) * i / 36;
+            for (int j = 0; j < 18; ++j) {
+                const double v = 2*pi*j/18;
+                const double radius = 12 + 3*std::cos(v);
+                PointSample sample;
+                sample.position = {radius*std::cos(u), radius*std::sin(u), 3*std::sin(v)};
+                f.add(sample, torus.supportPointIds);
+            }
+        }
+        f.evidence.emplace_back(torus);
+        std::vector<PrimitiveEvidence> accepted;
+        const auto report = run(f, accepted);
+        require(accepted.empty() == narrow, "a narrow major-angle torus strip does not establish a torus");
+        if (narrow)
+            require(report.decisions.front().reasons.front() == "TorusMajorSpanTooSmall",
+                "narrow torus has an angular-support diagnostic");
+    }
+}
+
 void densityAndModes() {
     Fixture f;f.plane(0);f.plane(50);f.plane(100);
     PlaneEvidence bad;bad.plane={{0,0,1},-200};bad.confidence=.99;
@@ -364,4 +389,4 @@ void parallelMatchesSerial() {
         "cancelled verification publishes no partial state");
 }
 }
-int main(){try{densityAndModes();cylinder(false);cylinder(true);manualProtectionIsSurfaceTyped();spheres();recoversSphereFromPlaneFragments();cones();transactionAndSettings();heterogeneousReference();invalidRing();footprintsKeepHolesAndStrips();repeatedPlaneSamplingPreservesOpenings();irregularPlaneSamplingDoesNotInventSupport();revalidationRetainsFullResolutionSurfaceIndex();disconnectedDomainMembership();parallelMatchesSerial();std::cout<<"surface_support_validation_test passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{densityAndModes();cylinder(false);cylinder(true);manualProtectionIsSurfaceTyped();spheres();recoversSphereFromPlaneFragments();cones();transactionAndSettings();heterogeneousReference();invalidRing();torusNeedsTwoResolvedDirections();footprintsKeepHolesAndStrips();repeatedPlaneSamplingPreservesOpenings();irregularPlaneSamplingDoesNotInventSupport();revalidationRetainsFullResolutionSurfaceIndex();disconnectedDomainMembership();parallelMatchesSerial();std::cout<<"surface_support_validation_test passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

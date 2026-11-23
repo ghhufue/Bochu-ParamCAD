@@ -328,6 +328,42 @@ void curvedChecks(Metrics& m,const SurfaceSupportValidationOptions& o,double tol
     d.planeCost=d.planeCost/count+3*penalty;d.curvedCost=d.curvedCost/count+(sphere?4:cone?6:5)*penalty;
     if(d.planeCost-d.curvedCost<o.minimumModelGain)fail(d,"PlanarAlternativePreferred");
 }
+
+void torusChecks(Metrics& m, const SurfaceSupportValidationOptions& options, double tolerance,
+                 const SurfaceSamplingReference& reference, std::size_t minimumPoints)
+{
+    auto& d = m.decision;
+    if (m.positions.size() < minimumPoints) {
+        fail(d, "InsufficientTwoDimensionalSupport");
+        return;
+    }
+    const auto& torus = std::get<TorusEvidence>(m.evidence).torus;
+    const auto axis = normalized(torus.axisDirection);
+    const auto x = tangent(axis), y = cross(axis, x);
+    std::vector<double> major, minor;
+    for (const auto& [id, position] : m.positions) {
+        const auto q = subtract(position, torus.center);
+        const double u = dot(q, x), v = dot(q, y);
+        major.push_back(std::atan2(v, u));
+        minor.push_back(std::atan2(dot(q, axis), std::hypot(u, v) - torus.majorRadius));
+    }
+    d.angularSpanRadians = angularSpan(std::move(major));
+    d.minorSpanRadians = angularSpan(std::move(minor));
+    if (d.angularSpanRadians < options.cylinderMinAngularSpanRadians)
+        fail(d, "TorusMajorSpanTooSmall");
+    if (d.minorSpanRadians < options.sphereMinMinorSpanRadians)
+        fail(d, "TorusMinorSpanTooSmall");
+    const auto sagitta = [](double radius, double span) {
+        return 2 * radius * std::pow(std::sin(std::min(pi, span) * .25), 2);
+    };
+    d.sagitta = std::min(sagitta(torus.majorRadius + torus.minorRadius, d.angularSpanRadians),
+                         sagitta(torus.minorRadius, d.minorSpanRadians));
+    d.noise = std::max(reference.available ? reference.noise : tolerance / 3,
+                       options.noiseFloorToleranceFraction * tolerance);
+    d.noiseSource = reference.available ? "reference_plane_mad_with_tolerance_floor" : "fit_tolerance_divided_by_three";
+    if (d.sagitta < options.minimumSagittaNoiseRatio * d.noise)
+        fail(d, "CurvatureBelowNoise");
+}
 } // namespace
 
 const char* supportVerdictName(SupportVerdict v) noexcept {
@@ -489,6 +525,8 @@ bool validateSurfaceSupport(const PointStore& points,const std::vector<Primitive
             curvedChecks(m,o,d.kind==PrimitiveKind::Sphere?options.detection.sphere.distanceThreshold:options.detection.cylinder.distanceThreshold,report.reference);
         if(d.kind==PrimitiveKind::Cone && d.verdict==SupportVerdict::Accepted)
             curvedChecks(m,o,options.detection.cone.distanceThreshold,report.reference);
+        if (d.kind == PrimitiveKind::Torus && d.verdict == SupportVerdict::Accepted)
+            torusChecks(m, o, options.detection.torus.distanceThreshold, report.reference, settings.minimumSurfacePoints);
         if(d.verdict==SupportVerdict::Accepted) {
             if(d.kind==PrimitiveKind::Plane && report.reference.available) {
                 // Freeze rejection metrics above; clipping can only create accepted subdomains.

@@ -67,7 +67,8 @@ paramcad_cache_version(CACHE_PROJECTION ${common} ${input} ${detection} ${projec
 paramcad_cache_version(CACHE_PRESENTATION ${common} ${input} ${detection} ${surfaces}
     "${app}/src/io/PointCloudAnalysis.cpp" "${app}/src/io/PointCloudAdapter.cpp"
     "${app}/src/app/PointCloudWorkspaceController.cpp" "${app}/src/core/PointCloudRelations.cpp"
-    "${app}/src/core/PointCloudSelection.cpp")
+    "${app}/src/core/PointCloudSelection.cpp"
+    "${app}/src/rendering/*.cpp" "${app}/src/rendering/*.h")
 
 configure_file("${CMAKE_CURRENT_LIST_DIR}/ReconstructionCacheVersions.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ReconstructionCacheVersions.h" @ONLY)

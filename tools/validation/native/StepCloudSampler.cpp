@@ -204,6 +204,8 @@ void sampleStepCloud(const QStringList& args,QJsonObject& report) {
     struct Point {gp_Pnt p;gp_Vec n;};std::vector<Point> cloud;
     QJsonArray faces,solids;int solidId=0,faceId=0;
     std::mt19937 random(4500);std::uniform_real_distribution<double> unit(0,1);
+    std::size_t minimumSamplesPerFace=std::numeric_limits<std::size_t>::max();
+    std::size_t maximumSamplesPerFace=0;
     for(TopExp_Explorer si(shape,TopAbs_SOLID);si.More();si.Next()) {
         ++solidId;const auto start=cloud.size();const int firstFace=faceId+1;
         GProp_GProps props;BRepGProp::VolumeProperties(si.Current(),props);
@@ -219,8 +221,14 @@ void sampleStepCloud(const QStringList& args,QJsonObject& report) {
                 total+=gp_Vec(p,q).Crossed(gp_Vec(p,r)).Magnitude()*0.5;areas.push_back(total);
             }
             check(total>0,"Degenerate source face");
-            // Minimum support preserves small chamfers and thin hole walls.
-            const auto count=static_cast<std::size_t>(std::clamp(std::ceil(total/(spacing*spacing)),256.0,2048.0));
+            // Keep the requested area density on every face. Reject impractical
+            // requests explicitly rather than silently reducing large-face density.
+            const double requestedCount=std::ceil(total/(spacing*spacing));
+            check(std::isfinite(requestedCount) && requestedCount<=50000000.0,
+                  "Requested spacing exceeds the per-face sampling limit");
+            const auto count=static_cast<std::size_t>(std::max(1.0,requestedCount));
+            minimumSamplesPerFace=std::min(minimumSamplesPerFace,count);
+            maximumSamplesPerFace=std::max(maximumSamplesPerFace,count);
             std::size_t rejected=0;
             for(std::size_t i=0;i<count;) {
                 const double target=(i+unit(random))*total/count;
@@ -256,6 +264,7 @@ void sampleStepCloud(const QStringList& args,QJsonObject& report) {
     report["status"]="sampled";report["source_step"]=QFileInfo(args[2]).absoluteFilePath();
     report["unit"]="mm";report["spacing_mm"]=spacing;report["points"]=double(cloud.size());
     report["solid_count"]=solidId;report["face_count"]=faceId;report["faces"]=faces;report["solids"]=solids;
-    report["minimum_samples_per_face"]=256;report["maximum_samples_per_face"]=2048;
+    report["minimum_samples_per_face"]=double(minimumSamplesPerFace);
+    report["maximum_samples_per_face"]=double(maximumSamplesPerFace);
     report["reference_labels_used_by_recognition"]=false;
 }

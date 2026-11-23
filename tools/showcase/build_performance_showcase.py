@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+from tempfile import TemporaryDirectory
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -25,7 +26,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path, default=DATA_ROOT)
     parser.add_argument("--output", type=Path, default=ROOT / "outputs" / "performance-showcase")
-    parser.add_argument("--level", help="Build one level, for example level-01")
+    parser.add_argument("--level", action="append", help="Level to build. Repeat to set playback order.")
+    parser.add_argument("--combined", type=Path, help="Write the selected levels as one MP4")
     parser.add_argument("--fps", type=int, default=24)
     parser.add_argument("--duration", type=float, default=8)
     parser.add_argument("--ffmpeg", default="ffmpeg")
@@ -82,11 +84,12 @@ main{{--rows:{count};padding:18px;max-width:2200px;margin:auto}}h1{{font-size:22
     (output / level_name / "index.html").write_text(document, encoding="utf-8")
 
 
-def compose_level(level: Path, parts: list[Path], output: Path, ffmpeg: str, fps: int, duration: float) -> None:
+def compose_level(level: Path, parts: list[Path], output: Path, ffmpeg: str, fps: int, duration: float) -> Path:
     level_name = level.name
     level_output = output / level_name
     level_output.mkdir(parents=True, exist_ok=True)
-    row_height = max(160, 1080 // max(1, len(parts)))
+    frame_height = 1080
+    row_height = (frame_height // len(parts)) // 2 * 2
     cell_width = 480
     inputs: list[str] = []
     filters: list[str] = []
@@ -101,7 +104,8 @@ def compose_level(level: Path, parts: list[Path], output: Path, ffmpeg: str, fps
                 inputs.extend(["-stream_loop", "-1", "-i", str(candidate)])
                 video_paths[(key, stage_key)] = candidate
                 filters.append(
-                    f"[{input_index}:v]fps={fps},scale={cell_width}:{row_height}:force_original_aspect_ratio=decrease,"
+                    f"[{input_index}:v]fps={fps},scale={cell_width}:{row_height}:"
+                    "force_original_aspect_ratio=decrease:force_divisible_by=2,"
                     f"pad={cell_width}:{row_height}:(ow-iw)/2:(oh-ih)/2:color=0x080b0c,setsar=1[v{input_index}]"
                 )
             else:
@@ -110,13 +114,15 @@ def compose_level(level: Path, parts: list[Path], output: Path, ffmpeg: str, fps
             row_labels.append(f"[v{input_index}]")
             input_index += 1
         filters.append("".join(row_labels) + f"hstack=inputs=4[row{row_index}]")
-    if len(parts) == 1:
-        filters.append("[row0]null[outv]")
-    else:
-        filters.append("".join(f"[row{index}]" for index in range(len(parts))) + f"vstack=inputs={len(parts)}[outv]")
+    grid = "[row0]"
+    if len(parts) > 1:
+        rows = "".join(f"[row{index}]" for index in range(len(parts)))
+        filters.append(f"{rows}vstack=inputs={len(parts)}[grid]")
+        grid = "[grid]"
+    filters.append(f"{grid}pad=1920:{frame_height}:0:(oh-ih)/2:color=0x080b0c[outv]")
     output_video = level_output / "showcase.mp4"
     command = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", *inputs, "-filter_complex", ";".join(filters), "-map", "[outv]", "-t", str(duration),
-               "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(output_video)]
+               "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(output_video)]
     subprocess.run(command, check=True)
     make_page(level, parts, video_paths, output)
     (level_output / "showcase.json").write_text(json.dumps({
@@ -127,6 +133,20 @@ def compose_level(level: Path, parts: list[Path], output: Path, ffmpeg: str, fps
         "available_videos": {f"{part}/{stage}": path.relative_to(output).as_posix() for (part, stage), path in video_paths.items()},
     }, indent=2), encoding="utf-8")
     print(f"Wrote {output_video} and {level_output / 'index.html'}")
+    return output_video
+
+
+def combine_levels(ffmpeg: str, videos: list[Path], destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory() as temporary:
+        playlist = Path(temporary) / "levels.ffconcat"
+        paths = [video.as_posix().replace("'", "'\\''") for video in videos]
+        playlist.write_text("".join(f"file '{path}'\n" for path in paths), encoding="utf-8")
+        subprocess.run([
+            ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
+            "-i", str(playlist), "-c", "copy", "-movflags", "+faststart", str(destination),
+        ], check=True)
+    print(f"Wrote {destination}")
 
 
 def main() -> int:
@@ -142,13 +162,24 @@ def main() -> int:
         raise SystemExit("--fps and --duration must be positive")
     levels = sorted(path for path in data_root.iterdir() if path.is_dir() and path.name.startswith("level-"))
     if args.level:
-        levels = [path for path in levels if path.name.casefold() == args.level.casefold()]
-        if not levels:
-            raise SystemExit(f"Level not found: {args.level}")
+        available = {path.name.casefold(): path for path in levels}
+        levels = []
+        for name in args.level:
+            if name.casefold() not in available:
+                raise SystemExit(f"Level not found: {name}")
+            levels.append(available[name.casefold()])
+    videos = []
+    combined = args.combined.resolve() if args.combined else None
+    if combined in [output / level.name / "showcase.mp4" for level in levels]:
+        raise SystemExit("--combined must be different from the per-level MP4s")
     for level in levels:
         parts = part_directories(level)
         if parts:
-            compose_level(level, parts, output, ffmpeg, args.fps, args.duration)
+            videos.append(compose_level(level, parts, output, ffmpeg, args.fps, args.duration))
+    if combined:
+        if not videos:
+            raise SystemExit("No levels to combine")
+        combine_levels(ffmpeg, videos, combined)
     return 0
 
 

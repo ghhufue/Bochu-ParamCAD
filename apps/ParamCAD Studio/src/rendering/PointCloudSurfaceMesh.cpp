@@ -9,6 +9,7 @@
 #include <CGAL/Triangulation_vertex_base_with_info_2.h>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <numeric>
 #include <set>
@@ -60,6 +61,123 @@ using Kernel=CGAL::Exact_predicates_inexact_constructions_kernel;
 struct Info {vtkIdType index=0;double spacing2=0;};
 using Vertex=CGAL::Triangulation_vertex_base_with_info_2<Info,Kernel>;
 using DT=CGAL::Delaunay_triangulation_2<Kernel,CGAL::Triangulation_data_structure_2<Vertex>>;
+
+struct PlaneSupport {
+    reconstruction::PlaneEvidence evidence;
+    V center, halfExtent;
+};
+
+std::array<double, 4> planeEquationKey(const reconstruction::PlaneEvidence& evidence)
+{
+    auto n = evidence.plane.normal;
+    auto d = evidence.plane.offset;
+    const auto major = std::abs(n.x) >= std::abs(n.y) && std::abs(n.x) >= std::abs(n.z) ? n.x :
+        (std::abs(n.y) >= std::abs(n.z) ? n.y : n.z);
+    if (major < 0) {
+        n = mul(n, -1);
+        d = -d;
+    }
+    return {n.x, n.y, n.z, d};
+}
+
+bool shareDisplayPlane(const PlaneSupport& first, const PlaneSupport& second)
+{
+    const auto& a = first.evidence.plane;
+    const auto& b = second.evidence.plane;
+    if (std::abs(dot(a.normal, b.normal)) < std::cos(5 * pi / 180)) return false;
+
+    // Bound the separation of the equations across each observed footprint.
+    const auto distanceAcross = [](const PlaneSupport& source, const auto& target) {
+        const auto& plane = source.evidence.plane;
+        const auto center = sub(source.center, mul(plane.normal, dot(plane.normal, source.center) + plane.offset));
+        const auto tangent = sub(target.normal, mul(plane.normal, dot(target.normal, plane.normal)));
+        return std::abs(dot(target.normal, center) + target.offset) +
+            std::abs(tangent.x) * source.halfExtent.x +
+            std::abs(tangent.y) * source.halfExtent.y +
+            std::abs(tangent.z) * source.halfExtent.z;
+    };
+    const double roundoff = 64 * std::numeric_limits<double>::epsilon() *
+        std::max({1., norm(first.center), norm(second.center), norm(first.halfExtent), norm(second.halfExtent)});
+    // Sparse edge fragments can fit near the edge of the denser patch's
+    // residual band. Allow for noise in the supporting plane fit.
+    const double tolerance = 4 * std::max(first.evidence.meanAbsoluteResidual,
+                                         second.evidence.meanAbsoluteResidual) + roundoff;
+    return distanceAcross(first, b) <= tolerance && distanceAcross(second, a) <= tolerance;
+}
+
+struct TriangleShape {
+    double longestSquared, twiceArea;
+};
+
+template<class Position, class Index>
+TriangleShape triangleShape(const std::vector<Position>& positions, const std::array<Index, 3>& triangle)
+{
+    const auto point = [](const Position& p) -> V {
+        if constexpr (std::is_same_v<Position, V>) return p;
+        else return {p[0], p[1], p[2]};
+    };
+    const auto a = point(positions[triangle[0]]);
+    const auto b = point(positions[triangle[1]]);
+    const auto c = point(positions[triangle[2]]);
+    const auto ab = sub(b, a), ac = sub(c, a), bc = sub(c, b);
+    return {std::max({dot(ab, ab), dot(ac, ac), dot(bc, bc)}), norm(cross(ab, ac))};
+}
+
+bool preservesMeshQuality(const PointCloudSurfaceMesh& original, const reconstruction::FittedPlanarSurface& corrected)
+{
+    std::vector<TriangleShape> originalShapes;
+    originalShapes.reserve(original.triangles.size());
+    for (const auto& triangle : original.triangles)
+        originalShapes.push_back(triangleShape(original.positions, triangle));
+    const auto shorter = [](const auto& a, const auto& b) { return a.longestSquared < b.longestSquared; };
+    const auto median = originalShapes.begin() + originalShapes.size() / 2;
+    std::nth_element(originalShapes.begin(), median, originalShapes.end(), shorter);
+    // Preserve the footprint mesh if contour fitting creates long edges or
+    // additional narrow triangles at the original sampling scale.
+    const double longEdgeSquared = 9 * median->longestSquared;
+    const double maximumEdgeSquared = std::max(16 * median->longestSquared,
+        std::max_element(originalShapes.begin(), originalShapes.end(), shorter)->longestSquared);
+    const auto isLongAndNarrow = [longEdgeSquared](const TriangleShape& shape) {
+        return shape.longestSquared > longEdgeSquared && shape.longestSquared > 10 * shape.twiceArea;
+    };
+    const auto originalNarrow = std::count_if(originalShapes.begin(), originalShapes.end(), isLongAndNarrow);
+    std::ptrdiff_t correctedNarrow = 0;
+    for (const auto& triangle : corrected.triangles) {
+        const auto shape = triangleShape(corrected.vertices, triangle);
+        if (!(shape.twiceArea > 0) || !(shape.longestSquared <= maximumEdgeSquared)) return false;
+        if (isLongAndNarrow(shape) && ++correctedNarrow > originalNarrow) return false;
+    }
+    return !corrected.triangles.empty();
+}
+
+bool isCoveredPlanarFragment(const PlyCloud& cloud, const std::vector<vtkIdType>& observations,
+                             const reconstruction::PlaneEvidence& host,
+                             const PointCloudSurfaceMesh& mesh)
+{
+    const auto normal = host.plane.normal;
+    const V reference = std::abs(normal.x) < .8 ? V{1, 0, 0} : V{0, 1, 0};
+    reconstruction::SurfaceFootprint domain;
+    domain.axisU = unit(sub(reference, mul(normal, dot(reference, normal))));
+    domain.axisV = cross(normal, domain.axisU);
+    domain.sourcePointIds.assign(mesh.sourcePointIds.begin(), mesh.sourcePointIds.end());
+    for (const auto& p : mesh.positions) {
+        const V point{p[0], p[1], p[2]};
+        domain.positions.push_back({dot(point, domain.axisU), dot(point, domain.axisV), 0});
+    }
+    double area = 0;
+    for (const auto& triangle : mesh.triangles) {
+        domain.triangles.push_back({std::uint64_t(triangle[0]), std::uint64_t(triangle[1]), std::uint64_t(triangle[2])});
+        area += .5 * triangleShape(domain.positions, triangle).twiceArea;
+    }
+    const double maxDistance = 1.25 * std::sqrt(area / mesh.coveredPointIds.size());
+    const reconstruction::SurfaceFootprintQuery footprint(domain);
+    return std::all_of(observations.begin(), observations.end(), [&](auto id) {
+        const auto& p = cloud.positions[id];
+        const V point{p[0], p[1], p[2]};
+        return std::abs(dot(normal, point) + host.plane.offset) <= maxDistance &&
+            footprint.containsProjection(point);
+    });
+}
 
 PointCloudSurfaceMesh meshValidatedSphere(const reconstruction::SphereEvidence& evidence,
     const SphereSourceTriangles& triangles, const PlyCloud& cloud, const std::vector<vtkIdType>& members)
@@ -250,7 +368,12 @@ PointCloudSurfaceMesh meshPointCloudSurface(const PointCloudRegion& region,
         std::sort(local.begin(),local.end());
         const double spacing2=local[0];
         const double alpha=4*settings.curvedAlphaRadiusMultiplier*settings.curvedAlphaRadiusMultiplier;
-        if(area2<=0 || ab*bc*ca>alpha*spacing2*area2*area2)continue;
+        // A cylinder is parameterized on an unwrapped periodic rectangle. Its
+        // nearest-neighbour spacing is distorted near the seam, so the generic
+        // curved alpha test incorrectly removes valid side-wall triangles and
+        // renders holes through a continuous cylinder. The detector already
+        // validated the cylindrical support and angular coverage.
+        if(area2<=0 || (chart.kind!="cylinder" && ab*bc*ca>alpha*spacing2*area2*area2))continue;
         std::array<vtkIdType,3> ids{a->info().index,b->info().index,c->info().index};
         if(ids[0]==ids[1]||ids[1]==ids[2]||ids[2]==ids[0])continue;
         auto key=ids;std::sort(key.begin(),key.end());
@@ -316,9 +439,10 @@ PointCloudSurfaceDisplay meshPointCloudSurfaces(const PointCloudSelection& selec
     // surface. Reuse its equation rather than refitting or moving that plane.
     std::map<std::array<double,4>,std::vector<const PointCloudRegion*>> planes;
     std::vector<const PointCloudRegion*> validatedPlanes;
+    std::vector<PlaneSupport> planeSupports;
     for(const auto& region:selection.regions()) {
         const auto found=members.find(region.id);
-        if(found==members.end() || found->second.size()<settings.minimumSurfacePoints)continue;
+        if(found==members.end() || found->second.size()<std::max<size_t>(3, settings.minimumSurfacePoints))continue;
         const auto evidence=regionEvidence(region);
         if(!evidence)continue;
         if(!region.supportValidation.isEmpty() &&
@@ -328,16 +452,20 @@ PointCloudSurfaceDisplay meshPointCloudSurfaces(const PointCloudSelection& selec
             if(!mesh.triangles.empty())display.meshes.emplace(region.id,std::move(mesh));
             display.colorRegions[region.id]=region.id;
         } else if(!region.supportValidation.isEmpty()) {
-            // Validated planes used to bypass the family pass above, so every
-            // connected fragment received its own display color and export
-            // group. Keep them available for relation-based consolidation.
+            if (region.supportValidation.value("verdict").toString() == "rejected") continue;
             validatedPlanes.push_back(&region);
+            const auto& positions = selection.sourceCloud().positions;
+            const auto& first = positions[found->second.front()];
+            V low{first[0], first[1], first[2]}, high = low;
+            for (auto id : found->second) {
+                const auto& p = positions[id];
+                low = {std::min(low.x, double(p[0])), std::min(low.y, double(p[1])), std::min(low.z, double(p[2]))};
+                high = {std::max(high.x, double(p[0])), std::max(high.y, double(p[1])), std::max(high.z, double(p[2]))};
+            }
+            planeSupports.push_back({std::get<reconstruction::PlaneEvidence>(*evidence),
+                mul(add(low, high), .5), mul(sub(high, low), .5)});
         } else if(const auto* plane=std::get_if<reconstruction::PlaneEvidence>(&*evidence)) {
-            auto n=plane->plane.normal;double d=plane->plane.offset;
-            const double major=std::abs(n.x)>=std::abs(n.y)&&std::abs(n.x)>=std::abs(n.z)?n.x:
-                (std::abs(n.y)>=std::abs(n.z)?n.y:n.z);
-            if(major<0){n=mul(n,-1);d=-d;}
-            planes[{n.x,n.y,n.z,d}].push_back(&region);
+            planes[planeEquationKey(*plane)].push_back(&region);
         } else {
             auto mesh=meshPointCloudSurface(region,selection.sourceCloud(),found->second,settings);
             if(!mesh.triangles.empty())display.meshes.emplace(region.id,std::move(mesh));
@@ -383,6 +511,8 @@ PointCloudSurfaceDisplay meshPointCloudSurfaces(const PointCloudSelection& selec
         for(std::size_t i=0;i<validatedPlanes.size();++i) index.emplace(validatedPlanes[i]->id,i);
         std::vector<std::size_t> parent(validatedPlanes.size());
         std::iota(parent.begin(),parent.end(),0);
+        std::vector<std::vector<std::size_t>> familyMembers(validatedPlanes.size());
+        for (std::size_t i = 0; i < familyMembers.size(); ++i) familyMembers[i].push_back(i);
         const auto root = [&](std::size_t value) {
             auto current=value;
             while(parent[current]!=current) {
@@ -391,23 +521,31 @@ PointCloudSurfaceDisplay meshPointCloudSurfaces(const PointCloudSelection& selec
             }
             return current;
         };
-        const auto join = [&](std::size_t first,std::size_t second) {
-            const auto a=root(first),b=root(second);
-            if(a!=b)parent[b]=a;
+        const auto join = [&](std::size_t a, std::size_t b) {
+            parent[b] = a;
+            familyMembers[a].insert(familyMembers[a].end(), familyMembers[b].begin(), familyMembers[b].end());
+            familyMembers[b].clear();
         };
-        constexpr double relationAngle=5*pi/180;
+        // One fitted equation can own several disconnected patches. Group
+        // those before checking adjacency; the footprint retains the gaps.
+        std::map<std::array<double, 4>, std::size_t> exactPlanes;
+        for (std::size_t i = 0; i < planeSupports.size(); ++i) {
+            const auto [entry, inserted] = exactPlanes.try_emplace(planeEquationKey(planeSupports[i].evidence), i);
+            if (!inserted) join(entry->second, i);
+        }
         for(const auto& relation:selection.relations()) {
             if(relation.type!="adjacent")continue;
             const auto first=index.find(relation.first),second=index.find(relation.second);
             if(first==index.end() || second==index.end())continue;
-            const auto firstEvidence=regionEvidence(*validatedPlanes[first->second]);
-            const auto secondEvidence=regionEvidence(*validatedPlanes[second->second]);
-            if(!firstEvidence || !secondEvidence)continue;
-            const auto* firstPlane=std::get_if<reconstruction::PlaneEvidence>(&*firstEvidence);
-            const auto* secondPlane=std::get_if<reconstruction::PlaneEvidence>(&*secondEvidence);
-            if(!firstPlane || !secondPlane ||
-               std::abs(dot(firstPlane->plane.normal,secondPlane->plane.normal))<std::cos(relationAngle))continue;
-            join(first->second,second->second);
+            const auto a = root(first->second), b = root(second->second);
+            if (a == b) continue;
+            // A chain of close neighbors can still span distinct layers.
+            const bool compatible = std::all_of(familyMembers[a].begin(), familyMembers[a].end(), [&](auto i) {
+                return std::all_of(familyMembers[b].begin(), familyMembers[b].end(), [&](auto j) {
+                    return shareDisplayPlane(planeSupports[i], planeSupports[j]);
+                });
+            });
+            if (compatible) join(a, b);
         }
         std::map<std::size_t,std::vector<const PointCloudRegion*>> families;
         for(std::size_t i=0;i<validatedPlanes.size();++i)families[root(i)].push_back(validatedPlanes[i]);
@@ -438,6 +576,7 @@ PointCloudSurfaceDisplay meshPointCloudSurfaces(const PointCloudSelection& selec
         for (const auto& surface : corrected.surfaces) {
             if (!surface.boundaryAdjusted) continue;
             auto& mesh = display.meshes.at(surface.id);
+            if (!preservesMeshQuality(mesh, surface)) continue;
             std::vector<vtkIdType> anchors;
             std::vector<std::array<double, 3>> positions;
             for (const auto vertex : surface.vertices) {
@@ -456,6 +595,43 @@ PointCloudSurfaceDisplay meshPointCloudSurfaces(const PointCloudSelection& selec
             for (const auto& triangle : surface.triangles)
                 mesh.triangles.push_back({vtkIdType(triangle[0]), vtkIdType(triangle[1]), vtkIdType(triangle[2])});
         }
+    }
+    // A tiny tilted fit completely covered by a much denser neighboring
+    // plane is duplicate display geometry. Keep its observations editable.
+    std::map<int, std::set<int>> coveringPlanes;
+    const auto checkFragment = [&](int fragmentId, int hostId) {
+        const auto& fragment = members.at(fragmentId);
+        const auto& host = members.at(hostId);
+        if (fragment.size() > 2 * settings.minimumSurfacePoints || host.size() < 10 * fragment.size())
+            return;
+        const auto* fragmentRegion = selection.region(fragmentId);
+        const auto* hostRegion = selection.region(hostId);
+        if (fragmentRegion->source != "detected" || hostRegion->source != "detected") return;
+        const auto fragmentEvidence = regionEvidence(*fragmentRegion);
+        const auto hostEvidence = regionEvidence(*hostRegion);
+        const auto* a = fragmentEvidence ? std::get_if<reconstruction::PlaneEvidence>(&*fragmentEvidence) : nullptr;
+        const auto* b = hostEvidence ? std::get_if<reconstruction::PlaneEvidence>(&*hostEvidence) : nullptr;
+        if (!a || !b) return;
+        const double alignment = std::abs(dot(a->plane.normal, b->plane.normal));
+        if (alignment < std::cos(10 * pi / 180) || alignment >= std::cos(5 * pi / 180)) return;
+        const auto& mesh = display.meshes.at(hostId);
+        if (!mesh.coveredPointIds.empty() && isCoveredPlanarFragment(selection.sourceCloud(), fragment, *b, mesh))
+            coveringPlanes[fragmentId].insert(hostId);
+    };
+    for (const auto& relation : selection.relations()) {
+        if (relation.type != "adjacent" || !display.meshes.count(relation.first) ||
+            !display.meshes.count(relation.second)) continue;
+        checkFragment(relation.first, relation.second);
+        checkFragment(relation.second, relation.first);
+    }
+    for (const auto& [fragment, hosts] : coveringPlanes) {
+        if (hosts.size() != 1) continue;
+        const auto host = *hosts.begin();
+        auto& covered = display.meshes.at(host).coveredPointIds;
+        const auto& points = members.at(fragment);
+        covered.insert(covered.end(), points.begin(), points.end());
+        display.colorRegions[fragment] = display.colorRegions.count(host) ? display.colorRegions.at(host) : host;
+        display.meshes.erase(fragment);
     }
     return display;
 }

@@ -507,7 +507,8 @@ public:
 };
 
 std::vector<PlanarDomainSupportCheck> validateInteriorSupport(
-    DT& dt,const std::vector<std::vector<size_t>>& loops,const std::vector<Sample>& samples,const Options& settings)
+    DT& dt,const std::vector<std::vector<size_t>>& loops,const std::vector<Sample>& samples,const Options& settings,
+    SurfaceSampleSpace sampleSpace)
 {
     using Edge=std::pair<size_t,size_t>;
     const auto key=[](size_t a,size_t b){return Edge{std::min(a,b),std::max(a,b)};};
@@ -557,11 +558,19 @@ std::vector<PlanarDomainSupportCheck> validateInteriorSupport(
         }
         check.occupiedInteriorCells=occupied.size();
         const bool boundaryDominates=check.outerBoundaryPoints>=settings.boundaryDominanceRatio*check.observedPoints;
+        for (const auto face : faces)
+            check.area += std::abs(CGAL::to_double(CGAL::area(face->vertex(0)->point(),
+                face->vertex(1)->point(), face->vertex(2)->point())));
+        // A small set of disjoint clusters can put points far from the rim
+        // while leaving most of its proposed interior entirely empty. On
+        // larger domains the local spacing may vary too much for this test.
+        const bool sparseInterior = sampleSpace == SurfaceSampleSpace::ObservedPlane &&
+            check.observedPoints <= 2 * settings.densityNeighborCount &&
+            check.area > 2 * spacing * spacing * check.observedPoints;
+        const bool measureInterior = boundaryDominates || sparseInterior;
         double deepArea=0;
-        for(auto face:faces) {
+        if (measureInterior) for(auto face:faces) {
             const double area=std::abs(CGAL::to_double(CGAL::area(face->vertex(0)->point(),face->vertex(1)->point(),face->vertex(2)->point())));
-            check.area+=area;
-            if(!boundaryDominates)continue;
             const auto p=coordinates(face);
             for(const auto& weights:{std::array<double,3>{1./3,1./3,1./3},{.6,.2,.2},{.2,.6,.2},{.2,.2,.6}}) {
                 XY position{};
@@ -571,12 +580,12 @@ std::vector<PlanarDomainSupportCheck> validateInteriorSupport(
                 if(distance>std::pow(settings.deepInteriorDistanceMultiplier*spacing,2))deepArea+=area*.25;
             }
         }
-        check.interiorAreaMeasured=boundaryDominates;
+        check.interiorAreaMeasured=measureInterior;
         check.expectedInteriorPoints=check.interiorArea/(spacing*spacing);
         // All-boundary observations are legitimate for a narrow strip or a
         // small, low-resolution patch. Reject only a resolved interior whose
         // independent observed cells cannot substantiate the proposed area.
-        check.rejected=boundaryDominates && deepArea>=settings.minimumDeepInteriorAreaSpacings*spacing*spacing
+        check.rejected=measureInterior && deepArea>=settings.minimumDeepInteriorAreaSpacings*spacing*spacing
             && check.expectedInteriorPoints>=settings.minimumExpectedInteriorPoints
             && check.occupiedInteriorCells<settings.minimumInteriorSupportRatio*check.expectedInteriorPoints;
         if(check.rejected)for(auto face:faces)face->info().kept=false;
@@ -605,14 +614,15 @@ void markDomains(CDT& cdt) {
     }
 }
 
-SurfaceFootprint triangulateDomain(const std::vector<Sample>& samples,const Options& settings) {
+SurfaceFootprint triangulateDomain(const std::vector<Sample>& samples,const Options& settings,
+                                   SurfaceSampleSpace sampleSpace) {
     SurfaceFootprint output;Locator locator(samples);Support support{samples,locator,settings};
     std::vector<std::pair<Point,size_t>> input;
     for (size_t i=0;i<samples.size();++i) input.emplace_back(Point(samples[i].position[0],samples[i].position[1]),i);
     DT dt;dt.insert(input.begin(),input.end());if (dt.dimension()!=2) return output;
     recoverDomain(dt,support);
     auto loops=contour_fitting::detail::traceBoundaryRings(dt);if (loops.empty()) return output;
-    output.domainSupportChecks=validateInteriorSupport(dt,loops,samples,settings);
+    output.domainSupportChecks=validateInteriorSupport(dt,loops,samples,settings,sampleSpace);
     if(std::any_of(output.domainSupportChecks.begin(),output.domainSupportChecks.end(),[](const auto& check){return check.rejected;})) {
         for(auto face=dt.finite_faces_begin();face!=dt.finite_faces_end();++face)face->info().boundaryVisited={};
         loops=contour_fitting::detail::traceBoundaryRings(dt);
@@ -693,7 +703,7 @@ SurfaceFootprint buildPlanarSurfaceFootprint(const std::vector<PlanarSurfaceSamp
         std::vector<Sample> local;local.reserve(component.size());
         for (size_t id:component) local.push_back(samples[id]);
         const diagnostics::StageProfile triangulation(local.size() >= profileThreshold ? "footprint.triangulate" : nullptr, local.size());
-        auto mesh=triangulateDomain(local,settings);const auto offset=std::uint64_t(output.positions.size());
+        auto mesh=triangulateDomain(local,settings,sampleSpace);const auto offset=std::uint64_t(output.positions.size());
         output.domainSupportChecks.insert(output.domainSupportChecks.end(),mesh.domainSupportChecks.begin(),mesh.domainSupportChecks.end());
         for(auto& hole:mesh.holes)output.holes.push_back(std::move(hole));
         output.positions.insert(output.positions.end(),mesh.positions.begin(),mesh.positions.end());

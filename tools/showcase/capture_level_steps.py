@@ -24,6 +24,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--session", help="Studio session ID when more than one Studio is running")
     parser.add_argument("--elevation", type=float, default=45)
     parser.add_argument("--fps", type=int, default=12)
+    parser.add_argument("--frames", type=int, default=96, help="Number of camera poses per revolution")
     parser.add_argument("--width", type=int, default=960)
     parser.add_argument("--height", type=int, default=540)
     parser.add_argument("--ffmpeg", default="ffmpeg")
@@ -60,7 +61,7 @@ def main() -> int:
         command = [
             sys.executable, str(CAPTURE_SCRIPT), "--model", str(model), "--output", str(destination),
             "--elevation", str(args.elevation), "--fps", str(args.fps), "--ffmpeg", args.ffmpeg,
-            "--width", str(args.width), "--height", str(args.height),
+            "--frames", str(args.frames), "--width", str(args.width), "--height", str(args.height),
         ]
         if args.pcad:
             command.extend(("--pcad", str(args.pcad.resolve())))
