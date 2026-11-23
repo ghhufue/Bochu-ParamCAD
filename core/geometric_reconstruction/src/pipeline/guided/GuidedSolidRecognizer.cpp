@@ -296,7 +296,9 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
                 return false;
             }
             const auto& selected = *best;
-            if (!selected.featureProgram.empty()) {
+            if (selected.curvedSolid) {
+                output.candidate.curvedSolids.push_back(*selected.curvedSolid);
+            } else if (!selected.featureProgram.empty()) {
                 std::vector<ProjectionOperation> program;
                 for (const auto& feature : selected.featureProgram) {
                     ProjectionOperation operation;

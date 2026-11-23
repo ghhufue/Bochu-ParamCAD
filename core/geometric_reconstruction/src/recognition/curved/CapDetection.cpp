@@ -56,9 +56,15 @@ bool ends(const std::vector<Cap> &planes, double &start, double &end, bool point
         if (!chosen || cap.data.size() > chosen->data.size())
             chosen = &cap;
     }
-    if (!high || (!pointed && !low))
-        return false;
-    start = low ? low->t : 0;
+    if (pointed && !(low && high)) {
+        const Cap* base = high ? high : low;
+        if (!base) return false;
+        start = 0;
+        end = base->t;
+        return end > start;
+    }
+    if (!high || !low) return false;
+    start = low->t;
     end = high->t;
     return end > start;
 }

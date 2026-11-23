@@ -32,14 +32,35 @@ bool explicitProfile(const ScenePatch& patch,const BoundaryLoop3d*& outer,
     }
     return outer!=nullptr;
 }
-bool matchLoops(const BoundaryLoop3d& a,const BoundaryLoop3d& b,Vec3 normal,double separation,double tolerance) {
-    if(a.vertices.size()!=b.vertices.size())return false;
-    for(const auto p:a.vertices) {
-        const auto expected=add(p,mul(normal,separation));
+bool matchLoops(const BoundaryLoop3d& a,const BoundaryLoop3d& b,Vec3 normal,double separation,double tolerance,
+                double* maximumDeviationOutput=nullptr) {
+    if(!a.closed||!b.closed||a.vertices.size()<3||b.vertices.size()<3)return false;
+    const auto distanceToLoop=[](Vec3 point,const std::vector<Vec3>& loop) {
         double nearest=INFINITY;
-        for(const auto q:b.vertices)nearest=std::min(nearest,norm(sub(expected,q)));
-        if(nearest>tolerance*3)return false;
-    }
+        for(std::size_t index=0;index<loop.size();++index) {
+            const auto first=loop[index],edge=sub(loop[(index+1)%loop.size()],first);
+            const double edgeLengthSquared=dot(edge,edge);
+            if(edgeLengthSquared<=1e-18)continue;
+            const double parameter=std::clamp(dot(sub(point,first),edge)/edgeLengthSquared,0.0,1.0);
+            nearest=std::min(nearest,norm(sub(point,add(first,mul(edge,parameter)))));
+        }
+        return nearest;
+    };
+    const auto translatedB=[&] {
+        auto vertices=b.vertices;
+        for(auto& point:vertices)point=sub(point,mul(normal,separation));
+        return vertices;
+    }();
+    std::vector<double> deviations;
+    for(const auto point:a.vertices)
+        deviations.push_back(distanceToLoop(add(point,mul(normal,separation)),b.vertices));
+    for(const auto point:translatedB)
+        deviations.push_back(distanceToLoop(point,a.vertices));
+    std::sort(deviations.begin(),deviations.end());
+    const double maximumDeviation=deviations.back();
+    const double percentile95=deviations[std::size_t(.95*(deviations.size()-1))];
+    if(maximumDeviationOutput)*maximumDeviationOutput=maximumDeviation;
+    if(percentile95>tolerance*3||maximumDeviation>tolerance*6)return false;
     return true;
 }
 
@@ -62,7 +83,8 @@ std::optional<CircularBoundary> fitCircularBoundary(const BoundaryLoop3d& loop,d
 }
 
 std::optional<PatchId> supportingCylinder(const SurfaceScene& scene,const CircularBoundary& hole,
-    Vec3 extrusionAxis,Vec3 firstCenter,Vec3 secondCenter,const std::set<PatchId>& usedCylinders) {
+    Vec3 extrusionAxis,Vec3 firstCenter,Vec3 secondCenter,double tolerance,
+    const std::set<PatchId>& usedCylinders) {
     std::optional<PatchId> match;
     for(const auto& patch:scene.patches) {
         if(usedCylinders.count(patch.id)||patch.supportPointIds.empty()||!patch.supportConfidence)continue;
@@ -73,15 +95,14 @@ std::optional<PatchId> supportingCylinder(const SurfaceScene& scene,const Circul
         if(axisLength<1e-9)continue;
         const auto axis=unit(cylinder->cylinder.axisDirection);
         if(std::abs(dot(axis,extrusionAxis))<std::cos(scene.header.angularToleranceRad))continue;
-        if(std::abs(cylinder->cylinder.radius-hole.radius)>std::max(3*scene.header.distanceToleranceMm,.03*hole.radius))continue;
+        if(std::abs(cylinder->cylinder.radius-hole.radius)>std::max(3*tolerance,.03*hole.radius))continue;
         const auto fromAxis=sub(hole.center,cylinder->cylinder.axisPoint);
         const auto radial=sub(fromAxis,mul(axis,dot(fromAxis,axis)));
-        if(norm(radial)>3*scene.header.distanceToleranceMm)continue;
+        if(norm(radial)>3*tolerance)continue;
         const double a=dot(sub(firstCenter,cylinder->cylinder.axisPoint),axis);
         const double b=dot(sub(secondCenter,cylinder->cylinder.axisPoint),axis);
         const double low=std::min(a,b),high=std::max(a,b);
-        if(cylinder->axialMinimum>low+2*scene.header.distanceToleranceMm||
-           cylinder->axialMaximum<high-2*scene.header.distanceToleranceMm)continue;
+        if(cylinder->axialMinimum>low+2*tolerance||cylinder->axialMaximum<high-2*tolerance)continue;
         if(match)return {};
         match=patch.id;
     }
@@ -99,8 +120,7 @@ struct HoleCut {
 
 std::optional<HoleCut> matchBlindHole(const SurfaceScene& scene,const BoundaryLoop3d& opening,
     const ScenePatch& cap,Vec3 axis,double direction,double openingDepth,double hostDepth,
-    const std::set<PatchId>& usedCylinders) {
-    const double tolerance=scene.header.distanceToleranceMm;
+    double tolerance,const std::set<PatchId>& usedCylinders) {
     const double parallelCosine=std::cos(scene.header.angularToleranceRad);
     const auto intoHost=mul(axis,direction);
     const auto circle=fitCircularBoundary(opening,tolerance);
@@ -120,7 +140,7 @@ std::optional<HoleCut> matchBlindHole(const SurfaceScene& scene,const BoundaryLo
         if(cutDepth<=2*tolerance||cutDepth>=hostDepth-2*tolerance||
            !matchLoops(opening,*floor,intoHost,cutDepth,tolerance))continue;
         const auto floorCenter=add(circle->center,mul(intoHost,cutDepth));
-        const auto wall=supportingCylinder(scene,*circle,axis,circle->center,floorCenter,usedCylinders);
+        const auto wall=supportingCylinder(scene,*circle,axis,circle->center,floorCenter,tolerance,usedCylinders);
         if(!wall)continue;
         if(match)return {};
         match=HoleCut{&opening,*circle,openingDepth,openingDepth+direction*cutDepth,patch.id,*wall};
@@ -189,6 +209,7 @@ bool proposeParallelCapExtrusion(const SurfaceScene& scene,PatchId firstId,Patch
     if(const auto valid=validateSurfaceScene(scene);!valid){error=valid.message;output.diagnostics.push_back(error);return false;}
     const auto* first=findPatch(scene,firstId);const auto* second=findPatch(scene,secondId);
     if(!first||!second||firstId==secondId){error="Parallel-cap hypothesis references invalid patches";output.diagnostics.push_back(error);return false;}
+    const double tolerance=std::max({scene.header.distanceToleranceMm,first->spacingMm,second->spacingMm});
     if(!std::holds_alternative<PlaneEvidence>(scene.surfaces[std::size_t(first->surfaceId-1)])||
        !std::holds_alternative<PlaneEvidence>(scene.surfaces[std::size_t(second->surfaceId-1)])) {
         error="Parallel-cap extrusion requires two planar patches";output.diagnostics.push_back(error);return false;
@@ -202,20 +223,24 @@ bool proposeParallelCapExtrusion(const SurfaceScene& scene,PatchId firstId,Patch
     const double direction=dot(n1,n2)>=0?1:-1;
     const double distance=-(direction*p2.offset/norm(p2.normal)-p1.offset/norm(p1.normal));
     const double depth=std::abs(distance);
-    if(!std::isfinite(depth)||depth<=scene.header.distanceToleranceMm) {
+    if(!std::isfinite(depth)||depth<=tolerance) {
         error="Parallel patches have no positive finite separation";output.diagnostics.push_back(error);return false;
     }
     const auto axis=distance>=0?n1:mul(n1,-1);
     const BoundaryLoop3d *outer1=nullptr,*outer2=nullptr;
     std::vector<const BoundaryLoop3d*> holes1,holes2;
     if(!explicitProfile(*first,outer1,holes1)||!explicitProfile(*second,outer2,holes2)) {
-        error="Parallel cap boundaries are incomplete or do not match";output.diagnostics.push_back(error);return false;
+        error="Cap boundary loops lack closed, classified outer profiles";output.diagnostics.push_back(error);return false;
     }
     const auto origin=outer1->vertices.front();
     const double projectedSeparation=dot(sub(outer2->vertices.front(),origin),axis);
-    if(!matchLoops(*outer1,*outer2,axis,projectedSeparation,scene.header.distanceToleranceMm)||
-       std::abs(projectedSeparation-depth)>scene.header.distanceToleranceMm*3) {
-        error="Parallel cap boundaries are incomplete or do not match";output.diagnostics.push_back(error);return false;
+    double outerDeviation=0;
+    if(!matchLoops(*outer1,*outer2,axis,projectedSeparation,tolerance,&outerDeviation)||
+       std::abs(projectedSeparation-depth)>tolerance*3) {
+        error="Outer cap loops do not match within the sampling-aware scene tolerance (vertices="+
+            std::to_string(outer1->vertices.size())+"/"+std::to_string(outer2->vertices.size())+
+            ", deviation="+std::to_string(outerDeviation)+", tolerance="+std::to_string(tolerance)+")";
+        output.diagnostics.push_back(error);return false;
     }
     std::vector<HoleCut> cuts;
     std::set<const BoundaryLoop3d*> matchedSecondHoles;
@@ -224,7 +249,7 @@ bool proposeParallelCapExtrusion(const SurfaceScene& scene,PatchId firstId,Patch
         const BoundaryLoop3d* match=nullptr;
         for(const auto* secondHole:holes2) {
             if(matchedSecondHoles.count(secondHole)||!matchLoops(*firstHole,*secondHole,axis,
-                projectedSeparation,scene.header.distanceToleranceMm))continue;
+                projectedSeparation,tolerance))continue;
             if(match) {
                 error="Parallel cap hole boundary mapping is ambiguous";
                 output.diagnostics.push_back(error);return false;
@@ -232,7 +257,7 @@ bool proposeParallelCapExtrusion(const SurfaceScene& scene,PatchId firstId,Patch
             match=secondHole;
         }
         if(!match) {
-            auto blind=matchBlindHole(scene,*firstHole,*first,axis,1,0,depth,holeWallPatches);
+            auto blind=matchBlindHole(scene,*firstHole,*first,axis,1,0,depth,tolerance,holeWallPatches);
             if(!blind) {
                 error="Unmatched cap opening lacks a supported blind-hole floor and cylinder wall";
                 output.diagnostics.push_back(error);return false;
@@ -242,13 +267,13 @@ bool proposeParallelCapExtrusion(const SurfaceScene& scene,PatchId firstId,Patch
             continue;
         }
         matchedSecondHoles.insert(match);
-        const auto circle=fitCircularBoundary(*firstHole,scene.header.distanceToleranceMm);
+        const auto circle=fitCircularBoundary(*firstHole,tolerance);
         if(!circle) {
             error="Matched through-hole boundary is not a supported circular profile";
             output.diagnostics.push_back(error);return false;
         }
         const auto wall=supportingCylinder(scene,*circle,axis,circle->center,
-            add(circle->center,mul(axis,projectedSeparation)),holeWallPatches);
+            add(circle->center,mul(axis,projectedSeparation)),tolerance,holeWallPatches);
         if(!wall) {
             error="Matched cap openings lack a coaxial observed cylinder wall across the extrusion depth";
             output.diagnostics.push_back(error);return false;
@@ -258,7 +283,7 @@ bool proposeParallelCapExtrusion(const SurfaceScene& scene,PatchId firstId,Patch
     }
     for(const auto* secondHole:holes2) {
         if(matchedSecondHoles.count(secondHole))continue;
-        auto blind=matchBlindHole(scene,*secondHole,*second,axis,-1,depth,depth,holeWallPatches);
+        auto blind=matchBlindHole(scene,*secondHole,*second,axis,-1,depth,depth,tolerance,holeWallPatches);
         if(!blind) {
             error="Unmatched cap opening lacks a supported blind-hole floor and cylinder wall";
             output.diagnostics.push_back(error);return false;

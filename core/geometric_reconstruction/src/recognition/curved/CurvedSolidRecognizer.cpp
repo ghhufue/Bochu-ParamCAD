@@ -61,6 +61,16 @@ bool recognizeCurvedSolidFromAnalysis(const PointStore& points, const SurfaceAna
     double score = -INFINITY;
     for (const auto &e : analysis.surfaces) {
         if (options.requiredKind && primitiveKind(e) != *options.requiredKind) continue;
+        auto assessmentOptions = options;
+        if (const auto* cone = std::get_if<ConeEvidence>(&e)) {
+            const double cosine = std::cos(cone->cone.openingAngleRadians);
+            if (cosine > 1e-6) {
+                const double firstObservedDistance = std::max(0.0, cone->axialMinimum) / cosine;
+                assessmentOptions.apexToleranceMultiplier = std::max(
+                    assessmentOptions.apexToleranceMultiplier,
+                    firstObservedDistance / options.distanceTolerance);
+            }
+        }
         CurvedSolidCandidate candidate;
         bool constructed = false;
         std::visit(
@@ -120,8 +130,7 @@ bool recognizeCurvedSolidFromAnalysis(const PointStore& points, const SurfaceAna
                 }
             },
             e);
-        if (!constructed || !assess(points, options, candidate))
-            continue;
+        if (!constructed || !assess(points, assessmentOptions, candidate)) continue;
         const double value = candidate.surfaceCoverage + candidate.boundaryCoverage -
                              candidate.meanResidual / options.distanceTolerance * options.residualScoreWeight;
         if (value > score) {

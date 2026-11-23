@@ -1,6 +1,7 @@
 #pragma once
 
 #include "reconstruction/solid_inference/SurfaceScene.h"
+#include "reconstruction/recognition/CurvedSolidRecognizer.h"
 #include "modeling/FeatureParams.h"
 #include "modeling/ProfileBody.h"
 #include "modeling/ModelingCore.h"
@@ -37,6 +38,7 @@ struct SolidCandidate {
     std::string depthEvidence;
     std::vector<SolidFeatureOperation> featureProgram;
     std::optional<modeling::ProfileBodyParams> boundaryBody;
+    std::optional<CurvedSolidCandidate> curvedSolid;
     double score = 0;
     double observationCoverage = 0;
     double distanceError = 0;

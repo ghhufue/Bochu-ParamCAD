@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,8 +41,27 @@ def run_cli(pcad: Path, arguments: list[str], session: str | None = None, report
     if completed.returncode and report is None:
         raise RuntimeError(completed.stdout + completed.stderr)
     if report and report.is_file():
-        return json.loads(report.read_text(encoding="utf-8"))
-    return {"exit_code": completed.returncode, "stdout": completed.stdout, "stderr": completed.stderr}
+        result = json.loads(report.read_text(encoding="utf-8"))
+        return result
+    try:
+        result = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        result = {"exit_code": completed.returncode, "stdout": completed.stdout, "stderr": completed.stderr}
+    result.setdefault("exit_code", completed.returncode)
+    return result
+
+
+def run_cli_when_idle(pcad: Path, arguments: list[str], session: str | None = None) -> dict:
+    for attempt in range(10):
+        completed = subprocess.run(
+            [str(pcad), "--online", "--session", session, "status"] if session else
+            [str(pcad), "--online", "status"], cwd=ROOT, text=True, capture_output=True)
+        if completed.returncode:
+            raise RuntimeError(completed.stdout + completed.stderr)
+        if not json.loads(completed.stdout).get("busy"):
+            return run_cli(pcad, arguments, session)
+        time.sleep(0.5)
+    raise RuntimeError("Studio remained busy after CAD reconstruction")
 
 
 def capture_spin(pcad: Path, directory: Path, target: str, elevation: float, session: str | None,
@@ -97,7 +117,7 @@ def main() -> int:
         print(f"CAD reconstruction did not produce an entity. See {reconstruct_report}", file=sys.stderr)
         return 2
     step_path = output / "reconstructed" / "reconstructed.step"
-    exported = run_cli(pcad, ["export", "step", "--out", str(step_path)], args.session)
+    exported = run_cli_when_idle(pcad, ["export", "step", "--out", str(step_path)], args.session)
     if exported.get("status") != "complete" or not step_path.is_file():
         print("CAD reconstruction completed but STEP export failed", file=sys.stderr)
         return 3

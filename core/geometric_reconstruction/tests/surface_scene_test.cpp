@@ -148,6 +148,19 @@ int main() {
     if(!reconstruction::inferSolids(prism,inferred,error)||inferred.candidates.size()!=1)return 12;
     if(inferred.candidates.front().supportingPoints.size()!=8||
        !inferred.candidates.front().unresolvedPatches.empty())return 69;
+    auto differentlySampledCaps=prism;
+    const auto& rectangularLoop=prism.patches[1].loops.front().vertices;
+    auto& subdividedLoop=differentlySampledCaps.patches[1].loops.front().vertices;
+    subdividedLoop.clear();
+    for(std::size_t index=0;index<rectangularLoop.size();++index) {
+        const auto first=rectangularLoop[index],second=rectangularLoop[(index+1)%rectangularLoop.size()];
+        subdividedLoop.push_back(first);
+        subdividedLoop.push_back({(first.x+second.x)*.5,(first.y+second.y)*.5,(first.z+second.z)*.5});
+    }
+    if(!reconstruction::proposeParallelCapExtrusion(differentlySampledCaps,1,2,candidate,error)) {
+        std::cerr<<"resampled parallel caps: "<<error<<'\n';
+        return 73;
+    }
 
     // A concave L-shaped cap must stay a polygonal prism and must not be
     // silently replaced by its bounding rectangle.
@@ -697,6 +710,141 @@ int main() {
     if(!reconstruction::scoreSolidCandidate(*detectedShell,detectedScene,boxPoints,.05,detectedScore,error)||
        detectedScore.status!=reconstruction::SolidCandidateStatus::Accepted||
        detectedScore.observationCoverage<.99)return 65;
+
+    std::vector<reconstruction::PointSample> sphereSamples;
+    constexpr double sphereRadius=15;
+    const double spherePi=std::acos(-1.0);
+    for(int latitude=0;latitude<24;++latitude) {
+        const double elevation=-spherePi/2+spherePi*(latitude+.5)/24;
+        for(int longitude=0;longitude<48;++longitude) {
+            const double azimuth=2*spherePi*(longitude+.5)/48;
+            const modeling::Vec3 normal{std::cos(elevation)*std::cos(azimuth),
+                std::cos(elevation)*std::sin(azimuth),std::sin(elevation)};
+            reconstruction::PointSample sample;
+            sample.id=sphereSamples.size()+1;
+            sample.position={sphereRadius*normal.x,sphereRadius*normal.y,sphereRadius*normal.z};
+            sample.normal=normal;
+            sphereSamples.push_back(sample);
+        }
+    }
+    const reconstruction::PointStore spherePoints(std::move(sphereSamples));
+    reconstruction::SurfaceScene sphereScene;
+    sphereScene.header.unit=reconstruction::LengthUnit::Millimeter;
+    sphereScene.header.analysisFingerprint=reconstruction::pointStoreFingerprint(spherePoints);
+    sphereScene.header.sourceFingerprint=sphereScene.header.analysisFingerprint;
+    sphereScene.header.distanceToleranceMm=.05;
+    sphereScene.header.angularToleranceRad=.02;
+    reconstruction::SphereEvidence sphereEvidence;
+    sphereEvidence.id=1;
+    sphereEvidence.sphere={{0,0,0},sphereRadius};
+    sphereEvidence.confidence=1;
+    sphereEvidence.coverage=1;
+    for(const auto& sample:spherePoints.points())sphereEvidence.supportPointIds.push_back(sample.id);
+    sphereScene.surfaces.emplace_back(sphereEvidence);
+    reconstruction::ScenePatch spherePatch;
+    spherePatch.id=1;
+    spherePatch.surfaceId=1;
+    spherePatch.supportPointIds=sphereEvidence.supportPointIds;
+    spherePatch.supportConfidence=1;
+    spherePatch.boundaryStatus=reconstruction::SceneBoundaryStatus::Ambiguous;
+    sphereScene.patches.push_back(std::move(spherePatch));
+    reconstruction::SolidInferenceResult sphereInference;
+    if(!reconstruction::inferSolids(sphereScene,sphereInference,error,{},&spherePoints)) {
+        std::cerr<<"curved candidate inference: "<<error<<'\n';
+        return 66;
+    }
+    const auto sphereCandidate=std::find_if(sphereInference.candidates.begin(),sphereInference.candidates.end(),
+        [](const auto& candidate) {return candidate.curvedSolid.has_value();});
+    if(sphereCandidate==sphereInference.candidates.end())return 67;
+    reconstruction::SolidCandidate sphereScore;
+    if(!reconstruction::scoreSolidCandidate(*sphereCandidate,sphereScene,spherePoints,.05,sphereScore,error)||
+       sphereScore.status!=reconstruction::SolidCandidateStatus::Accepted||sphereScore.observationCoverage<.99) {
+        std::cerr<<"curved candidate scoring: "<<error<<'\n';
+        return 68;
+    }
+    reconstruction::CompoundCandidate sphereCompound;
+    sphereCompound.curvedSolids.push_back(*sphereScore.curvedSolid);
+    modeling::ModelingCore sphereModel;
+    const auto sphereCommit=reconstruction::commitCompoundCandidate(sphereCompound,sphereModel);
+    if(!sphereCommit.success||sphereModel.bodyShape().IsNull()||sphereModel.features().empty()) {
+        std::cerr<<"curved candidate commit: "<<sphereCommit.error<<'\n';
+        return 69;
+    }
+
+    std::vector<reconstruction::PointSample> coneSamples;
+    reconstruction::ConeEvidence coneEvidence;
+    coneEvidence.id=1;
+    coneEvidence.cone={{0,0,22.5},{0,0,-1},std::atan(.4)};
+    coneEvidence.angularCoverage=1;
+    coneEvidence.confidence=1;
+    const auto appendConePoint=[&](modeling::Vec3 position,modeling::Vec3 normal,bool side) {
+        reconstruction::PointSample sample;
+        sample.id=coneSamples.size()+1;
+        sample.position=position;
+        sample.normal=normal;
+        coneSamples.push_back(sample);
+        if(side)coneEvidence.supportPointIds.push_back(sample.id);
+        return sample.id;
+    };
+    for(int axial=0;axial<30;++axial) {
+        const double t=axial+.5,radius=.4*t;
+        for(int angular=0;angular<48;++angular) {
+            const double angle=2*spherePi*angular/48;
+            const modeling::Vec3 radial{std::cos(angle),std::sin(angle),0};
+            const modeling::Vec3 normal{radial.x/std::sqrt(1.16),radial.y/std::sqrt(1.16),.4/std::sqrt(1.16)};
+            appendConePoint({radius*radial.x,radius*radial.y,22.5-t},normal,true);
+        }
+    }
+    reconstruction::PlaneEvidence coneCap;
+    coneCap.id=2;
+    coneCap.plane={{0,0,-1},-7.5};
+    coneCap.confidence=1;
+    coneCap.coverage=1;
+    for(int radial=0;radial<12;++radial)for(int angular=0;angular<48;++angular) {
+        const double angle=2*spherePi*angular/48;
+        const double radius=12*(radial+.5)/12;
+        coneCap.supportPointIds.push_back(appendConePoint(
+            {radius*std::cos(angle),radius*std::sin(angle),-7.5},{0,0,-1},false));
+    }
+    const reconstruction::PointStore conePoints(std::move(coneSamples));
+    reconstruction::SurfaceScene coneScene;
+    coneScene.header.unit=reconstruction::LengthUnit::Millimeter;
+    coneScene.header.analysisFingerprint=reconstruction::pointStoreFingerprint(conePoints);
+    coneScene.header.sourceFingerprint=coneScene.header.analysisFingerprint;
+    coneScene.header.distanceToleranceMm=.05;
+    coneScene.header.angularToleranceRad=.02;
+    coneScene.surfaces={coneEvidence,coneCap};
+    reconstruction::ScenePatch coneWallPatch;
+    coneWallPatch.id=1;
+    coneWallPatch.surfaceId=1;
+    coneWallPatch.supportPointIds=coneEvidence.supportPointIds;
+    coneWallPatch.supportConfidence=1;
+    coneWallPatch.spacingMm=1;
+    coneScene.patches.push_back(coneWallPatch);
+    reconstruction::ScenePatch coneCapPatch;
+    coneCapPatch.id=2;
+    coneCapPatch.surfaceId=2;
+    coneCapPatch.supportPointIds=coneCap.supportPointIds;
+    coneCapPatch.supportConfidence=1;
+    coneCapPatch.spacingMm=1;
+    coneScene.patches.push_back(coneCapPatch);
+    reconstruction::SolidInferenceResult coneInference;
+    if(!reconstruction::inferSolids(coneScene,coneInference,error,{},&conePoints)) {
+        std::cerr<<"pointed cone inference: "<<error<<'\n';
+        return 70;
+    }
+    const auto coneCandidate=std::find_if(coneInference.candidates.begin(),coneInference.candidates.end(),
+        [](const auto& candidate) {return candidate.curvedSolid.has_value();});
+    if(coneCandidate==coneInference.candidates.end()) {
+        std::cerr<<"pointed cone candidate: "<<error<<'\n';
+        return 71;
+    }
+    reconstruction::SolidCandidate coneScore;
+    if(!reconstruction::scoreSolidCandidate(*coneCandidate,coneScene,conePoints,.05,coneScore,error)||
+       coneScore.status!=reconstruction::SolidCandidateStatus::Accepted) {
+        std::cerr<<"pointed cone scoring: "<<error<<'\n';
+        return 72;
+    }
     std::cout << "surface scene contract passed\n";
     return 0;
 }

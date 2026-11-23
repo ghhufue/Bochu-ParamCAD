@@ -133,6 +133,18 @@ bool rebuildCandidate(const SolidCandidate& candidate, modeling::ModelingCore& m
                       std::string& error, double minimumVolumeChange) {
     if (!candidate.featureProgram.empty())
         return rebuildFeatureProgram(candidate.featureProgram, model, error, minimumVolumeChange);
+    if (candidate.curvedSolid) {
+        modeling::ModelPatch patch;
+        std::visit([&](const auto& primitive) {
+            patch.commands.push_back(modeling::AddFeatureCommand{primitive, true});
+        }, candidate.curvedSolid->primitive);
+        patch.rebuild = true;
+        const auto result = model.apply(patch);
+        error = result.error;
+        if (result.success && !model.bodyShape().IsNull()) return true;
+        if (error.empty()) error = "Curved primitive failed OCCT body validation";
+        return false;
+    }
     if (!candidate.boundaryBody) {
         error = "Candidate has no rebuildable body or feature program";
         return false;
@@ -276,6 +288,8 @@ const SolidCandidate* selectSolidCandidate(const std::vector<SolidCandidate>& sc
                     if(index)value+=',';
                     value+=std::to_string(static_cast<int>(candidate.featureProgram[index].operation));
                 }
+                if(candidate.curvedSolid)
+                    value += "; curved=" + std::to_string(candidate.curvedSolid->primitive.index());
                 return value+"]";
             };
             error = "Competing candidates explain the observations with distinct material (scores="+
@@ -455,6 +469,47 @@ bool inferSolids(const SurfaceScene& scene,SolidInferenceResult& output,std::str
     for(const auto& patch:scene.patches) {
         if(std::holds_alternative<PlaneEvidence>(scene.surfaces[std::size_t(patch.surfaceId-1)]))planar.push_back(patch.id);
     }
+    if (workingObservations && scene.header.unit == LengthUnit::Millimeter &&
+        output.candidates.size() < options.maximumCandidates) {
+        SurfaceAnalysisResult analysis;
+        analysis.pointFingerprint = scene.header.analysisFingerprint;
+        analysis.unit = scene.header.unit;
+        analysis.surfaces = scene.surfaces;
+        CurvedSolidRecognitionOptions curvedOptions;
+        curvedOptions.distanceTolerance = scene.header.distanceToleranceMm;
+        for (const auto& patch : scene.patches)
+            if (!std::holds_alternative<PlaneEvidence>(
+                    scene.surfaces[std::size_t(patch.surfaceId - 1)]) &&
+                std::isfinite(patch.spacingMm))
+                curvedOptions.distanceTolerance = std::max(curvedOptions.distanceTolerance,
+                                                           patch.spacingMm);
+        CurvedSolidCandidate curved;
+        std::string curvedError;
+        if (recognizeCurvedSolidFromAnalysis(*workingObservations, analysis, curvedOptions,
+                                             curved, curvedError)) {
+            SolidCandidate candidate;
+            candidate.analysisFingerprint = scene.header.analysisFingerprint;
+            candidate.curvedSolid = std::move(curved);
+            const PrimitiveKind kind = std::visit([](const auto& primitive) {
+                using Primitive = std::decay_t<decltype(primitive)>;
+                if constexpr (std::is_same_v<Primitive, modeling::SpherePrimitiveParams>)
+                    return PrimitiveKind::Sphere;
+                else if constexpr (std::is_same_v<Primitive, modeling::CylinderPrimitiveParams>)
+                    return PrimitiveKind::Cylinder;
+                else if constexpr (std::is_same_v<Primitive, modeling::ConePrimitiveParams>)
+                    return PrimitiveKind::Cone;
+                else
+                    return PrimitiveKind::Torus;
+            }, candidate.curvedSolid->primitive);
+            for (const auto& patch : scene.patches)
+                if (primitiveKind(scene.surfaces[std::size_t(patch.surfaceId - 1)]) == kind)
+                    candidate.supportingPatches.push_back(patch.id);
+            candidate.status = SolidCandidateStatus::Proposed;
+            candidate.diagnostics.push_back(
+                "Complete analytic curved solid proposed from validated surface evidence");
+            output.candidates.push_back(std::move(candidate));
+        }
+    }
     std::vector<const ScenePatch*> shellPatches;
     for (const auto& patch : scene.patches) {
         if (patch.boundaryStatus == SceneBoundaryStatus::ObservedClosed && patch.orientationKnown &&
@@ -493,12 +548,15 @@ bool inferSolids(const SurfaceScene& scene,SolidInferenceResult& output,std::str
     }
     const std::size_t maximumPairHypotheses=std::max<std::size_t>(1,
         std::min<std::size_t>(64,options.maximumCandidates/2));
+    std::vector<std::string> pairFailures;
     for(std::size_t i=0;i<planar.size()&&output.candidates.size()<maximumPairHypotheses&&
         output.candidates.size()<options.maximumCandidates;++i)
       for(std::size_t j=i+1;j<planar.size()&&output.candidates.size()<maximumPairHypotheses&&
           output.candidates.size()<options.maximumCandidates;++j) {
         SolidCandidate candidate;std::string reason;
-        if(proposeParallelCapExtrusion(scene,planar[i],planar[j],candidate,reason,preview))output.candidates.push_back(std::move(candidate));
+        if(proposeParallelCapExtrusion(scene,planar[i],planar[j],candidate,reason,preview))
+            output.candidates.push_back(std::move(candidate));
+        else pairFailures.push_back(std::to_string(planar[i])+"/"+std::to_string(planar[j])+": "+reason);
     }
     const auto attachEvidenceTrace = [&](SolidCandidate& candidate) {
         std::sort(candidate.supportingPatches.begin(), candidate.supportingPatches.end());
@@ -620,7 +678,11 @@ bool inferSolids(const SurfaceScene& scene,SolidInferenceResult& output,std::str
         beam=std::move(expanded);
     }
     error.clear();
-    if(output.candidates.empty())error="No supported solid candidates; finite planar patches may remain ambiguous";
+    if(output.candidates.empty()) {
+        error="No supported solid candidates; finite planar patches may remain ambiguous";
+        for(std::size_t index=0;index<std::min<std::size_t>(pairFailures.size(),24);++index)
+            error+="; "+pairFailures[index];
+    }
     return true;
 }
 } // namespace reconstruction

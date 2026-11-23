@@ -8,7 +8,7 @@
 flowchart LR
     A["SurfaceAnalysisResult<br/>证据、面片、关系、支撑决定"] --> B["exportSurfaceScene<br/>显式有限边界与快照指纹"]
     B --> C["SurfaceScene v1"]
-    C --> D["候选生成<br/>闭合壳 / 平行端盖拉伸"]
+    C --> D["候选生成<br/>闭合壳 / 平行端盖拉伸 / 完整解析曲面体"]
     D --> E["统一评分<br/>距离、法向、占据、关系、复杂度"]
     E --> F["Beam 组合搜索<br/>NewBody / Join / Cut"]
     F --> G["候选选择<br/>分差与材料等价检查"]
@@ -110,6 +110,10 @@ flowchart LR
 
 当端盖没有孔、外轮廓由采样点围成，且所有点都落在包围盒边界上时，实现会按中位采样间距半格扩展轮廓并吸附为四角矩形。这样得到的尺寸来自观测覆盖，可能与名义尺寸相差约一个采样间距；需要精确公称尺寸时应编辑特征参数。
 
+### 完整解析曲面体
+
+对于毫米单位且材料法向已知的快照，推断器把 `SurfaceScene` 中已验证的球、圆柱、圆锥和圆环面方程交给完整曲面边界验证器。该入口不重新检测或拟合曲面。球和圆环面要求完整角度覆盖，圆柱需要观测到两个端盖，圆锥需要端盖和受采样间距约束的尖端位置。候选使用同一 B-Rep 重建、全量观测评分与歧义选择，最后作为解析曲面特征原子提交。
+
 ## 统一观测评分
 
 入口：`scoreSolidCandidate()`。评分前先做硬校验：
@@ -146,7 +150,7 @@ score = distanceError + normalError + relationError
 
 ## 组合搜索与候选选择
 
-`inferSolids()` 先按共享观测边把闭合面片分成连通分量，生成闭合壳候选；再对平面面片两两生成平行端盖候选。随后执行有限 Beam Search：
+`inferSolids()` 从完整解析曲面证据生成独立曲面体候选，再按共享观测边把闭合平面面片分成连通分量，并对平面面片两两生成平行端盖候选。拉伸候选随后进入有限 Beam Search：
 
 - 默认 Beam 宽度 4、最多 3 个特征操作、最多 64 个候选；
 - 只有单次 `NewBody` 特征程序进入组合基座；
@@ -173,9 +177,9 @@ score = distanceError + normalError + relationError
 
 ## 当前失效边界
 
-- 只对平面面片生成实体；曲面面片只作为孔壁证据参与匹配，不会单独生成曲面实体。
+- 解析曲面候选目前覆盖单个完整独立曲面体；曲面凸台和曲面体与平面主体的混合布尔组合仍需组合候选来源。
 - 缺少一个端盖的棱柱不会生成候选，因为闭合壳需要完整边界，平行端盖拉伸需要两个端盖。
-- 平行端盖匹配要求两个轮廓顶点数一致；采样数不同的真实端盖可能漏配。
+- 平行端盖轮廓用双向线段距离比较，顶点数量可以不同；边界仍须落在场景容差范围内。
 - 平面两两配对受候选预算截断，预算按面片顺序消耗，可能提前停止。
 - 观测覆盖率按整个场景计算。多个独立部件必须由组合搜索覆盖，超过最大操作数的部件会让候选无法达到门槛。
 - 常规分支没有自动回退到旧装配路径；旧路径只在离线 CLI 显式启用。
@@ -190,6 +194,7 @@ score = distanceError + normalError + relationError
 | 评分与 Beam Search | `core/geometric_reconstruction/src/solid_inference/SolidInference.cpp` |
 | 观测闭合壳 | `core/geometric_reconstruction/src/solid_inference/ObservedShellClosure.cpp` |
 | 平行端盖拉伸与孔 | `core/geometric_reconstruction/src/solid_inference/ParallelCapExtrusion.cpp` |
+| 完整解析曲面体验证 | `core/geometric_reconstruction/src/recognition/curved/CurvedSolidRecognizer.cpp` |
 | 生产入口 | `core/geometric_reconstruction/src/pipeline/guided/GuidedSolidRecognizer.cpp` |
 | 回归测试 | `core/geometric_reconstruction/tests/surface_scene_test.cpp` |
 

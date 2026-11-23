@@ -10,7 +10,7 @@ Capture one source STEP model at a fixed orbit elevation:
 python tools/showcase/capture_step_spin.py --model data/performance-validation/level-01/box-through-hole/model.step --output outputs/performance-showcase/level-01/box-through-hole/step
 ```
 
-Capture every STEP/STP source found directly in a level's case folders, including one nested folder such as `level-06/local/Y373`:
+Capture every STEP/STP source found directly in a level's case folders, including one nested folder such as `level-06/local/Y373`. Use `--width` and `--height` to choose the normalized capture frame size:
 
 ```powershell
 python tools/showcase/capture_level_steps.py --level level-01
