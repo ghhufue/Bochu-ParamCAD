@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
+GUSSET_CASE = Path('data/performance-validation/level-02/l-bracket-gusset/case.json')
 COLORS = np.array([[170, 180, 195], [65, 160, 220], [235, 155, 50],
                    [65, 185, 140], [180, 110, 220], [230, 100, 110],
                    [100, 155, 235], [220, 185, 65], [110, 195, 190]], dtype=np.uint8)
@@ -22,8 +23,7 @@ NAMES = ['base', 'round_through_hole', 'square_through_hole', 'cylinder_boss',
 
 
 def definition(seed=4500):
-    source = ROOT / 'data/performance-validation/l-bracket-gusset/case.json'
-    bracket = json.loads(source.read_text(encoding='utf-8'))['parameters']
+    bracket = json.loads((ROOT / GUSSET_CASE).read_text(encoding='utf-8'))['parameters']
     case = {'id': 'mixed-template-board', 'unit': 'mm', 'base_size': [600, 360, 8],
             'features': [
                 {'id': 1, 'kind': 'round_through_hole', 'center_xy': [78, 112], 'radius': 22},
@@ -31,7 +31,7 @@ def definition(seed=4500):
                 {'id': 3, 'kind': 'cylinder_boss', 'center_xy': [355, 145], 'radius': 24, 'height': 92},
                 {'id': 4, 'kind': 'cube', 'origin_xy': [485, 78], 'size': [32, 32, 32]},
                 {'id': 5, 'kind': 'l_bracket_gusset', 'origin_xy': [75, 220], 'parameters': bracket,
-                 'source': 'data/performance-validation/l-bracket-gusset/case.json'},
+                 'source': GUSSET_CASE.as_posix()},
                 {'id': 6, 'kind': 'rectangular_boss', 'origin_xy': [220, 260], 'size': [85, 38, 18]},
                 {'id': 7, 'kind': 'frustum_boss', 'center_xy': [410, 285],
                  'base_radius': 28, 'top_radius': 14, 'height': 43},
@@ -368,7 +368,7 @@ def main():
     (args.output/'case.json').write_text(json.dumps(case, indent=2)+'\n', encoding='utf-8')
     (args.output/'surface_patches.json').write_text(json.dumps(patch_names, indent=2)+'\n', encoding='utf-8')
     (args.output/'generation_report.json').write_text(json.dumps(report, indent=2)+'\n', encoding='utf-8')
-    readme = ROOT/'data/performance-validation/mixed-template-board/README.md'
+    readme = ROOT/'data/performance-validation/level-05/mixed-template-board/README.md'
     (args.output/'README.md').write_text(readme.read_text(encoding='utf-8'), encoding='utf-8')
     preview(args.output, cloud, labels, case)
     print(json.dumps(report, indent=2))

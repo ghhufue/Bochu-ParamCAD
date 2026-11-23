@@ -31,7 +31,7 @@
 
 ### 检测和连通分区已有大量小集合
 
-对本地 `data/performance-validation/local/Y373/cloud.ply` 的已有标注进行统计：
+对本地 `data/performance-validation/level-06/local/Y373/cloud.ply` 的已有标注进行统计：
 
 | 指标 | 数量 |
 | --- | ---: |

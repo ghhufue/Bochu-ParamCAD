@@ -1,6 +1,6 @@
 # 平面 406 跨空区误成面追踪
 
-2026-11-16，从当前客户端另存的 `data/performance-validation/local/Y373/project.pcad` 提取必要证据，使用当前 C++ 成面代码重放。原项目、点云、识别标注和客户端状态未更改。
+2026-11-16，从当前客户端另存的 `data/performance-validation/level-06/local/Y373/project.pcad` 提取必要证据，使用当前 C++ 成面代码重放。原项目、点云、识别标注和客户端状态未更改。
 
 前半部分记录错误成面的原因；文末记录随后接入的边界点 / 内部点支撑验证与修复结果。
 
@@ -92,7 +92,7 @@ offset = 25.965499107722295
 
 ```powershell
 python tools/diagnostics/trace_project_surface.py `
-  data/performance-validation/local/Y373/project.pcad `
+  data/performance-validation/level-06/local/Y373/project.pcad `
   --output outputs/abnormal-plane-406
 
 & 'artifacts/build-structured-light/relative-density-runtime/Release/point_cloud_rendering_test.exe' `

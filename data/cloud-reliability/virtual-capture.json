@@ -6,8 +6,8 @@
       "provenance": "virtual-capture",
       "source": "ParamCAD Studio virtual STEP capture followed by COLMAP dense reconstruction; not real photographs",
       "cloud": "../../outputs/performance-validation-box-through-hole/dense_cloud.ply",
-      "reference": "../performance-validation/box-through-hole/model.step",
-      "definition": "../performance-validation/box-through-hole/case.json",
+      "reference": "../performance-validation/level-01/box-through-hole/model.step",
+      "definition": "../performance-validation/level-01/box-through-hole/case.json",
       "expectation": "accurate"
     },
     {
@@ -15,8 +15,8 @@
       "provenance": "virtual-capture",
       "source": "ParamCAD Studio virtual STEP capture followed by COLMAP dense reconstruction; not real photographs",
       "cloud": "../../outputs/performance-validation-l-bracket-gusset/dense_cloud.ply",
-      "reference": "../performance-validation/l-bracket-gusset/model.step",
-      "definition": "../performance-validation/l-bracket-gusset/case.json",
+      "reference": "../performance-validation/level-02/l-bracket-gusset/model.step",
+      "definition": "../performance-validation/level-02/l-bracket-gusset/case.json",
       "expectation": "accurate"
     }
   ]

@@ -67,7 +67,7 @@
 ### 复现 Y373 线程对照
 
 1. 用已配置的 Release 构建目录启用 `CAD_CLIENT_BUILD_VALIDATION_TOOLS=ON`，构建 `cad_reconstruction_validation`。
-2. 将 `data/performance-validation/local/Y373/cloud.ply` 原样复制到新的输出目录；如果工具未从元数据识别单位，在副本旁添加内容为 `{"unit":"mm"}` 的 `cloud.json`。不要改原点云。
+2. 将 `data/performance-validation/level-06/local/Y373/cloud.ply` 原样复制到新的输出目录；如果工具未从元数据识别单位，在副本旁添加内容为 `{"unit":"mm"}` 的 `cloud.json`。不要改原点云。
 3. 复制一份新版本的 `analysis.conf`，设 `PARAMCAD_ANALYSIS_CONFIG` 为它的绝对路径。复现对照 A 时固定 `family_detection_worker_count=1`，验证线程用 `1` 和 `8`；对照 B 固定 `support_validation_worker_count=8`，检测线程用 `1` 和 `5`。
 4. 启用 [CAD 阶段探针](/performance/execution-model#cad-阶段探针)，每次写到不同的报告目录。不并发执行两次回放。该样本正常完成但未闭合时，工具返回 `1`，以 JSON 的 `unsupported` 状态和诊断为准。
 

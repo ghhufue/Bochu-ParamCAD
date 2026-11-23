@@ -5,7 +5,7 @@
 ## 图像到点云
 
 ```powershell
-python -m tools.validation.run_performance_validation --model data/performance-validation/box-through-hole/model.step --texture data/performance-validation/textures/standard_capture.png --output outputs/performance-validation-box-through-hole --gpu
+python -m tools.validation.run_performance_validation --model data/performance-validation/level-01/box-through-hole/model.step --texture data/performance-validation/textures/standard_capture.png --output outputs/performance-validation-box-through-hole --gpu
 ```
 
 拍摄阶段固定 5 个仰角（−60°、−30°、0°、30°、60°）× 12 个方位角（0°–330°，步长 30°），另加顶视与底视，共 62 张 1920 × 1080 图像。校验器要求：
@@ -73,7 +73,7 @@ STEP 回读还检查回读实体数等于期望值、形状有效、体积相对
 复现与诊断：
 
 ```powershell
-python -m tools.validation.run_performance_validation --model data/performance-validation/l-bracket-gusset/model.step --texture data/performance-validation/textures/standard_capture.png --output outputs/performance-validation-l-bracket-gusset --gpu
+python -m tools.validation.run_performance_validation --model data/performance-validation/level-02/l-bracket-gusset/model.step --texture data/performance-validation/textures/standard_capture.png --output outputs/performance-validation-l-bracket-gusset --gpu
 python -m tools.diagnostics.diagnose_performance_validation outputs/performance-validation-box-through-hole outputs/performance-validation-l-bracket-gusset
 python -m tools.validation.refit_performance_validation outputs/performance-validation-l-bracket-gusset
 ```

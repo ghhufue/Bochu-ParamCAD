@@ -15,7 +15,14 @@ import zlib
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data" / "performance-validation"
 EXECUTABLE = ROOT / "apps" / "ParamCAD Studio" / "build" / "msvc-debug" / "Release" / "cad_reconstruction_validation.exe"
-CASES = ("box-through-hole", "l-bracket-gusset", "sphere", "cylinder", "cone", "torus")
+CASE_LEVELS = {
+    "box-through-hole": "level-01",
+    "l-bracket-gusset": "level-02",
+    "sphere": "level-01",
+    "cylinder": "level-01",
+    "cone": "level-01",
+    "torus": "level-01",
+}
 
 
 def create_texture(path: Path, seed: int = 4500, size: int = 1024) -> None:
@@ -45,12 +52,12 @@ def create_texture(path: Path, seed: int = 4500, size: int = 1024) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", type=Path, default=EXECUTABLE)
-    parser.add_argument("--cases", nargs="+", choices=CASES, default=CASES)
+    parser.add_argument("--cases", nargs="+", choices=CASE_LEVELS, default=tuple(CASE_LEVELS))
     args = parser.parse_args()
     if not args.executable.is_file():
         parser.error("Build with -DCAD_CLIENT_BUILD_VALIDATION_TOOLS=ON first")
     for name in args.cases:
-        directory = DATA / name
+        directory = DATA / CASE_LEVELS[name] / name
         model = directory / "model.step"
         report = directory / "model_report.json"
         log = ROOT / "outputs" / f"generate-{name}.log"

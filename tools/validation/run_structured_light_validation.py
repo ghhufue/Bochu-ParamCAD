@@ -67,7 +67,11 @@ def main() -> int:
     reports = []
     for name, model, metallic, roughness, phase, hdr in cases:
         output = root / name
-        command = [str(client), "--structured-light-capture", str((args.models / model / "model.step").resolve()),
+        level = "level-02" if model == "l-bracket-gusset" else "level-01"
+        model_path = args.models / level / model / "model.step"
+        if not model_path.is_file():
+            model_path = args.models / model / "model.step"
+        command = [str(client), "--structured-light-capture", str(model_path.resolve()),
                    "--output", str(output), "--scan-stations", str(args.stations), "--scan-size", args.camera_size,
                    "--projector-size", args.projector_size, "--scan-metallic", str(metallic),
                    "--scan-roughness", str(roughness), "--scan-renderer", args.renderer,

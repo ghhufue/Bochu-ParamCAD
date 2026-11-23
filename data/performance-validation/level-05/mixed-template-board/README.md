@@ -1,6 +1,7 @@
 # 大底板混合特征点云
 
-这是直接从解析几何采样的混合特征测试输入，不经过图片重建，也不依赖识别算法。
+本目录的 `model.step` 与 `case.json` 对应默认种子 4500 的布局。
+原有解析采样工具可生成相同布局的点云和面标签。
 生成器：`tools/fixtures/generate_mixed_template_board.py`（依赖 NumPy、Matplotlib）。
 
 ```powershell
@@ -36,7 +37,8 @@ python -m tools.fixtures.generate_mixed_template_board
 `case.json` 为准；改变 `--seed` 会改变位置和旋转，生成器拒绝越界或占地重叠。
 默认旋转后占地 AABB 的最小间距为 55.549 mm（保守间隔）。
 
-L 型件直接读取相邻 `l-bracket-gusset/case.json` 的全部尺寸参数，保留原始
+L 型件读取 `data/performance-validation/level-02/l-bracket-gusset/case.json`
+的全部尺寸参数，保留原始
 80 × 60 × 8 底座、80 × 8 × 60 立板以及厚 8、直角边 40/50 的三角加强筋，
 进行刚体旋转和平移后放到大底板上，保留内部各部件之间的几何关系。
 
@@ -57,6 +59,13 @@ PLY 使用 binary little endian，字段为 XYZ、单位外法向 NX/NY/NZ、RGB
 python -m tools.validation.run_mixed_feature_fit_tests
 ```
 
+只重建标准 STEP 时可以用现有校验程序读取本目录的 `case.json`：
+
+```powershell
+$case = "data/performance-validation/level-05/mixed-template-board"
+& "apps/ParamCAD Studio/build/msvc-debug/Release/cad_reconstruction_validation.exe" generate "$case/case.json" "$case/model.step" "$case/model_report.json"
+```
+
 默认在 `outputs/shared-surface-mixed-validation/` 保存独立参考 STEP、无噪声/噪声版
 重建 STEP、体积差报告以及逐部件参数验收。拟合只读取点云及单位元数据，源尺寸和
-标签用于单独验收。此前的调用链说明已归档。 [历史曲面分析设计](../../../docs/Outdated/Shared_Surface_Analysis_Refactor.md)
+标签用于单独验收。此前的调用链说明已归档。 [历史曲面分析设计](../../../../docs/Outdated/Shared_Surface_Analysis_Refactor.md)

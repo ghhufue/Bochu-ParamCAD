@@ -6,7 +6,7 @@
 
 ## 标准贯穿孔
 
-源案例位于 `data/performance-validation/box-through-hole/`，`case.json` 是可维护的尺寸与验收定义。
+源案例位于 `data/performance-validation/level-01/box-through-hole/`，`case.json` 是可维护的尺寸与验收定义。
 
 | 项目 | 数值 |
 | --- | --- |
@@ -27,7 +27,7 @@
 
 满足条件后输出孔轴、半径、宿主厚度和来源圆柱；置信度综合角向覆盖、轴向跨度与轴对齐程度。只识别出箱体而没有孔，不会被视为完整 CAD 成功。
 
-**参考结果（单次运行，2026-10-04）**：最大外形尺寸误差 0.031251 mm，识别孔径 11.784618 mm，孔径绝对误差 0.215382 mm，对称差体积 0.870324%，体积相对误差 0.341081%。该结果来自 `data/performance-validation/box-through-hole/README.md` 与 `data/performance-validation/README.md`，不是重复运行统计。
+**参考结果（单次运行，2026-10-04）**：最大外形尺寸误差 0.031251 mm，识别孔径 11.784618 mm，孔径绝对误差 0.215382 mm，对称差体积 0.870324%，体积相对误差 0.341081%。该结果来自 `data/performance-validation/level-01/box-through-hole/README.md` 与 `data/performance-validation/README.md`，不是重复运行统计。
 
 | 指标 | 参考值 | 验收门槛 |
 | --- | --- | --- |
@@ -78,6 +78,6 @@
 复现命令：
 
 ```powershell
-python -m tools.validation.run_performance_validation --model data/performance-validation/box-through-hole/model.step --texture data/performance-validation/textures/standard_capture.png --output outputs/performance-validation-box-through-hole --gpu
+python -m tools.validation.run_performance_validation --model data/performance-validation/level-01/box-through-hole/model.step --texture data/performance-validation/textures/standard_capture.png --output outputs/performance-validation-box-through-hole --gpu
 python -m tools.contracts.run_reconstruction_contracts --case m13.blind_hole.reject_short_wall --output outputs/contracts-hole
 ```

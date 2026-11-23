@@ -1,0 +1,21 @@
+{
+    "analytic_volume_mm3": 2255515.497874725,
+    "bounding_box_mm": [
+        600,
+        360,
+        100
+    ],
+    "brep_valid": true,
+    "case_id": "mixed-template-board",
+    "edges": 102,
+    "elapsed_seconds": 0.104,
+    "faces": 42,
+    "schema": "paramcad.cad-validation",
+    "solids": 1,
+    "stage": "completed",
+    "status": "generated_and_round_trip_verified",
+    "unit": "mm",
+    "version": 1,
+    "vertices": 68,
+    "volume_mm3": 2255515.4978748523
+}

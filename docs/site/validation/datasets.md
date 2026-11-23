@@ -8,12 +8,15 @@
 | --- | --- | --- |
 | 合成解析点云 | `tools/contracts/reconstruction_contract_fixtures.py`、`tools/fixtures/` | 由解析几何直接生成，点 ID 与参考产物稳定，可独立复算真值 |
 | STEP 表面采样 | `data/real-workpieces-step/` 下的 `box-wall`、`box-wall-1`、`cover-plate`、`oil-tank` | 从 STEP 三角网格逐面采样带法向毫米点云，用于曲面识别验证 |
-| 虚拟拍摄重建点云 | `data/performance-validation/<case>/model.step` 与 `textures/standard_capture.png` | 62 视角合成拍摄、已知毫米位姿、COLMAP 稠密重建，生成物落在 `outputs/` |
+| 虚拟拍摄重建点云 | `data/performance-validation/level-NN/<case>/model.step` 与 `textures/standard_capture.png` | 62 视角合成拍摄、已知毫米位姿、COLMAP 稠密重建，生成物落在 `outputs/` |
 | 实拍点云 | 由点云审核与批量重建工具维护在 `outputs/` 下 | 真实扫描噪声与遮挡，真值主要来自人工划分审核，而非参考 STEP |
 
 契约清单 `data/reconstruction-contracts/v1/manifest.json` 定义 **9 个数据集**：`two_boxes`、`open_box`、`u_channel`、`blind_hole`、`surface_box`、`surface_box_m`、`capped_cylinder`、`open_cylinder`、`mixed_plate`。其中 `surface_box_m` 专门验证米制输入到毫米的换算，`open_box` 故意缺少一个面，`open_cylinder` 故意缺端盖。
 
 性能样例与解析标准件：
+
+源数据按几何难度组织在 `data/performance-validation/level-01/` 到
+`level-06/`，从基础几何、组合件、多方向孔和遮挡件，递增到工业件和多实体装配。
 
 | 案例 | 几何与尺寸 | 用途或验收门槛 |
 | --- | --- | --- |

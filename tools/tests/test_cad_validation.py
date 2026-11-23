@@ -14,7 +14,7 @@ import unittest
 from tools.reconstruction.run_point_cloud_cad import DEFAULT_ENGINE as EXECUTABLE
 
 ROOT = Path(__file__).resolve().parents[2]
-CASE = ROOT / "data/performance-validation/box-through-hole"
+CASE = ROOT / "data/performance-validation/level-01/box-through-hole"
 
 
 @unittest.skipUnless(EXECUTABLE.is_file() and (CASE / "model.step").is_file(), "Build and generate standard fixtures first")

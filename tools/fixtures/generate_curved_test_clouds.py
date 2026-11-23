@@ -122,8 +122,8 @@ def main():
     for kind in KINDS:
         if args.standard_definitions:
             if kind=="frustum":continue
-            case=definition(kind); directory=ROOT/"data/performance-validation"/kind
-            directory.mkdir(exist_ok=True)
+            case=definition(kind); directory=ROOT/"data/performance-validation/level-01"/kind
+            directory.mkdir(parents=True,exist_ok=True)
             (directory/"case.json").write_text(json.dumps(case,indent=2)+"\n",encoding="utf-8")
             descriptions={"sphere":"球：半径 15 mm，直径 30 mm。",
                 "cylinder":"独立圆柱：半径 12 mm，直径 24 mm，高度 30 mm，两个完整平面端面。",

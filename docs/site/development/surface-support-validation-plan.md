@@ -17,7 +17,7 @@
 
 ## 2. Y373 基线与问题边界
 
-分析包：`data/performance-validation/local/Y373/cloud.ply.pcad-analysis`。
+分析包：`data/performance-validation/level-06/local/Y373/cloud.ply.pcad-analysis`。
 
 快照 ID：`19a5c4f0-f8cc-4d20-ae24-f4ff7ea61828`。该快照单位标记为 `arbitrary`，下表距离沿用快照坐标单位。
 

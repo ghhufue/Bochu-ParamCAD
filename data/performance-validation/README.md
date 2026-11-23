@@ -4,13 +4,20 @@ This directory stores persistent source inputs for repeatable performance and
 end-to-end reconstruction validation. Generated captures, COLMAP workspaces,
 point clouds, and timing reports remain under `outputs/`.
 
-## Cases
+## Difficulty levels
 
-| Case | Source model | Purpose |
+| Level | Cases | Geometry under test |
 | --- | --- | --- |
-| SK08-limobearing | `SK08-limobearing/SK08_limbearing.step` | STEP import, orbit capture, camera metadata, point-cloud reconstruction, and primitive-fitting validation |
-| box-through-hole | `box-through-hole/model.step` | 60 × 40 × 20 mm box, centered Ø12 mm through hole; dimensioned CAD accuracy baseline |
-| l-bracket-gusset | `l-bracket-gusset/model.step` | Fused base, upright and triangular gusset; compound-part capability probe |
+| [01](level-01/) | [Box with through hole](level-01/box-through-hole/), [cylinder](level-01/cylinder/), [sphere](level-01/sphere/), [cone](level-01/cone/), [torus](level-01/torus/) | Basic analytic surfaces, end caps, and a single through hole |
+| [02](level-02/) | [L bracket with gusset](level-02/l-bracket-gusset/) | Fused base, upright, and triangular gusset |
+| [03](level-03/) | [T bracket with multi-axis holes](level-03/t-bracket-multi-axis-holes/) | Four through holes on two perpendicular axes |
+| [04](level-04/) | [U channel with stepped blind hole](level-04/u-channel-stepped-blind-hole/) | Deep channel, recessed counterbore shoulder and blind bottom, and sidewall through hole |
+| [05](level-05/) | [SK08 bearing mount](level-05/SK08-limobearing/), [mixed-feature board](level-05/mixed-template-board/) | Industrial geometry and mixed feature scales |
+| [06](level-06/) | [Local Y373 assembly](level-06/) | Multi-body assembly and large-scan diagnostics |
+
+Shared capture assets live in [textures](textures/). Place unreleased local
+datasets under `level-NN/local/` so their STEP, clouds, and analysis bundles can
+live together. The repository ignores directories named `local`.
 
 ## Reproduce the standard cases
 
@@ -29,11 +36,29 @@ It also generates `textures/standard_capture.png`: a 1024 × 1024 deterministic
 multiscale pattern, seed 4500, using only Python's standard library. Its texture
 coordinates remain attached to the model during capture.
 
+To derive a reference cloud and face metadata for a STEP in any level, use
+the same source for the validation executable's `sample` and `inspect-step`
+commands. For example, from the repository root:
+
+```powershell
+$validator = "apps/ParamCAD Studio/build/msvc-debug/Release/cad_reconstruction_validation.exe"
+$source = "data/performance-validation/level-03/t-bracket-multi-axis-holes/model.step"
+$reference = "outputs/performance-validation-reference/level-03/t-bracket-multi-axis-holes"
+New-Item -ItemType Directory -Path $reference -Force | Out-Null
+& $validator sample $source "$reference/sampling.json" "$reference/cloud.ply" 1
+& $validator inspect-step $source "$reference/brep.json"
+```
+
+The sampler writes source-frame XYZ and outward normals. `sampling.json`
+records the actual per-face point ranges and density. `brep.json` provides
+the STEP inspection metadata, and `case.json` supplies feature-specific
+targets where applicable.
+
 Run each case with a **new or empty** output directory:
 
 ```powershell
-python -m tools.validation.run_performance_validation --model data/performance-validation/box-through-hole/model.step --texture data/performance-validation/textures/standard_capture.png --output outputs/performance-validation-box-through-hole --gpu
-python -m tools.validation.run_performance_validation --model data/performance-validation/l-bracket-gusset/model.step --texture data/performance-validation/textures/standard_capture.png --output outputs/performance-validation-l-bracket-gusset --gpu
+python -m tools.validation.run_performance_validation --model data/performance-validation/level-01/box-through-hole/model.step --texture data/performance-validation/textures/standard_capture.png --output outputs/performance-validation-box-through-hole --gpu
+python -m tools.validation.run_performance_validation --model data/performance-validation/level-02/l-bracket-gusset/model.step --texture data/performance-validation/textures/standard_capture.png --output outputs/performance-validation-l-bracket-gusset --gpu
 ```
 
 The full path is 62-view capture → camera metadata validation → GPU dense COLMAP

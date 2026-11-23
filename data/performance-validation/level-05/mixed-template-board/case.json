@@ -1,0 +1,140 @@
+{
+  "id": "mixed-template-board",
+  "unit": "mm",
+  "base_size": [
+    600,
+    360,
+    8
+  ],
+  "features": [
+    {
+      "id": 1,
+      "kind": "round_through_hole",
+      "center_xy": [
+        78.461,
+        106.692
+      ],
+      "radius": 22
+    },
+    {
+      "id": 2,
+      "kind": "square_through_hole",
+      "origin_xy": [
+        199.388,
+        47.877
+      ],
+      "size_xy": [
+        44,
+        44
+      ],
+      "yaw_degrees": 28.54
+    },
+    {
+      "id": 3,
+      "kind": "cylinder_boss",
+      "center_xy": [
+        354.818,
+        144.778
+      ],
+      "radius": 24,
+      "height": 92
+    },
+    {
+      "id": 4,
+      "kind": "cube",
+      "origin_xy": [
+        481.607,
+        78.449
+      ],
+      "size": [
+        32,
+        32,
+        32
+      ],
+      "yaw_degrees": -19.132
+    },
+    {
+      "id": 5,
+      "kind": "l_bracket_gusset",
+      "origin_xy": [
+        70.72,
+        222.193
+      ],
+      "parameters": {
+        "width": 80,
+        "base_depth": 60,
+        "base_thickness": 8,
+        "upright_thickness": 8,
+        "upright_height": 60,
+        "rib_thickness": 8,
+        "rib_run": 40,
+        "rib_rise": 50
+      },
+      "source": "data/performance-validation/level-02/l-bracket-gusset/case.json",
+      "yaw_degrees": 35.005
+    },
+    {
+      "id": 6,
+      "kind": "rectangular_boss",
+      "origin_xy": [
+        217.891,
+        268.575
+      ],
+      "size": [
+        85,
+        38,
+        18
+      ],
+      "yaw_degrees": -24.778
+    },
+    {
+      "id": 7,
+      "kind": "frustum_boss",
+      "center_xy": [
+        403.236,
+        280.494
+      ],
+      "base_radius": 28,
+      "top_radius": 14,
+      "height": 43
+    },
+    {
+      "id": 8,
+      "kind": "two_step_boss",
+      "origin_xy": [
+        486.785,
+        231.027
+      ],
+      "size_xy": [
+        70,
+        60
+      ],
+      "lower_height": 17,
+      "upper_width": 35,
+      "upper_height": 38,
+      "yaw_degrees": -33.06
+    }
+  ],
+  "geometry": "mixed_template_board",
+  "expected": {
+    "volume_mm3": 2255515.497874725,
+    "solids": 1,
+    "bounding_box_mm": [
+      600,
+      360,
+      100
+    ],
+    "through_holes": 1,
+    "hole_diameters_mm": [
+      44
+    ],
+    "boxes": 7,
+    "prisms": 2,
+    "curved_solids": 2
+  },
+  "acceptance": {
+    "dimension_tolerance_mm": 0.5,
+    "hole_diameter_tolerance_mm": 0.25,
+    "symmetric_difference_volume_fraction": 0.02
+  }
+}

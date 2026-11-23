@@ -15,6 +15,7 @@ import time
 
 from tools.fixtures.generate_compound_test_clouds import ENGINE, ROOT, box, cases, mass_properties, sample_surface
 from tools.fixtures.generate_curved_test_clouds import definition, samples
+from tools.fixtures.generate_standard_models import CASE_LEVELS, DATA as STANDARD_CASES_ROOT
 from tools.validation.run_performance_validation import hidden_process_options
 
 
@@ -34,7 +35,8 @@ def stress_cloud(kind, condition, seed=4500):
     """No fitted geometry or ground truth is used to repair the observations."""
     rng = random.Random(seed)
     if kind in ("l-bracket-gusset", "box-through-hole"):
-        case = json.loads((ROOT/"data/performance-validation"/kind/"case.json").read_text(encoding="utf-8"))
+        case_path = STANDARD_CASES_ROOT / CASE_LEVELS[kind] / kind / "case.json"
+        case = json.loads(case_path.read_text(encoding="utf-8"))
         if kind == "l-bracket-gusset":
             _, boxes, rib, *_ = next(c for c in cases() if c[0] == kind)
             _, center = mass_properties(boxes, rib)

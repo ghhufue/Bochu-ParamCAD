@@ -2,7 +2,7 @@
 
 ## 数据与复现
 
-本次只读取用户导出的 `data/performance-validation/local/Y373/cloud.ply.pcad-analysis`，没有打开原始项目。快照 UUID 为 `84c4f09d-028c-4b90-a6f9-3627c306dd0f`，目标名称为「圆锥面 827」，实际集合 ID 为 675。
+本次只读取用户导出的 `data/performance-validation/level-06/local/Y373/cloud.ply.pcad-analysis`，没有打开原始项目。快照 UUID 为 `84c4f09d-028c-4b90-a6f9-3627c306dd0f`，目标名称为「圆锥面 827」，实际集合 ID 为 675。
 
 元数据和指定面映射确认：该集合仅 7 个点，均没有有效法向；半角约 84.297°。显示网格使用的点全部属于该集合，问题不来自其他集合的顶点。原网格包含 3 个三角形，面积 10999.602，最长边 232.623。
 
@@ -10,7 +10,7 @@
 
 ```powershell
 python -m tools.diagnostics.trace_bundle_surface `
-  data/performance-validation/local/Y373/cloud.ply.pcad-analysis `
+  data/performance-validation/level-06/local/Y373/cloud.ply.pcad-analysis `
   --id 675 --output outputs/cone-support-validation/replay
 
 # 使用新编译的 point_cloud_rendering_test.exe：
