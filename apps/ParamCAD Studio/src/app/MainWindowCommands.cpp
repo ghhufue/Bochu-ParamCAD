@@ -6,10 +6,17 @@
 #include "app/CaptureWorkspaceController.h"
 #include "cli/CommandArguments.h"
 #include "core/PointCloudDocument.h"
+#include "core/OrbitCamera.h"
+#include "ui/viewport/VTKViewer.h"
 #include <QApplication>
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QJsonArray>
 #include <QPointer>
+#include <QPainter>
+#include <QUuid>
 #include <utility>
 
 void MainWindow::executeCliCommand(const QJsonObject& request,pcad::Reply reply) {
@@ -37,6 +44,62 @@ void MainWindow::executeCliCommand(const QJsonObject& request,pcad::Reply reply)
             auto result=pcad::response("complete");result["source"]=m_pointCloudDocument->sourcePath();
             result["unit"]=m_pointCloudDocument->sourceUnit();result["point_count"]=m_pointCloudDocument->pointCount();
             result["collection_count"]=qint64(regions.size());result["collections"]=rows;reply(result);return;
+        }
+        if(command=="capture frame"){
+            pcad::Options options(args,{"--output","--target","--azimuth","--elevation","--distance","--width","--height"});
+            const auto output=QFileInfo(options.require("--output")).absoluteFilePath();
+            const auto target=options.get("--target","cloud");
+            if(target!="cloud"&&target!="surfaces"&&target!="model"&&target!="cad")
+                pcad::Options::fail("--target must be cloud, surfaces, model or cad");
+            const auto number=[&](const QString& key,double fallback,double minimum,double maximum,bool whole=false){
+                bool ok=false;const double value=options.get(key,QString::number(fallback)).toDouble(&ok);
+                if(!ok||!std::isfinite(value)||value<minimum||value>maximum||(whole&&std::floor(value)!=value))
+                    pcad::Options::fail("Invalid "+key);
+                return value;
+            };
+            const int width=int(number("--width",960,32,4096,true));
+            const int height=int(number("--height",540,32,4096,true));
+            const CameraParameters original=m_viewer->cameraParameters();
+            const OrbitParameters current=OrbitCamera::fromCamera(original);
+            const OrbitParameters orbit{
+                number("--distance",current.distance,1e-6,1e9),
+                number("--azimuth",current.azimuthDeg,-1e9,1e9),
+                number("--elevation",current.elevationDeg,-90,90)};
+            const bool originalModelVisible=m_viewer->objectVisible();
+            const bool originalCloudVisible=m_viewer->pointCloudVisible();
+            const bool showModel=target=="model"||target=="cad";
+            const bool ok=QDir().mkpath(QFileInfo(output).absolutePath());
+            if(!ok)pcad::Options::fail("Cannot create screenshot directory");
+            m_viewer->setObjectVisible(showModel&&m_viewer->hasBody());
+            m_viewer->setPointCloudVisible(!showModel&&m_viewer->hasPointCloud());
+            m_viewer->applyCamera(OrbitCamera::toCamera(orbit,original,false));
+            m_viewer->renderNow();
+            const QSize sourceSize=m_viewer->captureSourceSize();
+            const QString nativePath=output+QStringLiteral(".")+QUuid::createUuid().toString(QUuid::WithoutBraces)
+                +QStringLiteral(".png");
+            const bool captured=target=="surfaces"?m_viewer->captureViewport(nativePath)
+                :m_viewer->captureImage(nativePath,sourceSize.width(),sourceSize.height());
+            bool written=false;
+            if(captured){
+                const QImage source(nativePath);
+                if(!source.isNull()){
+                    QImage frame(width,height,QImage::Format_RGB32);
+                    frame.fill(QColor(35,39,46));
+                    const QImage fitted=source.scaled(width,height,Qt::KeepAspectRatio,Qt::SmoothTransformation);
+                    QPainter painter(&frame);
+                    painter.drawImage((width-fitted.width())/2,(height-fitted.height())/2,fitted);
+                    painter.end();
+                    written=frame.save(output,"PNG");
+                }
+                QFile::remove(nativePath);
+            }
+            m_viewer->setObjectVisible(originalModelVisible);
+            m_viewer->setPointCloudVisible(originalCloudVisible);
+            m_viewer->applyCamera(original);
+            if(!written)pcad::Options::fail("Could not write screenshot: "+output);
+            auto result=pcad::response("complete");result["path"]=output;result["target"]=target;
+            result["azimuth_deg"]=orbit.azimuthDeg;result["elevation_deg"]=orbit.elevationDeg;
+            result["width"]=width;result["height"]=height;reply(result);return;
         }
         if(command=="cancel"){
             pcad::Options options(args,{});QString error;m_pointCloudWorkspace->dispatchCliOperation(command,{},error);

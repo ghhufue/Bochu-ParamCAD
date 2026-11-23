@@ -87,6 +87,7 @@ void help(const QString& command={}) {
     if(command=="inspect")std::cout<<"--bundle DIR list [--filter TEXT] [--kind TYPE] [--limit 20] [--offset 0]\n--bundle DIR show (--id ID|--name NAME) [--group]\n--bundle DIR analyze (--id ID|--name NAME)\n--bundle DIR explain (--id ID|--name NAME)\n--bundle DIR compare --ids ID,ID\n--bundle DIR points (--id ID|--name NAME) [--limit 10]\n--bundle DIR verify [--full]\n--bundle DIR manifest\n";
     if(command=="studio")std::cout<<"[--exe FILE] [--dry-run]\n";
     if(command=="capture views")std::cout<<"--in MODEL.step --output NEW_DIR [--texture IMAGE]\n";
+    if(command=="capture frame")std::cout<<"--output IMAGE.png [--target cloud|surfaces|model|cad] [--azimuth DEG] [--elevation DEG] [--distance VALUE] [--width PX] [--height PX]\n";
     if(command=="capture structured-light")std::cout<<"--in MODEL.step --output NEW_DIR [--scan-stations 16] [--scan-size 1280x960] [--projector-size 512x512] [--scan-reconstruct] [--scan-renderer vtk|mitsuba] [--scan-no-phase-shift] [--scan-multi-exposure] [--scan-samples 32] [--scan-max-depth 4] [--scan-metallic 0.9] [--scan-roughness 0.4] [--scan-light-intensity 2] [--scan-baseline 0]\n";
     if(command=="cloud open"||command=="project open")std::cout<<"--in FILE\n";
     if(command=="project save"||command.startsWith("export "))std::cout<<"--out PATH\n";

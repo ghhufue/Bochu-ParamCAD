@@ -22,6 +22,7 @@ QList<Capability> capabilities() {
         {"export analysis",true,false,"Export the current recognition snapshot"},
         {"cancel",true,false,"Request cancellation through Studio"},
         {"capture views",true,false,"Capture a STEP model through the Studio viewport"},
+        {"capture frame",true,false,"Capture the current Studio viewport to a specified PNG path"},
         {"capture structured-light",true,false,"Acquire a structured-light scan through Studio"},
         {"preprocess",false,true,"Preprocess a PLY using the C++ backend"},
         {"detect",true,true,"Detect surfaces; online uses the Studio Recognize Surfaces action"},
