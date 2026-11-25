@@ -1,4 +1,6 @@
 #include "StepCloudSampler.h"
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Curve2d.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepGProp.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
@@ -9,7 +11,10 @@
 #include <BRepBndLib.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
+#include <GCPnts_AbscissaPoint.hxx>
+#include <GCPnts_UniformAbscissa.hxx>
 #include <Poly_Triangulation.hxx>
+#include <Precision.hxx>
 #include <STEPControl_Reader.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
@@ -27,7 +32,10 @@
 #include <stdexcept>
 #include <vector>
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdint>
+#include <set>
 
 namespace {
 void check(bool ok, const char* message) { if(!ok) throw std::runtime_error(message); }
@@ -37,6 +45,87 @@ void save(const QString& path,const QJsonObject& object) {
 }
 
 const char* kind(GeomAbs_SurfaceType t);
+
+struct SampledPoint { gp_Pnt point; gp_Vec normal; };
+
+std::size_t appendFaceEdgeSamples(const TopoDS_Face& face, double spacing,
+                                  std::vector<SampledPoint>& cloud)
+{
+    // This topology-informed edge treatment is a showcase aid for the
+    // reconstruction algorithm. It deliberately over-represents sharp edges
+    // and must stay disabled in correctness-validation sampling.
+    const BRepAdaptor_Surface surface(face);
+    const double keyTolerance = std::max(1e-9, spacing * 1e-6);
+    std::set<std::array<std::int64_t, 3>> sampledPositions;
+    std::size_t added = 0;
+    for (TopExp_Explorer it(face, TopAbs_EDGE); it.More(); it.Next()) {
+        const auto edge = TopoDS::Edge(it.Current());
+        if (BRep_Tool::Degenerated(edge)) continue;
+
+        const BRepAdaptor_Curve curve(edge, face);
+        const BRepAdaptor_Curve2d curve2d(edge, face);
+        const double first = curve.FirstParameter();
+        const double last = curve.LastParameter();
+        if (!std::isfinite(first) || !std::isfinite(last) || last <= first) continue;
+        const double length = GCPnts_AbscissaPoint::Length(curve, first, last);
+        if (!std::isfinite(length) || length <= Precision::Confusion()) continue;
+        const double intervalCount = std::max(1.0, std::ceil(length / spacing));
+        check(intervalCount < 50000000.0,
+              "Requested spacing exceeds the per-edge sampling limit");
+        const GCPnts_UniformAbscissa distribution(
+            curve, static_cast<int>(intervalCount + 1), first, last);
+        check(distribution.IsDone(), "Cannot distribute samples along STEP edge");
+
+        for (int index = 1; index <= distribution.NbPoints(); ++index) {
+            const double parameter = distribution.Parameter(index);
+            const auto uv = curve2d.Value(parameter);
+            gp_Pnt point;
+            gp_Vec tangentU, tangentV;
+            surface.D1(uv.X(), uv.Y(), point, tangentU, tangentV);
+            auto normal = tangentU.Crossed(tangentV);
+            if (normal.SquareMagnitude() <= 1e-24) {
+                // At a sphere pole, the boundary point is valid while the UV
+                // derivatives are singular. Use a limiting normal from this
+                // same edge without moving the sampled XYZ position.
+                const double span = last - first;
+                bool foundNormal = false;
+                for (const double fraction : {1e-9, 1e-8, 1e-7, 1e-6, 1e-5}) {
+                    for (const double direction : {-1.0, 1.0}) {
+                        const double probe = parameter + direction * span * fraction;
+                        if (probe <= first || probe >= last) continue;
+                        const auto probeUv = curve2d.Value(probe);
+                        gp_Pnt ignoredPoint;
+                        gp_Vec probeU, probeV;
+                        surface.D1(probeUv.X(), probeUv.Y(), ignoredPoint, probeU, probeV);
+                        normal = probeU.Crossed(probeV);
+                        if (normal.SquareMagnitude() > 1e-24) {
+                            foundNormal = true;
+                            break;
+                        }
+                    }
+                    if (foundNormal) break;
+                }
+                check(foundNormal, "Singular surface normal at STEP edge");
+            }
+            normal.Normalize();
+            if (face.Orientation() == TopAbs_REVERSED) normal.Reverse();
+
+            const auto coordinateKey = [keyTolerance](double value) {
+                const double scaled = std::round(value / keyTolerance);
+                check(std::isfinite(scaled) && std::abs(scaled) <= 9.0e15,
+                      "STEP edge coordinate exceeds sampling key range");
+                return static_cast<std::int64_t>(scaled);
+            };
+            const std::array<std::int64_t, 3> key{
+                coordinateKey(point.X()), coordinateKey(point.Y()), coordinateKey(point.Z())};
+            if (!sampledPositions.insert(key).second) continue;
+            cloud.push_back({point, normal});
+            ++added;
+        }
+    }
+    return added;
+}
+
 void inspectStepTopologyImpl(const QStringList& args,QJsonObject& report) {
     check(args.size()==4,"Usage: inspect-step source.step report.json");
     STEPControl_Reader reader;std::ifstream input(std::filesystem::path(args[2].toStdWString()),std::ios::binary);
@@ -189,9 +278,13 @@ void compareObservedSplines(const QStringList& args, QJsonObject& report) { comp
 void compareObservedSurfaces(const QStringList& args, QJsonObject& report) { compareObservedFaces(args,report,false); }
 
 void sampleStepCloud(const QStringList& args,QJsonObject& report) {
-    check(args.size()==6,"Usage: sample source.step report.json cloud.ply spacing_mm");
+    check(args.size()==6 || args.size()==7,
+          "Usage: sample source.step report.json cloud.ply spacing_mm [--preserve-edges]");
     bool valid=false;const double spacing=args[5].toDouble(&valid);
     check(valid && std::isfinite(spacing) && spacing>0,"Sampling spacing must be positive");
+    const bool preserveEdges = args.size() == 7 && args[6] == "--preserve-edges";
+    check(args.size() == 6 || preserveEdges,
+          "The only supported optional sampling flag is --preserve-edges");
     STEPControl_Reader reader;
     std::ifstream source(std::filesystem::path(args[2].toStdWString()),std::ios::binary);
     check(source.good() && reader.ReadStream("source.step",source)==IFSelect_RetDone,"Cannot read STEP");
@@ -201,8 +294,9 @@ void sampleStepCloud(const QStringList& args,QJsonObject& report) {
     // UV coordinates rather than emitting faceted triangle positions/normals.
     BRepMesh_IncrementalMesh mesh(shape,std::min(spacing*0.15,0.05),false,0.15,true);
     check(mesh.IsDone(),"STEP triangulation failed");
-    struct Point {gp_Pnt p;gp_Vec n;};std::vector<Point> cloud;
+    std::vector<SampledPoint> cloud;
     QJsonArray faces,solids;int solidId=0,faceId=0;
+    std::size_t edgePointCount = 0;
     std::mt19937 random(4500);std::uniform_real_distribution<double> unit(0,1);
     std::size_t minimumSamplesPerFace=std::numeric_limits<std::size_t>::max();
     std::size_t maximumSamplesPerFace=0;
@@ -246,8 +340,14 @@ void sampleStepCloud(const QStringList& args,QJsonObject& report) {
                 cloud.push_back({p,n});
                 ++i;
             }
+            const auto interiorPointCount = cloud.size() - begin;
+            const auto faceEdgePointCount = preserveEdges
+                ? appendFaceEdgeSamples(face, spacing, cloud) : 0;
+            edgePointCount += faceEdgePointCount;
             faces.append(QJsonObject{{"id",faceId},{"solid_id",solidId},{"kind",kind(surface.GetType())},
-                {"first_point_id",double(begin+1)},{"point_count",double(cloud.size()-begin)},{"area_mm2",total},
+                {"first_point_id",double(begin+1)},{"point_count",double(cloud.size()-begin)},
+                {"interior_point_count",double(interiorPointCount)},
+                {"edge_point_count",double(faceEdgePointCount)},{"area_mm2",total},
                 {"effective_spacing_mm",std::sqrt(total/count)},{"outside_trim_rejected",double(rejected)}});
         }
         solids.append(QJsonObject{{"id",solidId},{"first_face_id",firstFace},{"face_count",faceId-firstFace+1},
@@ -257,12 +357,17 @@ void sampleStepCloud(const QStringList& args,QJsonObject& report) {
     std::ofstream ply(std::filesystem::path(args[4].toStdWString()));check(ply.good(),"Cannot create PLY");
     ply<<"ply\nformat ascii 1.0\ncomment analytic STEP samples; units mm\nelement vertex "<<cloud.size()
        <<"\nproperty double x\nproperty double y\nproperty double z\nproperty double nx\nproperty double ny\nproperty double nz\nend_header\n"<<std::setprecision(17);
-    for(const auto& p:cloud)ply<<p.p.X()<<' '<<p.p.Y()<<' '<<p.p.Z()<<' '<<p.n.X()<<' '<<p.n.Y()<<' '<<p.n.Z()<<'\n';
+    for(const auto& p:cloud)ply<<p.point.X()<<' '<<p.point.Y()<<' '<<p.point.Z()<<' '
+        <<p.normal.X()<<' '<<p.normal.Y()<<' '<<p.normal.Z()<<'\n';
     ply.close();check(ply.good(),"Cannot finish PLY");
     const QFileInfo path(args[4]);
-    save(path.dir().filePath(path.completeBaseName()+".json"),QJsonObject{{"unit","mm"},{"source","analytic_step_sampling"}});
+    save(path.dir().filePath(path.completeBaseName()+".json"),QJsonObject{
+        {"unit","mm"},{"source","analytic_step_sampling"},{"spacing_mm",spacing},
+        {"edge_fidelity_enabled",preserveEdges},{"edge_point_count",double(edgePointCount)}});
     report["status"]="sampled";report["source_step"]=QFileInfo(args[2]).absoluteFilePath();
     report["unit"]="mm";report["spacing_mm"]=spacing;report["points"]=double(cloud.size());
+    report["edge_fidelity_enabled"] = preserveEdges;
+    report["edge_point_count"] = double(edgePointCount);
     report["solid_count"]=solidId;report["face_count"]=faceId;report["faces"]=faces;report["solids"]=solids;
     report["minimum_samples_per_face"]=double(minimumSamplesPerFace);
     report["maximum_samples_per_face"]=double(maximumSamplesPerFace);

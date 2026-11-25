@@ -40,6 +40,29 @@ std::vector<Cap> caps(const PointStore &points, Vec3 origin, Vec3 axis, double t
                 for (auto p : cap.data)
                     cap.t += dot(subtract(p->position, origin), axis);
                 cap.t /= cap.data.size();
+                // A ring around a through-hole mouth can look like an axial
+                // cap if the radial tolerance reaches past the cylinder wall.
+                // Require support in both radial bands of a filled disk.
+                const double capRadius = radius(cap.t);
+                const double outerMargin = std::min(tolerance, capRadius * 0.05);
+                if (!std::isfinite(capRadius) || capRadius <= tolerance ||
+                    capRadius - outerMargin <= capRadius * 0.5)
+                    continue;
+                std::array<std::size_t, 2> radialBandCounts{};
+                for (const auto* point : cap.data) {
+                    const double pointRadius = radialLength(
+                        subtract(point->position, origin), axis);
+                    if (pointRadius <= capRadius * 0.5)
+                        ++radialBandCounts[0];
+                    else if (pointRadius < capRadius - outerMargin)
+                        ++radialBandCounts[1];
+                }
+                const auto minimumBandPoints = std::max<std::size_t>(
+                    3, static_cast<std::size_t>(std::ceil(
+                        cap.data.size() * options.minimumCapRadialBandPointFraction)));
+                if (radialBandCounts[0] < minimumBandPoints ||
+                    radialBandCounts[1] < minimumBandPoints)
+                    continue;
                 result.push_back(std::move(cap));
             }
         }

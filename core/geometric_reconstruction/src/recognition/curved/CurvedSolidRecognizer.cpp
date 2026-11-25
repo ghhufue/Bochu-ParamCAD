@@ -11,7 +11,10 @@ bool reconstructCurvedSolid(const PointStore &points, const CurvedSolidRecogniti
         !std::isfinite(options.distanceTolerance) || options.distanceTolerance <= 0 ||
         !(options.minimumSurfaceCoverage > 0 && options.minimumSurfaceCoverage <= 1) ||
         !(options.minimumBoundaryCoverage > 0 && options.minimumBoundaryCoverage <= 1) ||
-        !(options.minimumNormalAlignment > 0 && options.minimumNormalAlignment <= 1)) {
+        !(options.minimumNormalAlignment > 0 && options.minimumNormalAlignment <= 1) ||
+        !std::isfinite(options.minimumCapRadialBandPointFraction) ||
+        !(options.minimumCapRadialBandPointFraction > 0 &&
+          options.minimumCapRadialBandPointFraction <= 0.5)) {
         error = "Curved solid requires metric points and valid recognition tolerances";
         return false;
     }
@@ -51,7 +54,10 @@ bool recognizeCurvedSolidFromAnalysis(const PointStore& points, const SurfaceAna
         !std::isfinite(options.distanceTolerance) || options.distanceTolerance <= 0 ||
         !(options.minimumSurfaceCoverage > 0 && options.minimumSurfaceCoverage <= 1) ||
         !(options.minimumBoundaryCoverage > 0 && options.minimumBoundaryCoverage <= 1) ||
-        !(options.minimumNormalAlignment > 0 && options.minimumNormalAlignment <= 1)) {
+        !(options.minimumNormalAlignment > 0 && options.minimumNormalAlignment <= 1) ||
+        !std::isfinite(options.minimumCapRadialBandPointFraction) ||
+        !(options.minimumCapRadialBandPointFraction > 0 &&
+          options.minimumCapRadialBandPointFraction <= 0.5)) {
         error = "Curved solid requires metric points and valid recognition tolerances"; return false;
     }
     for (const auto& p : points.points()) if (!p.normal || !p.normalOrientationKnown) {

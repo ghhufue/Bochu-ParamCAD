@@ -45,14 +45,18 @@ $validator = "apps/ParamCAD Studio/build/msvc-debug/Release/cad_reconstruction_v
 $source = "data/performance-validation/level-03/t-bracket-multi-axis-holes/model.step"
 $reference = "outputs/performance-validation-reference/level-03/t-bracket-multi-axis-holes"
 New-Item -ItemType Directory -Path $reference -Force | Out-Null
-& $validator sample $source "$reference/sampling.json" "$reference/cloud.ply" 1
+& $validator sample $source "$reference/sampling.json" "$reference/cloud.ply" 0.5
 & $validator inspect-step $source "$reference/brep.json"
 ```
 
 The sampler writes source-frame XYZ and outward normals. `sampling.json`
-records the actual per-face point ranges and density. `brep.json` provides
-the STEP inspection metadata, and `case.json` supplies feature-specific
-targets where applicable.
+records the actual per-face point ranges and density. Its optional
+`--preserve-edges` flag adds topology-informed samples along STEP edges. This is
+a showcase-only aid that deliberately over-represents edges to help the
+reconstruction algorithm form cleaner displayed solids. Leave it disabled for
+correctness validation so the samples do not encode STEP edge locations.
+`brep.json` provides the STEP inspection metadata, and `case.json` supplies
+feature-specific targets where applicable.
 
 Run each case with a **new or empty** output directory:
 

@@ -18,6 +18,19 @@ python tools/showcase/capture_level_steps.py --level level-01
 
 When multiple Studio processes are running, select one with `--session SESSION_ID`.
 
+For showcase clouds sampled directly from STEP, use a `0.5 mm` surface spacing
+and enable the optional edge-fidelity samples. These topology-informed edge
+samples are intended to help the showcase reconstruction produce cleaner
+display geometry. Do not enable them for correctness validation.
+
+```powershell
+$validator = "apps/ParamCAD Studio/build/msvc-debug/Release/cad_reconstruction_validation.exe"
+$source = "data/performance-validation/level-01/box-through-hole/model.step"
+$output = "outputs/performance-validation-showcase-dense/level-01/box-through-hole"
+New-Item -ItemType Directory -Path $output -Force | Out-Null
+& $validator sample $source "$output/sampling.json" "$output/cloud.ply" 0.5 --preserve-edges
+```
+
 Run online cloud loading, surface detection, CAD reconstruction and, after a successful reconstruction, STEP export while capturing each supported stage:
 
 ```powershell
@@ -38,6 +51,12 @@ The orbit camera stays 45 degrees above the XY base plane and completes one turn
 
 ```powershell
 python tools/showcase/build_performance_showcase.py --level level-01
+```
+
+For a tightly joined Level 1 presentation with a separate title band:
+
+```powershell
+python tools/showcase/build_performance_showcase.py --level level-01 --presentation
 ```
 
 Build and concatenate multiple levels in playback order:

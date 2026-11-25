@@ -23,6 +23,7 @@ struct CurvedSolidRecognitionOptions {
     double capGroupToleranceMultiplier = 4;
     std::size_t minimumCapPoints = 12;
     std::size_t capPointDivisor = 1000;
+    double minimumCapRadialBandPointFraction = 0.1;
     std::size_t sphereAngularBins = 12;
     std::size_t sphereAxialBins = 6;
     std::size_t torusAngularBins = 24;

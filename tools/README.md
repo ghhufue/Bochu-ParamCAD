@@ -81,13 +81,13 @@ python -m tools.validation.run_step_surface_validation data/real-workpieces-step
 底层命令也可单独重放：
 
 ```powershell
-& "apps/ParamCAD Studio/build/msvc-debug/Release/cad_reconstruction_validation.exe" sample source.step reference.json cloud.ply 1.0
+& "apps/ParamCAD Studio/build/msvc-debug/Release/cad_reconstruction_validation.exe" sample source.step reference.json cloud.ply 0.5
 & "apps/ParamCAD Studio/build/msvc-debug/Release/cad_reconstruction_validation.exe" analyze cloud.ply analysis.json reference.json 0.05
 & "apps/ParamCAD Studio/build/msvc-debug/Release/cad_reconstruction_validation.exe" analyze-client cloud.ply client.json reference.json 0.05
 ```
 
-`sample` 每面保留 256–2048 个样本，在三角网格的 UV 区域中采样并核对实际裁剪边界，
-再计算解析位置和有向法向。间距是目标值；逐面实际密度会记录在参考清单中。
+`sample` 按 `0.5 mm` 目标间距为每个 STEP 面分配面积加权样本，在三角网格的 UV 区域中采样并核对实际裁剪边界，
+再计算解析位置和有向法向。逐面实际密度会记录在参考清单中。正确性验证不启用 `--preserve-edges`。
 检测读取的 PLY 只有位置和法向，单位 sidecar 也不含面或实体标签。
 
 ## 仅点云的 CAD 重建

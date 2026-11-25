@@ -231,6 +231,17 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
             screeningScene.header.sourceFingerprint=0;
             std::vector<std::pair<SolidCandidate,SolidCandidate>> screened;
             std::vector<std::string> screeningFailures;
+            const auto describeProposal = [](const SolidCandidate& proposal) {
+                std::string label = "candidate patches=";
+                for (std::size_t i = 0; i < proposal.supportingPatches.size(); ++i) {
+                    if (i) label += ",";
+                    label += std::to_string(proposal.supportingPatches[i]);
+                }
+                label += "; operations=" + std::to_string(proposal.featureProgram.size());
+                if (proposal.curvedSolid) label += "; curved=1";
+                if (proposal.boundaryBody) label += "; boundary=1";
+                return label;
+            };
             const auto scoringTolerance = [&](const SolidCandidate& candidate) {
                 double value = output.analysis.options.detection.plane.distanceThreshold;
                 for (const auto& patch : scene.patches)
@@ -250,7 +261,13 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
                         candidate, scoringError, screeningOptions, progress.solid) && candidate.status == SolidCandidateStatus::Accepted)
                     screened.emplace_back(proposal,std::move(candidate));
                 else if (!scoringError.empty()) screeningFailures.push_back(scoringError);
-                else if (!candidate.diagnostics.empty()) screeningFailures.push_back(candidate.diagnostics.back());
+                else if (!candidate.diagnostics.empty()) {
+                    auto failure = describeProposal(proposal) + ": " + candidate.diagnostics.back();
+                    if (candidate.occupancyConflictCount)
+                        failure += " (occupancy_conflicts=" +
+                            std::to_string(candidate.occupancyConflictCount) + ")";
+                    screeningFailures.push_back(std::move(failure));
+                }
                 else screeningFailures.push_back("candidate rejected");
             }
             std::stable_sort(screened.begin(),screened.end(),[](const auto& a,const auto& b){

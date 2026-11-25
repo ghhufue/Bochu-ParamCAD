@@ -72,7 +72,7 @@ def main() -> int:
     parser.add_argument("model", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--executable", type=Path, default=DEFAULT_ENGINE)
-    parser.add_argument("--spacing", type=float, default=1.0)
+    parser.add_argument("--spacing", type=float, default=0.5)
     parser.add_argument("--tolerance", type=float, default=0.05)
     parser.add_argument("--noise", type=float, default=0.0, help="Seeded position noise sigma in mm")
     parser.add_argument("--seed", type=int, default=4500)
@@ -104,6 +104,10 @@ def main() -> int:
             if previous["cloud_sha256"] != sha256(cloud):
                 raise ValueError("Saved replay cloud has changed")
             sampled = json.loads(reference.read_text(encoding="utf-8"))
+            if not math.isclose(sampled.get("spacing_mm", math.nan), args.spacing):
+                raise ValueError("Replay sampling spacing does not match; regenerate the validation cloud")
+            if sampled.get("edge_fidelity_enabled", False):
+                raise ValueError("Showcase edge-fidelity samples cannot be used for correctness validation")
             clean_hash = previous["clean_cloud_sha256"]
             archive = output / "history" / str(time.time_ns())
             archive.mkdir(parents=True)

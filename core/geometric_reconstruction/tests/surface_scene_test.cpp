@@ -1,6 +1,7 @@
 #include "reconstruction/solid_inference/SurfaceScene.h"
 #include "reconstruction/solid_inference/SolidInference.h"
 #include "reconstruction/modeling/ModelingAdapter.h"
+#include "reconstruction/recognition/CurvedSolidRecognizer.h"
 #include "reconstruction/surface/SurfaceFootprint.h"
 #include "reconstruction/surface/SurfaceSupportValidation.h"
 
@@ -771,6 +772,80 @@ int main() {
     if(!sphereCommit.success||sphereModel.bodyShape().IsNull()||sphereModel.features().empty()) {
         std::cerr<<"curved candidate commit: "<<sphereCommit.error<<'\n';
         return 69;
+    }
+
+    const auto cylinderSamples = [](bool filledCaps) {
+        constexpr double radius = 5;
+        constexpr double height = 10;
+        constexpr double pi = 3.14159265358979323846;
+        std::vector<reconstruction::PointSample> samples;
+        for (int axial = 0; axial < 40; ++axial) {
+            const double z = height * (axial + 0.5) / 40;
+            for (int angle = 0; angle < 64; ++angle) {
+                const double theta = 2 * pi * angle / 64;
+                const modeling::Vec3 normal{std::cos(theta), std::sin(theta), 0};
+                samples.push_back({samples.size() + 1,
+                    {radius * normal.x, radius * normal.y, z}, normal, 1});
+            }
+        }
+        for (int end = 0; end < 2; ++end) {
+            const double z = end == 0 ? 0 : height;
+            const modeling::Vec3 normal{0, 0, end == 0 ? -1.0 : 1.0};
+            if (filledCaps) {
+                for (int radial = 0; radial < 8; ++radial) {
+                    const double r = radius * (radial + 0.5) / 8;
+                    for (int angle = 0; angle < 64; ++angle) {
+                        const double theta = 2 * pi * angle / 64;
+                        samples.push_back({samples.size() + 1,
+                            {r * std::cos(theta), r * std::sin(theta), z}, normal, 1});
+                    }
+                }
+            } else {
+                for (const double r : {radius + 0.02, radius + 0.08, radius + 0.14}) {
+                    for (int angle = 0; angle < 16; ++angle) {
+                        const double theta = 2 * pi * angle / 16;
+                        samples.push_back({samples.size() + 1,
+                            {r * std::cos(theta), r * std::sin(theta), z}, normal, 1});
+                    }
+                }
+            }
+        }
+        return reconstruction::PointStore(std::move(samples),
+            reconstruction::LengthUnit::Millimeter);
+    };
+    const auto recognizeCylinder = [](const reconstruction::PointStore& points,
+                                      reconstruction::CurvedSolidCandidate& candidate,
+                                      std::string& recognitionError) {
+        reconstruction::CylinderEvidence evidence;
+        evidence.id = 1;
+        evidence.cylinder = {{0, 0, 0}, {0, 0, 1}, 5};
+        evidence.axialMinimum = 0;
+        evidence.axialMaximum = 10;
+        evidence.angularCoverage = 1;
+        for (const auto& point : points.points())
+            if (point.normal && std::abs(point.normal->z) < .1)
+                evidence.supportPointIds.push_back(point.id);
+        reconstruction::SurfaceAnalysisResult analysis;
+        analysis.pointFingerprint = reconstruction::pointStoreFingerprint(points);
+        analysis.unit = points.unit();
+        analysis.surfaces.emplace_back(evidence);
+        reconstruction::CurvedSolidRecognitionOptions options;
+        options.distanceTolerance = .1;
+        return reconstruction::recognizeCurvedSolidFromAnalysis(
+            points, analysis, options, candidate, recognitionError);
+    };
+    const auto openCylinderPoints = cylinderSamples(false);
+    reconstruction::CurvedSolidCandidate openCylinder;
+    if (recognizeCylinder(openCylinderPoints, openCylinder, error)) {
+        std::cerr << "annular through-hole lips must not close a positive cylinder\n";
+        return 73;
+    }
+    const auto closedCylinderPoints = cylinderSamples(true);
+    reconstruction::CurvedSolidCandidate closedCylinder;
+    if (!recognizeCylinder(closedCylinderPoints, closedCylinder, error) ||
+        !std::holds_alternative<modeling::CylinderPrimitiveParams>(closedCylinder.primitive)) {
+        std::cerr << "filled cylinder caps must support a positive cylinder: " << error << '\n';
+        return 74;
     }
 
     std::vector<reconstruction::PointSample> coneSamples;
