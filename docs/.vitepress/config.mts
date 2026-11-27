@@ -143,9 +143,15 @@ const sections = [
           { text: '实现状态与差距', link: '/development/solid-inference-status' },
         ],
       },
-      { text: '曲面支撑验证修改方案', link: '/development/surface-support-validation-plan' },
-      { text: '多视角图片转点云扩展方案', link: '/development/multiview-reconstruction-extension' },
-      { text: '结构光实现验证记录', link: '/development/structured-light-validation' },
+      {
+        text: '归档（历史方案与验证记录）',
+        collapsed: true,
+        items: [
+          { text: '曲面支撑验证修改方案（已实现）', link: '/development/surface-support-validation-plan' },
+          { text: '多视角图片转点云扩展方案（已实现）', link: '/development/multiview-reconstruction-extension' },
+          { text: '结构光实现验证记录（历史记录）', link: '/development/structured-light-validation' },
+        ],
+      },
       { text: '路线图与里程碑', link: '/development/roadmap' },
     ],
   },

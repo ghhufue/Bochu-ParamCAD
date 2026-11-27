@@ -1,5 +1,7 @@
 # 多视角图片转点云扩展方案
 
+> **归档说明（2026-11-27）**：本文是早期的设计文档，计划中的能力已实现，仅保留作参考，不再作为当前实现依据。当前能力与操作说明以[结构光模块](/modules/structured-light)为准，实测结果见[结构光实现验证记录](/development/structured-light-validation)。
+
 状态：P0–P2 的客户端闭环和 P3 相移/曝光、Mitsuba 路径追踪对照已实现；Mitsuba 3.9.1 已随离线包分发，VTK 仍为默认后端。更新日期：2026-11-13。原阶段目标保留于下文；实际能力见[模块手册](/modules/structured-light)，逐项证据与未完成项见第 10 节及[验证记录](/development/structured-light-validation)。
 
 本文规划在现有 ParamCAD Studio 中增加主动投影重建能力。先独立跑通编码结构光的图片采集、解码、三角化和多站融合，再考虑与 COLMAP 共享位姿或融合结果。首选技术路线为单相机与单投影器组成的扫描头，先实现 Gray Code，后续增加相移条纹。

@@ -1,5 +1,7 @@
 # 结构光实现验证记录
 
+> **归档说明（2026-11-27）**：本文是历史验证记录，数据取自当时版本，仅保留作参考，不代表当前产品指标。当前能力说明见[结构光模块](/modules/structured-light)。
+
 日期：2026-11-13。本文记录 VTK 直接光照后端与 Mitsuba 路径追踪适配的测量结果，不把软件中的均匀金属参数当作经过测量的真实钢材。完整要求见[扩展方案](/development/multiview-reconstruction-extension)，操作和数据格式见[结构光模块](/modules/structured-light)。
 
 ## 固定参数对照
