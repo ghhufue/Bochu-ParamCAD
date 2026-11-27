@@ -136,12 +136,22 @@ struct ProjectionSketchBoundary {
     std::size_t discardedRegionCount = 0;
 };
 
+struct ProgramFaceReference {
+    // Zero-based index of the producing operation in this program.
+    std::size_t operationIndex = 0;
+    modeling::FaceRole role = modeling::FaceRole::Unknown;
+    double normalOffset = 0.0;
+    modeling::SketchEntityId profileEdge = modeling::kInvalidSketchEntityId;
+};
+
 struct ProjectionOperation {
     modeling::SketchFeatureParams sketch;
     modeling::ExtrudeOperation operation = modeling::ExtrudeOperation::NewBody;
     double depth = 0;
     bool reverse = false;
     std::vector<PointId> supportPointIds;
+    std::optional<ProgramFaceReference> sketchFace;
+    bool throughAll = false;
 };
 
 struct ProjectionFitQuality {

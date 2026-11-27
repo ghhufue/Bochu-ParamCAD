@@ -624,6 +624,17 @@ if(CAD_CLIENT_BUILD_TESTS)
     add_test(NAME surface_scene_test COMMAND surface_scene_test)
     set_tests_properties(surface_scene_test PROPERTIES
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${OpenCASCADE_BINARY_DIR}")
+
+    add_executable(gusset_history_test ../../core/geometric_reconstruction/tests/gusset_history_test.cpp)
+    target_link_libraries(gusset_history_test PRIVATE GeometricReconstruction::GeometricReconstruction)
+    add_test(NAME gusset_history_test COMMAND gusset_history_test)
+    set_tests_properties(gusset_history_test PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${OpenCASCADE_BINARY_DIR}")
+    add_executable(side_hole_history_test ../../core/geometric_reconstruction/tests/side_hole_history_test.cpp)
+    target_link_libraries(side_hole_history_test PRIVATE GeometricReconstruction::GeometricReconstruction)
+    add_test(NAME side_hole_history_test COMMAND side_hole_history_test)
+    set_tests_properties(side_hole_history_test PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${OpenCASCADE_BINARY_DIR}")
     add_executable(projection_stage_test ../../core/geometric_reconstruction/tests/projection_stage_test.cpp)
     target_include_directories(projection_stage_test PRIVATE ../../core/geometric_reconstruction/src)
     target_link_libraries(projection_stage_test PRIVATE GeometricReconstruction::GeometricReconstruction)

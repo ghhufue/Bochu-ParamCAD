@@ -40,13 +40,22 @@ bool resolve(const std::vector<Feature>& features, const SketchPlaneReference& r
         if (!std::isfinite(distance)) { error = "Offset datum plane distance must be finite"; return false; }
     } else {
         const auto& face = std::get<FaceReference>(reference);
+        if (!std::isfinite(face.normalOffset)) {
+            error = "Face reference offset must be finite";
+            return false;
+        }
         const auto owner = std::find_if(features.begin(),features.end(),[&](const Feature& f) { return f.id == face.ownerFeature; });
         if (owner == features.end() || owner->suppressed || !owner->valid) {
             error = "ReferenceLost: owner feature " + std::to_string(face.ownerFeature) + " has no available geometry";
             return false;
         }
         if (const auto* extrude = std::get_if<ExtrudeFeatureParams>(&owner->params)) {
-            if (face.role != FaceRole::StartFace && face.role != FaceRole::EndFace) {
+            if (extrude->throughAll) {
+                error = "ReferenceLost: through-all cuts have no fixed extrusion caps";
+                return false;
+            }
+            if (face.role != FaceRole::StartFace && face.role != FaceRole::EndFace &&
+                face.role != FaceRole::ExtrusionSide) {
                 error = "ReferenceLost: unsupported extrusion face role"; return false;
             }
             const auto sketch = std::find_if(features.begin(),owner,[&](const Feature& f) { return f.id == extrude->sketchId; });
@@ -55,12 +64,21 @@ bool resolve(const std::vector<Feature>& features, const SketchPlaneReference& r
             }
             const auto* params = std::get_if<SketchFeatureParams>(&sketch->params);
             if (!params || !resolve(features,params->plane,plane,error,depth+1)) return false;
+            if (face.role == FaceRole::ExtrusionSide) {
+                if (!extrusionSidePlane(*params, plane, extrude->reverse, face.profileEdge, plane, error))
+                    return false;
+                plane.origin = add(plane.origin, plane.normal, face.normalOffset);
+                return true;
+            }
             const auto direction = add(Vec3{},plane.normal,extrude->reverse ? -1 : 1);
             if (face.role == FaceRole::EndFace) plane.origin = add(plane.origin,direction,extrude->depth);
             plane.normal = face.role == FaceRole::EndFace ? direction : add(Vec3{},direction,-1);
+            plane.origin = add(plane.origin, plane.normal, face.normalOffset);
             return true;
         }
-        return primitiveFacePlane(owner->params,face.role,plane,error);
+        if (!primitiveFacePlane(owner->params,face.role,plane,error)) return false;
+        plane.origin = add(plane.origin, plane.normal, face.normalOffset);
+        return true;
     }
     if (base == DatumPlane::XY) plane = {{},{0,0,1},{1,0,0}};
     else if (base == DatumPlane::YZ) plane = {{},{1,0,0},{0,1,0}};
@@ -83,7 +101,51 @@ const char* faceRoleName(FaceRole role) {
     case FaceRole::BoxZMax: return "Box +Z";
     case FaceRole::CylinderBase: return "Cylinder base";
     case FaceRole::CylinderTop: return "Cylinder top";
+    case FaceRole::ExtrusionSide: return "Extrusion side";
     default: return "Unknown";
+    }
+}
+
+bool extrusionSidePlane(const SketchFeatureParams& sketch, const Plane3d& source,
+                        bool reverse, SketchEntityId edge, Plane3d& plane, std::string& error) {
+    const Line2D* selected = nullptr;
+    const Line2D* previous = nullptr;
+    const Line2D* first = nullptr;
+    double area = 0;
+    constexpr double tolerance = 1e-7;
+    const auto connects = [&](const Line2D& a, const Line2D& b) {
+        return std::hypot(a.x2-b.x1, a.y2-b.y1) <= tolerance;
+    };
+    for (const auto& entity : sketch.entities) {
+        const auto* line = std::get_if<Line2D>(&entity.geometry);
+        if (!line || (previous && !connects(*previous, *line))) {
+            error = "ReferenceLost: side reference needs an ordered polygon sketch";
+            return false;
+        }
+        if (!first) first = line;
+        if (entity.id == edge) selected = line;
+        area += line->x1 * line->y2 - line->x2 * line->y1;
+        previous = line;
+    }
+    if (edge == kInvalidSketchEntityId || !selected || !connects(*previous, *first) ||
+        !std::isfinite(area) || std::abs(area) <= tolerance * tolerance) {
+        error = "ReferenceLost: side profile edge or closed polygon is unavailable";
+        return false;
+    }
+    try {
+        const auto frame = normalized(source);
+        const auto y = cross(frame.normal, frame.xDirection);
+        const auto tangent = add(add(Vec3{}, frame.xDirection, selected->x2-selected->x1),
+            y, selected->y2-selected->y1);
+        const auto normal = unit(cross(tangent, frame.normal));
+        const auto origin = add(add(frame.origin, frame.xDirection, selected->x1), y, selected->y1);
+        plane = normalized({origin, add(Vec3{}, normal, area > 0 ? 1 : -1),
+            add(Vec3{}, frame.normal, reverse ? -1 : 1)});
+        error.clear();
+        return true;
+    } catch (const std::exception& failure) {
+        error = failure.what();
+        return false;
     }
 }
 

@@ -259,8 +259,10 @@ CACHE_FIELDS(reconstruction::ProjectionExtrusionOptions, v.distanceTolerance, v.
 CACHE_FIELDS(reconstruction::ProjectionSketchInput, v.plane, v.section, v.points, v.alphaRadius,
     v.simplificationTolerance, v.firstPointId, v.regionSupport, v.automaticAlphaScale)
 
+CACHE_FIELDS(reconstruction::ProgramFaceReference, v.operationIndex, v.role, v.normalOffset, v.profileEdge)
+
 CACHE_FIELDS(reconstruction::ProjectionOperation, v.sketch, v.operation, v.depth, v.reverse,
-    v.supportPointIds)
+    v.supportPointIds, v.sketchFace, v.throughAll)
 
 CACHE_FIELDS(reconstruction::ProjectionFitQuality, v.scoredPoints, v.medianDistance, v.p95Distance,
     v.surfaceInlierFraction, v.unsupportedFaceAreaFraction, v.meanNormalErrorDegrees, v.normalComparisons,
@@ -288,7 +290,7 @@ CACHE_FIELDS(modeling::ConePrimitiveParams, v.baseCenter, v.axisDirection, v.bas
 CACHE_FIELDS(modeling::TorusPrimitiveParams, v.center, v.axisDirection, v.majorRadius, v.minorRadius, v.join)
 
 CACHE_FIELDS(modeling::FaceReference, v.ownerFeature, v.role, v.normal, v.centroid, v.area,
-    v.transientFaceIndexHint)
+    v.transientFaceIndexHint, v.normalOffset, v.profileEdge)
 
 CACHE_FIELDS(modeling::DatumPlaneReference, v.plane)
 

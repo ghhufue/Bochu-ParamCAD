@@ -1,6 +1,7 @@
 #pragma once
 
 #include "reconstruction/solid_inference/SurfaceScene.h"
+#include "reconstruction/parts/ProjectionExtrusion.h"
 #include "reconstruction/recognition/CurvedSolidRecognizer.h"
 #include "modeling/FeatureParams.h"
 #include "modeling/ProfileBody.h"
@@ -10,13 +11,7 @@ namespace reconstruction {
 
 enum class SolidCandidateStatus { Proposed, Accepted, Ambiguous, Rejected };
 
-struct SolidFeatureOperation {
-    modeling::SketchPlaneReference plane;
-    std::vector<modeling::SketchEntity> entities;
-    double depth = 0;
-    bool reverse = false;
-    modeling::ExtrudeOperation operation = modeling::ExtrudeOperation::NewBody;
-};
+using SolidFeatureOperation = ProjectionOperation;
 
 struct InferredSurfaceRecord {
     PrimitiveKind kind = PrimitiveKind::Plane;

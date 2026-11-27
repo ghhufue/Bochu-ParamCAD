@@ -28,7 +28,7 @@ using namespace reconstruction_cache;
 using diagnostics::profileStage;
 
 constexpr qint64 maxPayloadBytes = 512 * 1024 * 1024;
-constexpr int formatVersion = 1;
+constexpr int formatVersion = 4;
 
 QString cacheDirectory()
 {

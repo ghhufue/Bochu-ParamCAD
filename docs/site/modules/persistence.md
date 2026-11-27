@@ -46,7 +46,10 @@ STEP 输入是经过验证的 `TopoDS_Shape` 和输出路径；输出是 STEP �
 - 普通工程写 `version: 2`；
 - 任一拉伸带 `targetBody`（限定目标体的布尔）时写 `version: 3`；
 - 任一草图包含三点圆弧（`Arc2D`）时写 `version: 4`，优先于版本 3；
-- 读取接受 `version` 1、2、3、4；缺失 `resizeAnchor` 时按“圆柱默认底面、其他默认中心”恢复，缺失 `manuallyEdited` 时按 `false`。旧版本没有圆弧实体，读取时按原有直线、矩形和圆恢复。
+- 任一拉伸切除使用 `throughAll` 时写 `version: 5`，优先于版本 3 和 4；
+- 任一草图使用沿宿主面法向的偏移时写 `version: 6`；
+- 任一草图按轮廓边 ID 引用拉伸侧面时写 `version: 7`；
+- 读取接受 `version` 1 至 7；缺失 `resizeAnchor` 时按“圆柱默认底面、其他默认中心”恢复，缺失 `manuallyEdited` 时按 `false`。旧版本没有圆弧实体，读取时按原有直线、矩形和圆恢复。
 
 依赖：Qt Core（`QSaveFile`、`QDataStream`、`QCryptographicHash`、JSON、图像）、OpenCASCADE（`BRepTools`、`BRepCheck_Analyzer`、布尔材料比较）、建模核心（`restoreFeatures` 重建）、`PlyReader`/`PlyWriter` 和点云标注编解码。
 
@@ -84,7 +87,7 @@ STEP 回读由 `StepModelLoader` 完成：使用 Unicode 感知的输入流读�
 
 Studio 和原生 `pcad` 共用一份磁盘重建缓存。它不属于 `.pcad` 工程，也不改变点云、集合、关系或特征历史；打开 PLY 时仍只载入点云，只有主动执行表面识别或 CAD 重建时才读取和写入缓存。
 
-- 默认目录为 Qt 缓存目录下的 `reconstruction/v1`；设置 `PCAD_CACHE_DIR` 可把根目录改到独立位置，设置 `PCAD_DISABLE_CACHE=1` 可完全绕过缓存做对照。
+- 默认目录为 Qt 缓存目录下的 `reconstruction/v4`；设置 `PCAD_CACHE_DIR` 可把根目录改到独立位置，设置 `PCAD_DISABLE_CACHE=1` 可完全绕过缓存做对照。
 - 缓存按阶段保存：`preprocessing`、`surface_evidence`、`working_analysis`、`source_analysis`、`primitive_detection`、`recognition`、`assembly_grouping`、`assembly_preparation`、`assembly_closure`、`assembly_projection` 和 `source_surface_preview`。
 - 键绑定实际观测、单位、生效设置、阶段实现和数据格式版本；写入时在文件头记录客户端版本、Git 提交和工作区指纹。单条载荷上限为 512 MiB，校验失败或版本不符都按未命中处理。
 - 装配按提取分组、边界准备、闭合和投影分层保存，单独修改投影参数仍可复用前面的结果。CAD 未闭合后用于显示源点验证面片的预览也可复用。
@@ -108,7 +111,7 @@ Studio 和原生 `pcad` 共用一份磁盘重建缓存。它不属于 `.pcad` �
 ## 已知限制
 
 - 工程是整体归档，没有增量保存、压缩或部分恢复；任一清单项或资产校验失败都会拒绝整个工程。
-- 版本迁移只覆盖 1、2、3、4 四种读取路径，没有通用 schema 迁移框架；更高版本会被直接拒绝。
+- 工程读取覆盖版本 1 至 7。更高版本会被直接拒绝。
 - 重建缓存不进入工程，也不随工程复制；更换构建、设置或点云后旧条目只能按未命中处理，不会自动迁移。
 - 撤销历史、待处理草图手势和拍摄镜头列表不进入工程，重开后只能从已提交状态继续。
 - 纹理在保存时重新编码为 PNG；若原始纹理格式或色彩管理重要，工程内保存的副本不等同于源文件。

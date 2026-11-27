@@ -254,14 +254,29 @@ bool ProjectStore::save(const QString& path, const ProjectSnapshot& state, QStri
             const auto* extrude = std::get_if<modeling::ExtrudeFeatureParams>(&feature.params);
             return extrude && extrude->targetBody;
         });
+        const bool throughAllExtrusions = std::any_of(state.features.begin(), state.features.end(), [](const auto& feature) {
+            const auto* extrude = std::get_if<modeling::ExtrudeFeatureParams>(&feature.params);
+            return extrude && extrude->throughAll;
+        });
         const bool arcSketches = std::any_of(state.features.begin(), state.features.end(), [](const auto& feature) {
             const auto* sketch = std::get_if<modeling::SketchFeatureParams>(&feature.params);
             return sketch && std::any_of(sketch->entities.begin(), sketch->entities.end(), [](const auto& entity) {
                 return std::holds_alternative<modeling::Arc2D>(entity.geometry);
             });
         });
+        const bool offsetFacePlanes = std::any_of(state.features.begin(), state.features.end(), [](const auto& feature) {
+            const auto* sketch = std::get_if<modeling::SketchFeatureParams>(&feature.params);
+            const auto* face = sketch ? std::get_if<modeling::FaceReference>(&sketch->plane) : nullptr;
+            return face && face->normalOffset != 0;
+        });
+        const bool profileEdgePlanes = std::any_of(state.features.begin(), state.features.end(), [](const auto& feature) {
+            const auto* sketch = std::get_if<modeling::SketchFeatureParams>(&feature.params);
+            const auto* face = sketch ? std::get_if<modeling::FaceReference>(&sketch->plane) : nullptr;
+            return face && face->role == modeling::FaceRole::ExtrusionSide;
+        });
         QJsonObject manifest{{"schema", "paramcad.project"},
-                             {"version", arcSketches ? 4 : scopedOperations ? 3 : 2},
+                             {"version", profileEdgePlanes ? 7 : offsetFacePlanes ? 6 : throughAllExtrusions ? 5 :
+                                 arcSketches ? 4 : scopedOperations ? 3 : 2},
                              {"features", FeatureCodec::encode(state.features)},
                              {"parametricBody", state.parametricBody},
                              {"view", viewJson(state.view)}};
@@ -351,7 +366,8 @@ std::unique_ptr<PreparedProject> ProjectStore::load(const QString& path, QString
         const auto manifest = document.object();
         check(manifest["schema"] == "paramcad.project" &&
                   (manifest["version"] == 1 || manifest["version"] == 2 ||
-                   manifest["version"] == 3 || manifest["version"] == 4),
+                   manifest["version"] == 3 || manifest["version"] == 4 ||
+                   manifest["version"] == 5 || manifest["version"] == 6 || manifest["version"] == 7),
               QCoreApplication::translate("ProjectStore", "不支持的项目格式/版本"));
         check(manifest["features"].isArray() && manifest["view"].isObject() &&
               manifest["assets"].isArray() && manifest["selection"].isArray());

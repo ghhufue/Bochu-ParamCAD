@@ -1,6 +1,7 @@
 #include "reconstruction/parts/ProjectionExtrusion.h"
 
 #include "ProjectionInternal.h"
+#include "reconstruction/modeling/ModelingAdapter.h"
 #include "reconstruction/parts/ProjectionSettings.h"
 #include "modeling/ModelingCore.h"
 #include "common/spatial/KdTree.h"
@@ -299,14 +300,9 @@ bool buildProjectionProgram(const std::vector<ProjectionOperation>& operations,
         error = "Projection program requires a base extrusion";
         return false;
     }
-    FeatureId target = kInvalidFeatureId;
+    std::vector<FeatureId> operationIds;
     for (const auto& operation : operations) {
-        const auto sketch = staged.execute(AddFeatureCommand{operation.sketch,true});
-        if (!sketch.success) { error = sketch.error; return false; }
-        const auto added = staged.execute(AddFeatureCommand{
-            ExtrudeFeatureParams{sketch.featureId,operation.depth,operation.reverse,operation.operation,target},true});
-        if (!added.success) { error = added.error; return false; }
-        target = added.featureId;
+        if (!appendFeatureProgramOperation(operation, operationIds, staged, error)) return false;
         if (!staged.rebuild()) { error = staged.lastError(); return false; }
         const auto& shape = staged.bodyShape();
         TopExp_Explorer solids(shape, TopAbs_SOLID);

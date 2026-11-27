@@ -137,6 +137,55 @@ void scopedExtrusionProject(QTemporaryDir& temp) {
             "scoped extrusion target survives project round trip");
     require(std::abs(volume(loaded->model.bodyShape())-88)<1e-6,
             "scoped extrusion replay preserves the neighboring solid");
+
+    auto throughAll = state;
+    std::get<SketchFeatureParams>(throughAll.features[3].params).plane = featureFace(3, FaceRole::EndFace);
+    auto& throughCut = std::get<ExtrudeFeatureParams>(throughAll.features[4].params);
+    throughCut.depth = 1;
+    throughCut.reverse = true;
+    throughCut.throughAll = true;
+    require(core.restoreFeatures(throughAll.features), "build scoped through-all cut");
+    throughAll.currentBody = core.bodyShape();
+    const auto throughPath = temp.filePath("scoped-through-all.pcad");
+    require(ProjectStore::save(throughPath, throughAll, error), "save scoped through-all cut");
+    require(manifest(read(throughPath))["version"] == 5, "through-all extrusion requires project version 5");
+    const auto loadedThrough = ProjectStore::load(throughPath, error);
+    require(loadedThrough && std::get<ExtrudeFeatureParams>(loadedThrough->model.features().back().params).throughAll &&
+            std::get<FaceReference>(std::get<SketchFeatureParams>(loadedThrough->model.features()[3].params).plane).ownerFeature == 3 &&
+            std::abs(volume(loadedThrough->model.bodyShape()) - 88) < 1e-6,
+            "through-all termination and host reference survive project round trip without cutting the neighbor");
+
+    auto offsetPlane = throughAll;
+    std::get<SketchFeatureParams>(offsetPlane.features[3].params).plane = featureFace(3, FaceRole::EndFace, -1);
+    require(core.restoreFeatures(offsetPlane.features), "build scoped cut from an offset host plane");
+    offsetPlane.currentBody = core.bodyShape();
+    const auto offsetPath = temp.filePath("offset-host-plane.pcad");
+    require(ProjectStore::save(offsetPath, offsetPlane, error), "save offset host plane");
+    require(manifest(read(offsetPath))["version"] == 6, "offset host plane requires project version 6");
+    const auto loadedOffset = ProjectStore::load(offsetPath, error);
+    require(loadedOffset &&
+            std::get<FaceReference>(std::get<SketchFeatureParams>(loadedOffset->model.features()[3].params).plane).normalOffset == -1 &&
+            std::abs(volume(loadedOffset->model.bodyShape()) - 90) < 1e-6,
+            "offset host plane and the resulting material survive project round trip");
+
+    auto sidePlane = throughAll;
+    std::get<SketchFeatureParams>(sidePlane.features[1].params).entities = {
+        {1,Line2D{0,0,4,0}}, {2,Line2D{4,0,4,4}},
+        {3,Line2D{4,4,0,4}}, {4,Line2D{0,4,0,0}}};
+    auto& sideSketch = std::get<SketchFeatureParams>(sidePlane.features[3].params);
+    sideSketch.plane = featureFace(3, FaceRole::ExtrusionSide, 0, 2);
+    sideSketch.entities = {{1,Circle2D{2,-2,.5}}};
+    require(core.restoreFeatures(sidePlane.features), "build side edge reference");
+    sidePlane.currentBody = core.bodyShape();
+    const auto sidePath = temp.filePath("scoped-side-bore.pcad");
+    require(ProjectStore::save(sidePath, sidePlane, error), "save side edge reference");
+    require(manifest(read(sidePath))["version"] == 7, "side edge reference requires project version 7");
+    const auto loadedSide = ProjectStore::load(sidePath, error);
+    require(loadedSide &&
+            std::get<FaceReference>(std::get<SketchFeatureParams>(loadedSide->model.features()[3].params).plane).profileEdge == 2 &&
+            std::abs(volume(loadedSide->model.bodyShape()) - (96-std::acos(-1.0))) < 1e-6,
+            "side bore reference round trips and preserves the neighboring solid");
+
     auto displaced = state.features;
     std::get<BoxPrimitiveParams>(displaced.front().params).pose.origin.x += 20;
     require(core.restoreFeatures(displaced),"build same-volume assembly with a displaced body");
@@ -323,7 +372,7 @@ int main(int argc, char** argv)
         metadata["version"] = 1;
         write(bad, withManifest(original, metadata));
         require(ProjectStore::load(bad, error) != nullptr, "version 1 projects remain readable");
-        metadata["version"] = 5;
+        metadata["version"] = 8;
         write(bad, withManifest(original, metadata));
         require(!ProjectStore::load(bad, error) && error.contains(QCoreApplication::translate("ProjectStore", "不支持的项目格式/版本")),
                 "future version rejected");

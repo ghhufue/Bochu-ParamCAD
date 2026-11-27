@@ -25,6 +25,7 @@ enum class FaceRole {
     BoxZMax = 8,
     CylinderBase = 9,
     CylinderTop = 10,
+    ExtrusionSide = 11,
 };
 
 struct FaceReference {
@@ -38,6 +39,8 @@ struct FaceReference {
     Vec3 centroid{};
     double area = 0.0;
     int transientFaceIndexHint = -1;
+    double normalOffset = 0.0;
+    SketchEntityId profileEdge = kInvalidSketchEntityId;
 };
 
 struct DatumPlaneReference {
@@ -74,10 +77,13 @@ inline SketchPlaneReference offsetDatumPlane(DatumPlane plane, double offset) {
     return OffsetDatumPlane{plane, offset};
 }
 
-inline SketchPlaneReference featureFace(FeatureId owner, FaceRole role) {
+inline SketchPlaneReference featureFace(FeatureId owner, FaceRole role, double normalOffset = 0.0,
+                                        SketchEntityId profileEdge = kInvalidSketchEntityId) {
     FaceReference reference;
     reference.ownerFeature = owner;
     reference.role = role;
+    reference.normalOffset = normalOffset;
+    reference.profileEdge = profileEdge;
     return reference;
 }
 

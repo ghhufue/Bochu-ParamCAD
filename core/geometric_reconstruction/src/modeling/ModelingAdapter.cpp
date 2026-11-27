@@ -4,6 +4,57 @@
 
 namespace reconstruction {
 
+bool appendFeatureProgramOperation(const ProjectionOperation& operation,
+    std::vector<modeling::FeatureId>& operationIds, modeling::ModelingCore& staging,
+    std::string& error, modeling::ModelPatch* patch) {
+    using modeling::ExtrudeOperation;
+    const auto target = operation.operation == ExtrudeOperation::NewBody || operationIds.empty()
+        ? modeling::kInvalidFeatureId : operationIds.back();
+    if (operation.sketch.entities.empty() || !std::isfinite(operation.depth) ||
+        (!operation.throughAll && operation.depth <= 0)) {
+        error = "Feature program contains an invalid sketch or extrusion depth";
+        return false;
+    }
+    if (operation.throughAll && (operation.operation != ExtrudeOperation::Cut || !target)) {
+        error = "Through-all feature program operation requires a scoped cut";
+        return false;
+    }
+
+    auto sketch = operation.sketch;
+    if (operation.sketchFace) {
+        const auto& reference = *operation.sketchFace;
+        const bool cap = reference.role == modeling::FaceRole::StartFace ||
+                         reference.role == modeling::FaceRole::EndFace;
+        const bool side = reference.role == modeling::FaceRole::ExtrusionSide;
+        if (reference.operationIndex >= operationIds.size() || !std::isfinite(reference.normalOffset) ||
+            (!cap && !side) || side != (reference.profileEdge != modeling::kInvalidSketchEntityId)) {
+            error = "Feature program sketch must reference a prior extrusion cap or profile edge";
+            return false;
+        }
+        sketch.plane = modeling::featureFace(operationIds[reference.operationIndex], reference.role,
+            reference.normalOffset, reference.profileEdge);
+    }
+
+    const auto append = [&](const modeling::FeatureParams& params) {
+        modeling::AddFeatureCommand command{params, true};
+        if (patch) patch->commands.push_back(command);
+        return staging.execute(command);
+    };
+    const auto sketchResult = append(sketch);
+    if (!sketchResult.success) {
+        error = sketchResult.error;
+        return false;
+    }
+    const auto extrusionResult = append(modeling::ExtrudeFeatureParams{
+        sketchResult.featureId, operation.depth, operation.reverse, operation.operation, target, operation.throughAll});
+    if (!extrusionResult.success) {
+        error = extrusionResult.error;
+        return false;
+    }
+    operationIds.push_back(extrusionResult.featureId);
+    return true;
+}
+
 std::optional<modeling::ModelPatch> planSolidCandidate(
     const SolidCandidate& candidate, const modeling::ModelingCore& snapshot,
     std::string& error, modeling::ModelRevision expectedRevision) {
@@ -27,38 +78,10 @@ std::optional<modeling::ModelPatch> planSolidCandidate(
             error = "Solid candidate feature program must begin with NewBody";
             return std::nullopt;
         }
-        modeling::FeatureId targetBody = modeling::kInvalidFeatureId;
-        for (const auto& operation : candidate.featureProgram) {
-            if (operation.entities.empty() || !std::isfinite(operation.depth) || operation.depth <= 0) {
-                error = "Solid candidate contains an invalid sketch or extrusion depth";
+        std::vector<modeling::FeatureId> operationIds;
+        for (const auto& operation : candidate.featureProgram)
+            if (!appendFeatureProgramOperation(operation, operationIds, staged, error, &patch))
                 return std::nullopt;
-            }
-            modeling::SketchFeatureParams sketch;
-            sketch.plane = operation.plane;
-            sketch.entities = operation.entities;
-            modeling::AddFeatureCommand addSketch{sketch, true};
-            patch.commands.push_back(addSketch);
-            const auto sketchResult = staged.execute(addSketch);
-            if (!sketchResult.success) {
-                error = sketchResult.error;
-                return std::nullopt;
-            }
-            modeling::ExtrudeFeatureParams extrusion;
-            extrusion.sketchId = sketchResult.featureId;
-            extrusion.depth = operation.depth;
-            extrusion.reverse = operation.reverse;
-            extrusion.operation = operation.operation;
-            if (operation.operation != modeling::ExtrudeOperation::NewBody)
-                extrusion.targetBody = targetBody;
-            modeling::AddFeatureCommand addExtrusion{extrusion, true};
-            patch.commands.push_back(addExtrusion);
-            const auto extrusionResult = staged.execute(addExtrusion);
-            if (!extrusionResult.success) {
-                error = extrusionResult.error;
-                return std::nullopt;
-            }
-            targetBody = extrusionResult.featureId;
-        }
     } else {
         modeling::AddFeatureCommand addBody{*candidate.boundaryBody, true};
         patch.commands.push_back(addBody);
@@ -157,15 +180,10 @@ std::optional<modeling::ModelPatch> planCompoundCandidate(
     for (const auto& program : candidate.projectionPrograms) {
         if (program.empty() || program.front().operation != modeling::ExtrudeOperation::NewBody)
             return reject("Projection program has no base extrusion");
-        modeling::FeatureId target = modeling::kInvalidFeatureId;
-        for (const auto& operation : program) {
-            const auto sketch = append(operation.sketch);
-            if (!sketch.success) return reject(sketch.error);
-            const auto extrude = append(modeling::ExtrudeFeatureParams{
-                sketch.featureId,operation.depth,operation.reverse,operation.operation,target});
-            if (!extrude.success) return reject(extrude.error);
-            target = extrude.featureId;
-        }
+        std::vector<modeling::FeatureId> operationIds;
+        for (const auto& operation : program)
+            if (!appendFeatureProgramOperation(operation, operationIds, staging, error, &patch))
+                return std::nullopt;
     }
     return patch;
 }

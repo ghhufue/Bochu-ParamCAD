@@ -33,6 +33,7 @@ struct SketchBuildState {
 struct ExtrudeBuildState {
     occt::ExtrudeResult result;
     TopoDS_Shape scopedBody;
+    bool throughAll = false;
 };
 
 struct PrimitiveBuildState { FeatureParams params; };
@@ -55,6 +56,7 @@ void appendIndependentSolid(const TopoDS_Shape& solid, TopoDS_Shape& currentBody
 bool resolvePlane(
     const SketchPlaneReference& reference,
     const DerivedStateMap& states,
+    const std::vector<Feature>& features,
     occt::PlaneFrame& frame,
     std::string& error) {
     if (!std::holds_alternative<FaceReference>(reference)) {
@@ -71,6 +73,10 @@ bool resolvePlane(
     }
 
     const FaceReference& faceReference = std::get<FaceReference>(reference);
+    if (!std::isfinite(faceReference.normalOffset)) {
+        error = "Face reference offset must be finite";
+        return false;
+    }
     const auto owner = states.find(faceReference.ownerFeature);
     if (owner == states.end()) {
         error = "ReferenceLost: owner feature " +
@@ -80,28 +86,39 @@ bool resolvePlane(
     }
     if (const auto* primitive = std::get_if<PrimitiveBuildState>(&owner->second)) {
         Plane3d plane;
-        return primitiveFacePlane(primitive->params, faceReference.role, plane, error)
-            && resolvePlane(plane, states, frame, error);
+        if (!primitiveFacePlane(primitive->params, faceReference.role, plane, error) ||
+            !resolvePlane(plane, states, features, frame, error)) return false;
+        frame.origin.Translate(gp_Vec(frame.normal) * faceReference.normalOffset);
+        return true;
     }
     const auto* extrude = std::get_if<ExtrudeBuildState>(&owner->second);
     if (extrude == nullptr) {
         error = "ReferenceLost: referenced owner is not an Extrude feature";
         return false;
     }
+    if (extrude->throughAll) {
+        error = "ReferenceLost: through-all cuts have no fixed extrusion caps";
+        return false;
+    }
 
     switch (faceReference.role) {
     case FaceRole::StartFace:
         frame = extrude->result.startFace;
-        return true;
+        break;
     case FaceRole::EndFace:
         frame = extrude->result.endFace;
-        return true;
+        break;
+    case FaceRole::ExtrusionSide: {
+        Plane3d plane;
+        return resolveSketchPlane(features, reference, plane, error) &&
+            resolvePlane(plane, states, features, frame, error);
+    }
     default:
         error = "ReferenceLost: extrusion requires semantic StartFace or EndFace";
         return false;
     }
-    error = "ReferenceLost: unsupported face role";
-    return false;
+    frame.origin.Translate(gp_Vec(frame.normal) * faceReference.normalOffset);
+    return true;
 }
 
 bool applyExtrudeOperation(
@@ -240,7 +257,7 @@ bool RebuildEngine::rebuild(PartDocument& document) const {
                 break;
             }
             occt::PlaneFrame frame;
-            if (!resolvePlane(params->plane, states, frame, error)) {
+            if (!resolvePlane(params->plane, states, document.features_, frame, error)) {
                 break;
             }
             TopoDS_Face profile;
@@ -271,9 +288,19 @@ bool RebuildEngine::rebuild(PartDocument& document) const {
                     " has no closed profile: " + sketchState.profileError;
                 break;
             }
+            auto effective = *params;
+            if (params->throughAll) {
+                const auto owner = states.find(params->targetBody);
+                const auto* host = owner == states.end() ? nullptr : std::get_if<ExtrudeBuildState>(&owner->second);
+                if (params->operation != ExtrudeOperation::Cut || !host || host->scopedBody.IsNull()) {
+                    error = "Through-all extrusion requires a scoped cut";
+                    break;
+                }
+                effective.depth = occt::throughAllDistance(host->scopedBody);
+            }
             occt::ExtrudeResult result;
             if (!occt::buildExtrude(
-                    sketchState.profile, sketchState.frame, *params, result, error)) {
+                    sketchState.profile, sketchState.frame, effective, result, error)) {
                 break;
             }
             TopoDS_Shape scopedBody;
@@ -284,7 +311,7 @@ bool RebuildEngine::rebuild(PartDocument& document) const {
                 if (!applyExtrudeOperation(*params, result.shape, currentBody, error)) break;
                 if (params->operation == ExtrudeOperation::NewBody) scopedBody = result.shape;
             }
-            states.emplace(feature.id, ExtrudeBuildState{result, scopedBody});
+            states.emplace(feature.id, ExtrudeBuildState{result, scopedBody, params->throughAll});
             continue;
         }
         case FeatureType::Cut: {

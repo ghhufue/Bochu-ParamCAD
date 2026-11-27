@@ -112,13 +112,16 @@ QJsonObject planeJson(const SketchPlaneReference& plane)
                 return {{"base", static_cast<int>(p.plane)}};
             else if constexpr (std::is_same_v<P, OffsetDatumPlane>)
                 return {{"base", static_cast<int>(p.base)}, {"values", values({p.offset})}};
-            else if constexpr (std::is_same_v<P, FaceReference>)
-                return {{"owner", QString::number(p.ownerFeature)},
+            else if constexpr (std::is_same_v<P, FaceReference>) {
+                QJsonObject reference{{"owner", QString::number(p.ownerFeature)},
                         {"role", static_cast<int>(p.role)},
                         {"hint", p.transientFaceIndexHint},
                         {"values", values({p.normal.x, p.normal.y, p.normal.z, p.centroid.x,
                                            p.centroid.y, p.centroid.z, p.area})}};
-            else
+                if (p.normalOffset != 0) reference["normal_offset_mm"] = p.normalOffset;
+                if (p.profileEdge) reference["profile_edge"] = QString::number(p.profileEdge);
+                return reference;
+            } else
                 return {{"values",
                          values({p.origin.x, p.origin.y, p.origin.z, p.normal.x, p.normal.y,
                                  p.normal.z, p.xDirection.x, p.xDirection.y, p.xDirection.z})}};
@@ -141,12 +144,19 @@ SketchPlaneReference planeFromJson(const QJsonObject& json)
         const int hint =
             integer(QJsonValue(json["hint"].toDouble() + 1), std::numeric_limits<int>::max() - 1) -
             1;
+        const auto offset = json["normal_offset_mm"];
+        check(offset.isUndefined() || (offset.isDouble() && std::isfinite(offset.toDouble())));
+        const auto role = static_cast<FaceRole>(integer(json["role"], static_cast<int>(FaceRole::ExtrusionSide)));
+        const auto edge = json.contains("profile_edge") ? id(json["profile_edge"]) : kInvalidSketchEntityId;
+        check((role == FaceRole::ExtrusionSide) == (edge != kInvalidSketchEntityId));
         return FaceReference{id(json["owner"]),
-                             static_cast<FaceRole>(integer(json["role"], static_cast<int>(FaceRole::CylinderTop))),
+                             role,
                              vec(v, 0),
                              vec(v, 3),
                              v[6],
-                             hint};
+                             hint,
+                             offset.toDouble(),
+                             edge};
     }
     const auto v = numbers(json["values"], 9);
     return Plane3d{vec(v, 0), vec(v, 3), vec(v, 6)};
@@ -187,6 +197,7 @@ QJsonObject paramsJson(const FeatureParams& params)
                         {"reverse", p.reverse},
                         {"operation", static_cast<int>(p.operation)}};
                 if (p.targetBody) result["target_body"] = QString::number(p.targetBody);
+                if (p.throughAll) result["throughAll"] = true;
                 return result;
             } else if constexpr (std::is_same_v<P, CutFeatureParams>)
                 return {{"sketch", QString::number(p.sketchId)},
@@ -289,7 +300,8 @@ FeatureParams paramsFromJson(const QJsonObject& p)
         return ExtrudeFeatureParams{id(p["sketch"]), numbers(p["values"], 1)[0],
                                     boolean(p["reverse"]),
                                     static_cast<ExtrudeOperation>(integer(p["operation"], 3)),
-                                    p.contains("target_body") ? id(p["target_body"]) : kInvalidFeatureId};
+                                    p.contains("target_body") ? id(p["target_body"]) : kInvalidFeatureId,
+                                    p.contains("throughAll") && boolean(p["throughAll"])};
     case 2:
         return CutFeatureParams{id(p["sketch"]), numbers(p["values"], 1)[0],
                                 boolean(p["throughAll"]), boolean(p["reverse"])};

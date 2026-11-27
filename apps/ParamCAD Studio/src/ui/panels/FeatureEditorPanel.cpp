@@ -79,10 +79,11 @@ modeling::FeatureId FeatureEditorPanel::featureId() const
 
 void FeatureEditorPanel::setFeature(const modeling::Feature* feature, modeling::ModelRevision revision)
 {
+    const auto* extrusion = feature ? std::get_if<modeling::ExtrudeFeatureParams>(&feature->params) : nullptr;
     const bool supported = feature && (feature->type == modeling::FeatureType::BoxPrimitive
         || feature->type == modeling::FeatureType::ThroughHolePrimitive
         || feature->type == modeling::FeatureType::CylinderPrimitive || feature->type==modeling::FeatureType::ProfileBody
-        || feature->type == modeling::FeatureType::Extrude);
+        || (extrusion && !extrusion->throughAll));
     const int previousTarget=m_feature && feature && m_feature->id==feature->id?m_target->currentData().toInt():-1;
     m_feature = supported ? std::optional<modeling::Feature>(*feature) : std::nullopt;
     m_revision = revision; setVisible(supported);

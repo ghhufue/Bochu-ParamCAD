@@ -9,6 +9,12 @@
 
 namespace reconstruction {
 
+// Replays one operation on a staging model and records its extrusion ID for
+// later face and body references. When supplied, patch records the same commands.
+bool appendFeatureProgramOperation(const ProjectionOperation& operation,
+    std::vector<modeling::FeatureId>& operationIds, modeling::ModelingCore& staging,
+    std::string& error, modeling::ModelPatch* patch = nullptr);
+
 // Resolves candidate dependencies on a staging copy. The resulting patch
 // is bound to the snapshot revision and can be inspected before applying it.
 std::optional<modeling::ModelPatch> planCompoundCandidate(

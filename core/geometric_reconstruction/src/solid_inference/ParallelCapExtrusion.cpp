@@ -315,11 +315,11 @@ bool proposeParallelCapExtrusion(const SurfaceScene& scene,PatchId firstId,Patch
     body.referenceSizeX=body.sizeX=std::max(xmax-xmin,scene.header.distanceToleranceMm);
     body.referenceSizeY=body.sizeY=std::max(ymax-ymin,scene.header.distanceToleranceMm);
     SolidFeatureOperation baseOperation;
-    baseOperation.plane=modeling::explicitPlane(profileOrigin,axis,x);
-    baseOperation.entities.reserve(polygon.size());
+    baseOperation.sketch.plane=modeling::explicitPlane(profileOrigin,axis,x);
+    baseOperation.sketch.entities.reserve(polygon.size());
     for(std::size_t i=0;i<polygon.size();++i) {
         const auto startPoint=polygon[i],endPoint=polygon[(i+1)%polygon.size()];
-        baseOperation.entities.push_back({static_cast<modeling::SketchEntityId>(i+1),
+        baseOperation.sketch.entities.push_back({static_cast<modeling::SketchEntityId>(i+1),
             modeling::Line2D{startPoint.x,startPoint.y,endPoint.x,endPoint.y}});
     }
     baseOperation.depth=depth;
@@ -342,15 +342,20 @@ bool proposeParallelCapExtrusion(const SurfaceScene& scene,PatchId firstId,Patch
     for(const auto& cut:cuts) {
         SolidFeatureOperation cutOperation;
         const auto cutOrigin=add(profileOrigin,mul(axis,cut.start));
-        cutOperation.plane=modeling::explicitPlane(cutOrigin,axis,x);
+        cutOperation.sketch.plane=modeling::explicitPlane(cutOrigin,axis,x);
         cutOperation.depth=std::abs(cut.end-cut.start);
         cutOperation.reverse=cut.end<cut.start;
         const auto center=sub(cut.circle.center,origin);
         const double centerX=dot(center,x),centerY=dot(center,y);
         body.cavities.push_back({centerX,centerY,std::min(cut.start,cut.end),
             std::max(cut.start,cut.end),cut.circle.radius,cut.circle.radius});
-        cutOperation.entities.push_back({1,modeling::Circle2D{centerX,centerY,cut.circle.radius}});
+        cutOperation.sketch.entities.push_back({1,modeling::Circle2D{centerX,centerY,cut.circle.radius}});
         if(cut.floor) output.supportingPatches.push_back(*cut.floor);
+        else {
+            cutOperation.sketchFace = ProgramFaceReference{0, modeling::FaceRole::EndFace};
+            cutOperation.throughAll = true;
+            cutOperation.reverse = true;
+        }
         cutOperation.operation=modeling::ExtrudeOperation::Cut;
         output.featureProgram.push_back(std::move(cutOperation));
     }

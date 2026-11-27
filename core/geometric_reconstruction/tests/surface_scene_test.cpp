@@ -4,12 +4,16 @@
 #include "reconstruction/recognition/CurvedSolidRecognizer.h"
 #include "reconstruction/surface/SurfaceFootprint.h"
 #include "reconstruction/surface/SurfaceSupportValidation.h"
+#include "modeling/SemanticFaces.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <iostream>
 #include <memory>
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
 #include <TopAbs_ShapeEnum.hxx>
 #include <TopExp_Explorer.hxx>
 #include <utility>
@@ -345,8 +349,8 @@ int main() {
            holeCandidate.supportingPatches.end()||holeCandidate.featureProgram.size()!=2||
        holeCandidate.featureProgram.front().operation!=modeling::ExtrudeOperation::NewBody||
        holeCandidate.featureProgram.back().operation!=modeling::ExtrudeOperation::Cut||
-       holeCandidate.featureProgram.back().entities.size()!=1||
-       !std::holds_alternative<modeling::Circle2D>(holeCandidate.featureProgram.back().entities.front().geometry))return 48;
+       holeCandidate.featureProgram.back().sketch.entities.size()!=1||
+       !std::holds_alternative<modeling::Circle2D>(holeCandidate.featureProgram.back().sketch.entities.front().geometry))return 48;
     std::vector<reconstruction::PointSample> holeSamples;
     for(const double z:{0.0,1.0})for(int x=0;x<=4;++x)for(int y=0;y<=4;++y) {
         const double px=x*.5,py=y*.5;
@@ -364,23 +368,84 @@ int main() {
         sample.position={1+.3*std::cos(theta),1+.3*std::sin(theta),level*.25};
         holeSamples.push_back(sample);
     }
-    reconstruction::SolidCandidate scoredHole;
-    if(!reconstruction::scoreSolidCandidate(holeCandidate,holePrism,
-        reconstruction::PointStore(std::move(holeSamples)),.02,scoredHole,error)) {
-        std::cerr<<"through-hole score: "<<error<<'\n';return 49;
+    const reconstruction::PointStore holeObservations(std::move(holeSamples));
+    reconstruction::SolidInferenceResult inferredHole;
+    if (!reconstruction::inferSolids(holePrism, inferredHole, error)) return 53;
+    std::vector<reconstruction::SolidCandidate> scoredHoles;
+    for (const auto& proposal : inferredHole.candidates) {
+        if (proposal.status == reconstruction::SolidCandidateStatus::Rejected) continue;
+        reconstruction::SolidCandidate scored;
+        if (reconstruction::scoreSolidCandidate(proposal, holePrism, holeObservations, .02, scored, error))
+            scoredHoles.push_back(std::move(scored));
     }
-    if(scoredHole.status!=reconstruction::SolidCandidateStatus::Accepted)return 50;
+    const auto* selectedHole = reconstruction::selectSolidCandidate(scoredHoles, error);
+    if (!selectedHole || selectedHole->featureProgram.size() != 2 || selectedHole->supportingPatches.size() != 3) {
+        std::cerr << "Ideal surface scene did not select the through-hole history: " << error << '\n';
+        return 49;
+    }
+    const auto& scoredHole = *selectedHole;
     modeling::ModelingCore holeModel;
     const auto holePatch=reconstruction::planSolidCandidate(scoredHole,holeModel,error);
     if(!holePatch||holePatch->commands.size()!=4)return 51;
     const auto holeCommit=reconstruction::commitSolidCandidate(scoredHole,holeModel);
     if(!holeCommit.success||holeModel.features().size()!=4||holeModel.bodyShape().IsNull())return 52;
-    reconstruction::SolidInferenceResult inferredHole;
-    if(!reconstruction::inferSolids(holePrism,inferredHole,error))return 53;
-    if(std::none_of(inferredHole.candidates.begin(),inferredHole.candidates.end(),[](const auto& item) {
-        return item.featureProgram.size()==2&&item.supportingPatches.size()==3;
-    }))return 54;
-
+    // Apply the same recovered history through the compound adapter used by Studio.
+    reconstruction::CompoundCandidate history;
+    history.projectionPrograms.push_back(scoredHole.featureProgram);
+    modeling::ModelingCore editableHole;
+    if (!reconstruction::commitCompoundCandidate(history, editableHole).success ||
+        editableHole.features().size() != 4) {
+        std::cerr << "Recovered hole history failed on the Studio commit path\n";
+        return 92;
+    }
+    const auto features = editableHole.features();
+    auto base = std::get<modeling::ExtrudeFeatureParams>(features[1].params);
+    const auto& holeSketch = std::get<modeling::SketchFeatureParams>(features[2].params);
+    const auto& cut = std::get<modeling::ExtrudeFeatureParams>(features[3].params);
+    const auto* hostFace = std::get_if<modeling::FaceReference>(&holeSketch.plane);
+    if (!hostFace || hostFace->ownerFeature != features[1].id ||
+        hostFace->role != modeling::FaceRole::EndFace || !cut.throughAll ||
+        cut.targetBody != features[1].id || cut.sketchId != features[2].id) {
+        std::cerr << "Recovered hole lost its host, sketch, or through-all termination\n";
+        return 93;
+    }
+    const auto hasVolume = [&](double expected) {
+        const auto& shape = editableHole.bodyShape();
+        if (shape.IsNull() || !BRepCheck_Analyzer(shape).IsValid()) return false;
+        GProp_GProps properties;
+        BRepGProp::VolumeProperties(shape, properties);
+        return std::abs(properties.Mass() - expected) < 1e-7;
+    };
+    if (!hasVolume(4.0 - pi * .3 * .3)) return 94;
+    base.depth = 2.5;
+    modeling::Plane3d movedPlane;
+    if (!editableHole.execute(modeling::EditFeatureCommand{features[1].id, base}).success ||
+        !editableHole.rebuild() ||
+        !modeling::resolveSketchPlane(editableHole.features(), holeSketch.plane, movedPlane, error) ||
+        std::abs(movedPlane.origin.z - base.depth) > 1e-9 ||
+        !hasVolume((4.0 - pi * .3 * .3) * base.depth)) {
+        std::cerr << "Through-all hole did not follow the resized host\n";
+        return 95;
+    }
+    const auto& circle = std::get<modeling::Circle2D>(holeSketch.entities.front().geometry);
+    if (!editableHole.execute(modeling::EditSketchEntityCommand{features[2].id,
+            holeSketch.entities.front().id, modeling::Circle2D{circle.x, circle.y, .4}}).success ||
+        !editableHole.rebuild() || !hasVolume((4.0 - pi * .4 * .4) * base.depth)) {
+        std::cerr << "Hole diameter edit did not rebuild the cut\n";
+        return 96;
+    }
+    if (!editableHole.execute(modeling::SetFeatureSuppressedCommand{features[3].id, true}).success ||
+        !editableHole.rebuild() || !hasVolume(4.0 * base.depth)) {
+        std::cerr << "Suppressing the recovered cut did not restore the stock\n";
+        return 97;
+    }
+    history.projectionPrograms.front().back().sketchFace->operationIndex = 1;
+    const auto revision = editableHole.revision();
+    if (reconstruction::commitCompoundCandidate(history, editableHole).success ||
+        editableHole.revision() != revision || !hasVolume(4.0 * base.depth)) {
+        std::cerr << "Invalid forward face reference changed the model\n";
+        return 98;
+    }
     auto blindPrism=holePrism;
     blindPrism.patches.front().loops.pop_back();
     std::get<reconstruction::CylinderEvidence>(blindPrism.surfaces[2]).axialMinimum=.4;

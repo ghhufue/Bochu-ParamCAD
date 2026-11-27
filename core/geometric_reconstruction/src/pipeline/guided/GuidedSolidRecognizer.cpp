@@ -316,17 +316,7 @@ bool reconstructGuidedSolid(const PointStore& points, const PlaneDetectionOption
             if (selected.curvedSolid) {
                 output.candidate.curvedSolids.push_back(*selected.curvedSolid);
             } else if (!selected.featureProgram.empty()) {
-                std::vector<ProjectionOperation> program;
-                for (const auto& feature : selected.featureProgram) {
-                    ProjectionOperation operation;
-                    operation.sketch.plane = feature.plane;
-                    operation.sketch.entities = feature.entities;
-                    operation.depth = feature.depth;
-                    operation.reverse = feature.reverse;
-                    operation.operation = feature.operation;
-                    program.push_back(std::move(operation));
-                }
-                output.candidate.projectionPrograms.push_back(std::move(program));
+                output.candidate.projectionPrograms.push_back(selected.featureProgram);
             } else {
                 output.candidate.profileBodies.push_back(*selected.boundaryBody);
             }

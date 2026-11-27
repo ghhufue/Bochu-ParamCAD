@@ -30,6 +30,7 @@ struct ExtrudeFeatureParams {
     ExtrudeOperation operation = ExtrudeOperation::NewBody;
     // When set, apply the boolean only to the solid produced by this feature.
     FeatureId targetBody = kInvalidFeatureId;
+    bool throughAll = false;
 };
 
 struct CutFeatureParams {

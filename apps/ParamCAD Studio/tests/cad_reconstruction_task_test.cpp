@@ -227,7 +227,7 @@ int main(int argc, char** argv)
         changed.normals.front()[0] *= -1;
         require(status(run(std::move(changed)), "preprocessing") == "miss",
                 "same positions with changed normal observations invalidate preprocessing");
-        QDir sources(cacheDirectory.filePath("reconstruction/v1/source_analysis"));
+        QDir sources(cacheDirectory.filePath("reconstruction/v4/source_analysis"));
         const auto files = sources.entryList({"*.bin"}, QDir::Files);
         for (const auto& name : files) {
             QFile corrupt(sources.filePath(name));

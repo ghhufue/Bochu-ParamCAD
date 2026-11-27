@@ -93,6 +93,10 @@ struct Details {
         if (const auto* p = std::get_if<FaceReference>(&params.plane)) {
             row(QCoreApplication::translate("FeatureDetailsPanel", "依附特征"), reference(features, p->ownerFeature), true);
             row(QCoreApplication::translate("FeatureDetailsPanel", "依附面"), QString::fromLatin1(modeling::faceRoleName(p->role)));
+            if (p->profileEdge)
+                row(QCoreApplication::translate("FeatureDetailsPanel", "宿主草图边"), QString::number(p->profileEdge));
+            if (p->normalOffset != 0)
+                length(QCoreApplication::translate("FeatureDetailsPanel", "沿依附面法向偏移"), p->normalOffset);
         }
         sketchapp::PlaneFrame f;
         const bool resolved = resolvedFrame(features, params.plane, f);
@@ -202,7 +206,13 @@ void FeatureDetailsPanel::setFeature(const std::vector<Feature>& features, Featu
                 d.row(QCoreApplication::translate("FeatureDetailsPanel", "终止方式"),p.throughAll ? QCoreApplication::translate("FeatureDetailsPanel", "贯穿全部（沿切除方向）") : QCoreApplication::translate("FeatureDetailsPanel", "给定深度"));
                 if (!p.throughAll) d.length(QCoreApplication::translate("FeatureDetailsPanel", "深度"),p.depth);
                 d.row(QCoreApplication::translate("FeatureDetailsPanel", "运算"), QCoreApplication::translate("FeatureDetailsPanel", "切除（Cut）"));
-            } else { d.length(QCoreApplication::translate("FeatureDetailsPanel", "深度"),p.depth); d.row(QCoreApplication::translate("FeatureDetailsPanel", "运算"),operation(p.operation)); }
+            } else {
+                if (p.throughAll)
+                    d.row(QCoreApplication::translate("FeatureDetailsPanel", "终止方式"), QCoreApplication::translate("FeatureDetailsPanel", "贯穿全部（沿切除方向）"));
+                else
+                    d.length(QCoreApplication::translate("FeatureDetailsPanel", "深度"), p.depth);
+                d.row(QCoreApplication::translate("FeatureDetailsPanel", "运算"), operation(p.operation));
+            }
             const bool negative = cut ? !p.reverse : p.reverse;
             d.row(QCoreApplication::translate("FeatureDetailsPanel", "方向"),negative ? QCoreApplication::translate("FeatureDetailsPanel", "沿草图法向 -N") : QCoreApplication::translate("FeatureDetailsPanel", "沿草图法向 +N"));
             const auto* source = featureById(features,p.sketchId);

@@ -1,4 +1,7 @@
 #include "reconstruction/solid_inference/SolidInference.h"
+#include "reconstruction/modeling/ModelingAdapter.h"
+#include "solid_inference/GussetInference.h"
+#include "solid_inference/SideHoleInference.h"
 
 #include <BRepGProp.hxx>
 #include <BRepAlgoAPI_Common.hxx>
@@ -77,28 +80,9 @@ bool rebuildFeatureProgram(const std::vector<SolidFeatureOperation>& program,
     }
     auto staged=output;
     double previousVolume=0;
-    modeling::FeatureId targetBody=modeling::kInvalidFeatureId;
+    std::vector<modeling::FeatureId> operationIds;
     for(const auto& operation:program) {
-        if(operation.entities.empty()||!std::isfinite(operation.depth)||operation.depth<=0) {
-            error="Feature program contains an invalid sketch or extrusion depth";
-            return false;
-        }
-        modeling::SketchFeatureParams sketch;
-        sketch.plane=operation.plane;
-        sketch.entities=operation.entities;
-        modeling::AddFeatureCommand addSketch{sketch,true};
-        const auto sketchResult=staged.execute(addSketch);
-        if(!sketchResult.success) {error=sketchResult.error;return false;}
-        modeling::ExtrudeFeatureParams extrusion;
-        extrusion.sketchId=sketchResult.featureId;
-        extrusion.depth=operation.depth;
-        extrusion.reverse=operation.reverse;
-        extrusion.operation=operation.operation;
-        if (operation.operation != modeling::ExtrudeOperation::NewBody)
-            extrusion.targetBody=targetBody;
-        modeling::AddFeatureCommand addExtrusion{extrusion,true};
-        const auto extrusionResult=staged.execute(addExtrusion);
-        if(!extrusionResult.success) {error=extrusionResult.error;return false;}
+        if (!appendFeatureProgramOperation(operation, operationIds, staged, error)) return false;
         if(!staged.rebuild()||staged.bodyShape().IsNull()) {
             error=staged.lastError().empty()?"Feature program produced no valid body":staged.lastError();
             return false;
@@ -122,7 +106,6 @@ bool rebuildFeatureProgram(const std::vector<SolidFeatureOperation>& program,
             }
         }
         previousVolume=volume;
-        targetBody=extrusionResult.featureId;
     }
     output.adoptPrepared(std::move(staged));
     error.clear();
@@ -269,6 +252,11 @@ const SolidCandidate* selectSolidCandidate(const std::vector<SolidCandidate>& sc
     constexpr double ambiguityMargin = .05;
     const auto* best = ranked.front();
     const auto* selected = best;
+    const auto attachedJoins = [](const SolidCandidate& candidate) {
+        return std::count_if(candidate.featureProgram.begin(), candidate.featureProgram.end(), [](const auto& op) {
+            return op.operation == modeling::ExtrudeOperation::Join && op.sketchFace.has_value();
+        });
+    };
     modeling::ModelingCore reference;
     for (std::size_t i = 1; i < ranked.size(); ++i) {
         const auto* other = ranked[i];
@@ -302,7 +290,9 @@ const SolidCandidate* selectSolidCandidate(const std::vector<SolidCandidate>& sc
             return nullptr;
         }
         if (!other->featureProgram.empty() && (selected->featureProgram.empty() ||
-            other->featureProgram.size() < selected->featureProgram.size())) selected = other;
+            attachedJoins(*other) > attachedJoins(*selected) ||
+            (attachedJoins(*other) == attachedJoins(*selected) &&
+             other->featureProgram.size() < selected->featureProgram.size()))) selected = other;
     }
     return selected;
 }
@@ -402,7 +392,9 @@ bool scoreCandidateShape(const SolidCandidate& candidate,const SurfaceScene& sce
         ++scored.relationComparisons;
     }
     scored.relationError=relationWeight?relationLoss/relationWeight:0;
-    scored.complexityPenalty=.05*std::max<std::size_t>(1,scored.supportingPatches.size());
+    const auto complexity = candidate.featureProgram.empty()
+        ? scored.supportingPatches.size() : candidate.featureProgram.size();
+    scored.complexityPenalty=.05*std::max<std::size_t>(1,complexity);
     const double inferredSurfacePenalty=candidate.inferredSideWalls?.2:0;
     scored.score=scored.distanceError+scored.normalError+scored.relationError+scored.complexityPenalty+
         inferredSurfacePenalty+4.0*conflicts/observations.size();
@@ -557,6 +549,17 @@ bool inferSolids(const SurfaceScene& scene,SolidInferenceResult& output,std::str
         if(proposeParallelCapExtrusion(scene,planar[i],planar[j],candidate,reason,preview))
             output.candidates.push_back(std::move(candidate));
         else pairFailures.push_back(std::to_string(planar[i])+"/"+std::to_string(planar[j])+": "+reason);
+    }
+    if (options.maximumFeatureOperations >= 2) {
+        std::vector<SolidCandidate> attached;
+        const auto available = options.maximumCandidates - output.candidates.size();
+        for (const auto& base : output.candidates) {
+            if (attached.size() >= available) break;
+            if (auto sideHoles = proposeSideThroughHoles(scene, base, options.maximumFeatureOperations))
+                attached.push_back(std::move(*sideHoles));
+            proposeTriangularGussets(scene, base, attached, available);
+        }
+        for (auto& candidate : attached) output.candidates.push_back(std::move(candidate));
     }
     const auto attachEvidenceTrace = [&](SolidCandidate& candidate) {
         std::sort(candidate.supportingPatches.begin(), candidate.supportingPatches.end());

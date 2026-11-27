@@ -7,6 +7,11 @@
 
 namespace modeling {
 
+// Returns the side plane swept by a line in a closed, ordered polygon sketch.
+// Its origin follows the line start and its local X follows the sweep direction.
+bool extrusionSidePlane(const SketchFeatureParams& sketch, const Plane3d& source,
+                        bool reverse, SketchEntityId edge, Plane3d& plane, std::string& error);
+
 const char* faceRoleName(FaceRole role);
 
 // Resolve a primitive's semantic support plane in model coordinates. These
