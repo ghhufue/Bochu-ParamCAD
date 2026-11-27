@@ -71,6 +71,7 @@ signals:
     // Emitted only after the ordinary UI result handlers apply/reject the result.
     void cliOperationFinished(const QJsonObject& result);
     void contourSketchCreated(modeling::FeatureId id);
+    void brepInspectionReady(const CadReconstructionResult& result, const QString& sourceName, bool openTab);
 
 private:
     enum class CadPath { ClosedBrep, Parametric, LegacyAssembly };

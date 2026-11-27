@@ -511,6 +511,11 @@ void cloudOnlyButtonWorkflow() {
     require(result && result->outcome == CadReconstructionResult::Outcome::Success && result->closedBrep &&
             model->features().empty() && near(volume(viewer->displayedBody()), 216),
         "default reconstruction commits the observed history-free body despite poisoned source-model sidecars");
+    auto* viewportTabs = window.findChild<QTabWidget*>("viewportTabs");
+    require(viewportTabs && viewportTabs->currentWidget() &&
+        viewportTabs->currentWidget()->objectName() == "brepInspectionTab",
+        "Manual B-Rep reconstruction automatically opens the inspection tab");
+    viewportTabs->tabCloseRequested(viewportTabs->currentIndex());
     result.reset();
     parametricAction->trigger();
     waitForProjection();

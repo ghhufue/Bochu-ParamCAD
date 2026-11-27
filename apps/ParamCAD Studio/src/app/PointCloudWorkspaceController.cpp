@@ -987,7 +987,7 @@ void PointCloudWorkspaceController::startCadReconstruction(CadPath path)
     m_cadPreviewSurfaces = 0;
     m_cadPreviewSolid = false;
     std::optional<reconstruction::BrepClosureOptions> brepOptions;
-    if (closedBrep) brepOptions.emplace();
+    if (closedBrep) brepOptions.emplace().collectInspection = true;
     m_cadTask->start(std::move(cloud), *sourceUnit, std::move(hints),
                      m_ui.relationsPanel->surfaceTolerance(), m_surfaceAnalysis,std::move(relations),legacyAssembly,
                      true, {}, true, legacyAssembly, meshCadSurfacePreview, brepOptions);
@@ -1277,6 +1277,10 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
         emit logInfo(workspaceTr("CAD reconstruction cancelled"));
         return;
     }
+    const auto publishInspection = qScopeGuard([&] {
+        if (result.closedBrep && result.closedBrep->inspection)
+            emit brepInspectionReady(result, QFileInfo(m_cadSourcePath).fileName(), m_cliOperation.isEmpty());
+    });
     // Cache only after checking that the cloud/model still match this run.
     if (!result.cache.isEmpty())
         emit logInfo(workspaceTr("CAD cache · %1").arg(QString::fromUtf8(

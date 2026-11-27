@@ -54,6 +54,6 @@ std::vector<TopoDS_Face> fitFreeformFaces(const PointStore& points, const Surfac
 TopoDS_Solid partitionAndSelect(const PointStore& points, const KdTree& tree, const Bnd_Box& envelope,
     const CuttingGeometry& geometry, double spacing, double tolerance, double fuzzy,
     const BrepClosureOptions& options, ClosedBrepResult& result, std::string& error,
-    const std::function<bool()>& cancelled);
+    const std::function<bool()>& cancelled, BrepInspectionAttempt* inspection);
 
 } // namespace reconstruction::detail::closure

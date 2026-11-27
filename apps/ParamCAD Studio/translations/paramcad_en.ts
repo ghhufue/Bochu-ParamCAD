@@ -1060,6 +1060,10 @@
 <context>
     <name>MainWindow</name>
     <message>
+        <source>B-Rep 检查</source>
+        <translation>B-Rep Inspection</translation>
+    </message>
+    <message>
         <source>识别曲面与关系</source>
         <translation>Analyze Surfaces and Relations</translation>
     </message>
@@ -4251,6 +4255,133 @@ Full model rebuild validated; click &quot;Apply Preview&quot; to commit. The cha
     <message>
         <source>已拟合 %1 个面片，找到 %2 段交线。</source>
         <translation>Fitted %1 faces and found %2 intersection segments.</translation>
+    </message>
+</context>
+<context>
+    <name>BrepInspectionTab</name>
+    <message>
+        <source>显示外部 Cell</source>
+        <translation>Show outside cells</translation>
+    </message>
+    <message>
+        <source>工作点云</source>
+        <translation>Working points</translation>
+    </message>
+    <message>
+        <source>切分面</source>
+        <translation>Cutting faces</translation>
+    </message>
+    <message>
+        <source>Cell 内外</source>
+        <translation>Cell labels</translation>
+    </message>
+    <message>
+        <source>最终实体</source>
+        <translation>Final solid</translation>
+    </message>
+    <message>
+        <source>孔切除</source>
+        <translation>Hole cuts</translation>
+    </message>
+    <message>
+        <source>切孔前与刀具</source>
+        <translation>Before cuts with tools</translation>
+    </message>
+    <message>
+        <source>切孔后</source>
+        <translation>After cuts</translation>
+    </message>
+    <message>
+        <source>孔切除阶段</source>
+        <translation>Hole cutting stage</translation>
+    </message>
+    <message>
+        <source>关闭剖切</source>
+        <translation>No clipping</translation>
+    </message>
+    <message>
+        <source>剖切位置</source>
+        <translation>Clipping position</translation>
+    </message>
+    <message>
+        <source>检查阶段</source>
+        <translation>Inspection stage</translation>
+    </message>
+    <message>
+        <source>选中的 Cell</source>
+        <translation>Selected cell</translation>
+    </message>
+    <message>
+        <source>剖切轴</source>
+        <translation>Clipping axis</translation>
+    </message>
+    <message>
+        <source>内部</source>
+        <translation>Inside</translation>
+    </message>
+    <message>
+        <source>外部</source>
+        <translation>Outside</translation>
+    </message>
+    <message>
+        <source>包围盒判外</source>
+        <translation>Envelope exterior</translation>
+    </message>
+    <message>
+        <source>未分类</source>
+        <translation>Unclassified</translation>
+    </message>
+    <message>
+        <source>全部 Cell</source>
+        <translation>All cells</translation>
+    </message>
+    <message>
+        <source>Cell %1 · %2</source>
+        <translation>Cell %1 · %2</translation>
+    </message>
+    <message>
+        <source> · 第 %1 次切分 · 容差 %2 mm</source>
+        <translation> · Partition attempt %1 · Tolerance %2 mm</translation>
+    </message>
+    <message>
+        <source>%1 张切分面</source>
+        <translation>%1 cutting faces</translation>
+    </message>
+    <message>
+        <source>Cell %1 · %2 · %3 mm³</source>
+        <translation>Cell %1 · %2 · %3 mm³</translation>
+    </message>
+    <message>
+        <source>蓝色内部 %1 · 灰色外部 %2 · 橙色包围盒判外 %3 · 黄色未分类 %4</source>
+        <translation>Blue inside %1 · Gray outside %2 · Orange envelope exterior %3 · Yellow unclassified %4</translation>
+    </message>
+    <message>
+        <source>通过质检的闭合实体</source>
+        <translation>Validated closed solid</translation>
+    </message>
+    <message>
+        <source>合并 Cell 后应用 %1 个孔刀具，可在「孔切除」查看。</source>
+        <translation>See Hole cuts for the %1 tools used after merging cells.</translation>
+    </message>
+    <message>
+        <source>通过质检的闭合实体 · 已应用 %1 个孔刀具</source>
+        <translation>Validated closed solid · %1 hole tools applied</translation>
+    </message>
+    <message>
+        <source>半透明灰色为切孔前基底 · 紫色为 %1 个孔刀具</source>
+        <translation>Translucent gray base before cutting · %1 hole tools in purple</translation>
+    </message>
+    <message>
+        <source>紫色为 %1 个孔刀具，本次切分尚未得到基底。</source>
+        <translation>%1 hole tools in purple. This partition has yet to produce a base solid.</translation>
+    </message>
+    <message>
+        <source>本次重建没有生成切分面</source>
+        <translation>This reconstruction produced no cutting faces</translation>
+    </message>
+    <message>
+        <source>%1 mm</source>
+        <translation>%1 mm</translation>
     </message>
 </context>
 </TS>

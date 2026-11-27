@@ -171,7 +171,7 @@ its observations and annotations. Source files are preserved. Empty asset leaves
 omitted, and importing or creating new assets restores their entries.
 
 `src/app/MainWindow` is the composition root: it creates the widgets and command
-controllers, lays out docks/menus/toolbars, connects scene navigation and camera
+controllers, lays out docks and menus, connects scene navigation and camera
 display controls, and presents shared logs and status messages. Editing state
 and feature-specific signal connections live in the following controllers:
 
@@ -226,10 +226,10 @@ checks cloud, modeling-core and displayed-body revisions before committing, so
 point edits, reloads, sketch changes and STEP imports invalidate pending results.
 Surface analysis and CAD recognition are serialized within a workspace.
 
-The toolbar's **Reconstruct CAD** command (also under **Tools**) reconstructs
-parametric CAD from the loaded point cloud. It replaces the inactive Geometry
-Fitting placeholder. **File** contains opening, closing, saving and exporting;
-**Apply Texture** is under **Tools**.
+**File** contains the commands for opening, closing, saving and exporting.
+**Tools** contains sketch creation, image capture, point-cloud reconstruction,
+surface analysis, closed B-Rep reconstruction, parametric modeling and text
+parameter editing.
 
 While CAD reconstruction runs, **Tools → Cancel CAD Reconstruction** and the
 relationship panel's **取消 CAD 重建** button cancel the task. Cancellation takes
@@ -312,7 +312,7 @@ do not trigger unrestricted nearest-neighbour searches on the GUI thread.
   loads the resulting PLY into the viewport, coexisting with the CAD body
 - Scale-aware point-cloud preprocessing and CGAL detection of planes,
   cylinders, spheres, cones, and tori
-- Menus, toolbar, pipeline placeholder navigation, dark theme, and status bar
+- Menus, pipeline placeholder navigation, dark theme, and status bar
 - STEP/STP model import (File → Open Model) driven by `StepModelLoader`, which
   keeps the OpenCASCADE B-Rep alongside the mesh the viewport draws
   - a loaded part is translated so its centre of mass sits on the origin - the
@@ -448,7 +448,7 @@ grouped by type and then by the timestamp of the batch:
 ```
 outputs/captures/<yyyyMMdd_HHmmss>/         shot_NNN.png + shot_NNN.json + manifest.json
 outputs/reconstructions/<yyyyMMdd_HHmmss>/  cloud.ply + camera_info.json + workspace/
-outputs/screenshots/<yyyyMMdd_HHmmss>.png   single-frame capture from the toolbar
+outputs/screenshots/<yyyyMMdd_HHmmss>.png   single-frame viewport screenshot
 ```
 
 A second capture or run within the same second gets a `-2` suffix. The project
@@ -495,7 +495,7 @@ across the interactive `captures/` and `reconstructions/` roots.
 
 统一 CLI 入口为 `pcad`：`pcad studio` 启动界面，`pcad detect`、`pcad reconstruct cad` 支持自动在线/离线分派，其他模块按能力清单执行。构建 Studio 会同时构建匹配的 `pcad.exe` 并更新仓库启动记录。
 
-工具栏的 **生成闭合 B-Rep** 从当前点云生成通过拓扑和保真度检查的无历史实体。可保存到 `.pcad`，也可通过 **文件 → 导出 CAD** 导出 STEP 或 `.brep`。原 **生成参数化 CAD** 仍可从工具菜单使用。
+**工具 → 生成闭合 B-Rep** 从当前点云生成通过拓扑和保真度检查的无历史实体。可保存到 `.pcad`，也可通过 **文件 → 导出 CAD** 导出 STEP 或 `.brep`。原 **生成参数化 CAD** 仍可从工具菜单使用。
 
 完整操作规范见 [CLI 使用指南](../../docs/site/cli/index.md)，配置格式见 [超参数配置](../../docs/site/development/configuration.md)。
 

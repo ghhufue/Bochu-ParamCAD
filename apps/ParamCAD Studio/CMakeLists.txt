@@ -255,6 +255,8 @@ qt_add_executable(CadPointCloudClient WIN32
     resources/app.qrc
     src/app/MainWindow.h
     src/app/MainWindow.cpp
+    src/app/BrepInspectionTab.cpp
+    src/app/BrepInspectionTab.h
     src/app/MainWindowCommands.cpp
     src/app/ParametricModelingTab.h
     src/app/ParametricModelingTab.cpp

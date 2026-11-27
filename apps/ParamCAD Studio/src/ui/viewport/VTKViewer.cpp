@@ -327,6 +327,15 @@ void VTKViewer::clearCadPreview()
     updateCadPreview(true, {}, TopoDS_Shape{}, 1.0);
 }
 
+void VTKViewer::setInspectionActors(const std::vector<vtkSmartPointer<vtkActor>>& actors)
+{
+    for (const auto& actor : m_inspectionActors) m_renderer->RemoveActor(actor);
+    m_inspectionActors = actors;
+    for (const auto& actor : m_inspectionActors) m_renderer->AddActor(actor);
+    m_renderer->ResetCameraClippingRange();
+    requestRender();
+}
+
 void VTKViewer::clearBody()
 {
     clearProjectionPreview();

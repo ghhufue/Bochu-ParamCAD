@@ -3,14 +3,19 @@
 #include "app/ModelingController.h"
 #include "core/PointCloudDocument.h"
 #include "ui/viewport/VTKViewer.h"
+#include <QAction>
 #include <QApplication>
+#include <QComboBox>
 #include <QEventLoop>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QJsonDocument>
 #include <QProcess>
+#include <QSlider>
+#include <QStandardItemModel>
 #include <QSurfaceFormat>
 #include <QTemporaryDir>
+#include <QTabWidget>
 #include <QTimer>
 #include <QVTKOpenGLNativeWidget.h>
 #include <iostream>
@@ -51,6 +56,33 @@ int main(int argc,char** argv){
         require(cad["status"]=="complete" && viewport && viewport->hasBody() && model->features().empty() &&
             quality["valid_topology"].toBool() && quality["free_edge_count"].toInt(-1)==0,
             "online CAD committed a closed B-Rep without features");
+        auto* inspection = window.findChild<QAction*>("brepInspectionAction");
+        auto* tabs = window.findChild<QTabWidget*>("viewportTabs");
+        require(inspection && inspection->isEnabled() && tabs, "Closed B-Rep inspection is available through Debug");
+        inspection->trigger();
+        auto* page = tabs->currentWidget();
+        require(page && page->objectName() == "brepInspectionTab" &&
+            page->findChild<VTKViewer*>() != viewport, "Inspection uses its own viewport tab");
+        auto* layer = page->findChild<QComboBox*>("brepInspectionLayer");
+        auto* cells = page->findChild<QComboBox*>("brepInspectionCell");
+        auto* axis = page->findChild<QComboBox*>("brepInspectionClipAxis");
+        auto* slice = page->findChild<QSlider*>("brepInspectionClipPosition");
+        require(layer && layer->count() == 4 && layer->currentIndex() == 2 &&
+            cells && cells->count()==quality["sub_solid_count"].toInt()+1 && axis && slice && !slice->isEnabled(),
+            "Inspection starts at the final solid and exposes matching cell data and clipping");
+        require(!qobject_cast<QStandardItemModel*>(layer->model())->item(3)->isEnabled(),
+            "Inspection disables the hole cut layer for a block without holes");
+        layer->setCurrentIndex(1);
+        cells->setCurrentIndex(1);
+        axis->setCurrentIndex(3);
+        slice->setValue(650);
+        require(slice->isEnabled(), "Selecting a clipping axis enables the slice slider");
+        layer->setCurrentIndex(0);
+        layer->setCurrentIndex(2);
+        tabs->tabCloseRequested(tabs->indexOf(page));
+        inspection->trigger();
+        require(tabs->currentWidget() == page, "The latest inspection can be reopened");
+        tabs->tabCloseRequested(tabs->indexOf(page));
         // The ordinary CAD workflow may schedule a follow-up surface analysis.
         QElapsedTimer elapsed;elapsed.start();while(elapsed.elapsed()<15000){auto status=command(exe,{"status"});if(!status["busy"].toBool())break;QApplication::processEvents();}
         const auto project=temp.filePath("model.pcad"),step=temp.filePath("model.step"),bundle=temp.filePath("snapshot.pcad-analysis");
@@ -64,6 +96,7 @@ int main(int argc,char** argv){
             QFile::exists(offline["brep"].toString()), "offline exports and verifies history-free CAD");
         command(exe,{"project","open","--in",project});
         require(viewport->hasBody() && model->features().empty(), "online project reload restores the history-free solid");
+        require(!inspection->isEnabled(), "Project replacement clears the previous inspection");
         command(exe,{"capture","structured-light","--in",step,"--output",temp.filePath("scan"),
             "--scan-stations","1","--scan-size","32x32","--projector-size","32x32","--scan-no-phase-shift"});
         require(QFile::exists(temp.filePath("scan/capture/capture.json")),"online structured scan publishes capture manifest");

@@ -96,6 +96,7 @@ public:
         const std::vector<std::shared_ptr<const PointCloudSurfaceMesh>>& surfaces,
         const std::optional<TopoDS_Shape>& solid, double scaleToCloud);
     void clearCadPreview();
+    void setInspectionActors(const std::vector<vtkSmartPointer<vtkActor>>& actors);
     void clearBody();
     bool hasBody() const noexcept;
     const TopoDS_Shape& displayedBody() const { return m_displayedBody; }
@@ -302,6 +303,7 @@ private:
     ProjectionPreviewActor m_projectionPreview;
     ProjectionPreviewActor m_cadSolidPreview;
     std::vector<vtkSmartPointer<vtkActor>> m_cadSurfacePreviews;
+    std::vector<vtkSmartPointer<vtkActor>> m_inspectionActors;
     bool m_hasCadSolidPreview = false;
     bool m_hasProjectionPreview = false;
     TopoDS_Shape m_displayedBody;

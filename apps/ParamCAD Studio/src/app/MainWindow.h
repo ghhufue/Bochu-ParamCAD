@@ -29,6 +29,7 @@ class SketchWorkspaceController;
 class FeatureEditingController;
 class ModelingController;
 class PlanarJunctionPanel;
+class BrepInspectionTab;
 struct CameraParameters;
 
 // Composition root: window layout, navigation and application feedback.
@@ -66,7 +67,6 @@ private:
     void updateRotationStep();
     void createActions();
     void createMenus();
-    void createToolBar();
     void createCentralArea();
     void showDocumentViewport();
     void showViewportTab(QWidget* page, const QString& title);
@@ -90,6 +90,7 @@ private:
     QWidget* m_documentViewport = nullptr;
     QTabWidget* m_viewportTabs = nullptr;
     PlanarJunctionPanel* m_planarJunctionPanel = nullptr;
+    BrepInspectionTab* m_brepInspectionTab = nullptr;
     SketchToolPalette* m_toolPalette = nullptr;
     ModelingPanel* m_modelingPanel = nullptr;
     PointCloudRelationsPanel* m_relationsPanel = nullptr;
@@ -146,6 +147,7 @@ private:
     QAction* m_reconstructCadAction = nullptr;
     QAction* m_cadWithoutProjectionAction = nullptr;
     QAction* m_projectionDebugAction = nullptr;
+    QAction* m_brepInspectionAction = nullptr;
     QAction* m_cancelCadAction = nullptr;
 
 };

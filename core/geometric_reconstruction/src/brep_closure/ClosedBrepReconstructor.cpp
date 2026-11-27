@@ -47,12 +47,14 @@ double volume(const TopoDS_Shape& shape) {
 }
 
 bool finishSolid(TopoDS_Solid& solid, const CuttingGeometry& geometry, double fuzzy,
-                 const BrepClosureOptions& options, std::string& error, std::vector<std::string>& diagnostics) {
+                 const BrepClosureOptions& options, std::string& error, std::vector<std::string>& diagnostics,
+                 BrepInspectionAttempt* inspection) {
     // General Fuse may retain fingerprints of dangling split tools as
     // INTERNAL wires or vertices. The exported body only needs its boundary.
     TopoDS_Shape cleaned = BRepBuilderAPI_Copy(solid, false, false).Shape();
     BRepTools::RemoveInternals(cleaned, true);
     solid = singleSolid(cleaned);
+    if (inspection && !geometry.holeTools.empty()) inspection->solidBeforeHoleCuts = solid;
     for (const auto& tool : geometry.holeTools) {
         NCollection_List<TopoDS_Shape> arguments, tools;
         arguments.Append(solid);
@@ -377,6 +379,17 @@ bool reconstructClosedBrep(const PointStore& points, const SurfaceAnalysisResult
                           std::max(.15 * extent.z, 8 * tolerance)};
         envelope.Update(lo.x - margin.x, lo.y - margin.y, lo.z - margin.z,
                         hi.x + margin.x, hi.y + margin.y, hi.z + margin.z);
+        auto inspection = options.collectInspection ? std::make_shared<BrepInspection>() : nullptr;
+        if (inspection) {
+            const auto [lower, upper] = bounds(envelope);
+            inspection->boundsMm = {lower.x, upper.x, lower.y, upper.y, lower.z, upper.z};
+            constexpr std::size_t pointLimit = 50000;
+            const auto count = std::min(points.size(), pointLimit);
+            inspection->observationsMm.reserve(count);
+            for (std::size_t i = 0; i < count; ++i)
+                inspection->observationsMm.push_back(points.points()[i * points.size() / count].position);
+            output.inspection = inspection;
+        }
         auto geometry = diagnostics::profileStage("brep.cutting_faces", [&] {
             return makeCuttingGeometry(points, regularized, samples, tree, spacing, tolerance, options, output, cancelled);
         });
@@ -387,6 +400,7 @@ bool reconstructClosedBrep(const PointStore& points, const SurfaceAnalysisResult
         }
         const double fuzzyLimit = std::max(Precision::Confusion(), .1 * minimumWall(regularized, diagonal));
         const double base = std::min(options.baseFuzzyToleranceFraction * tolerance, diagonal * 1e-4);
+        std::size_t attemptNumber = 0;
         for (int mode = 0; mode < 2; ++mode) {
             double lastFuzzy = 0;
             for (const double multiplier : {1.0, 5.0, 10.0}) {
@@ -394,6 +408,13 @@ bool reconstructClosedBrep(const PointStore& points, const SurfaceAnalysisResult
                 const double fuzzy = std::clamp(multiplier * base, Precision::Confusion(), fuzzyLimit);
                 if (fuzzy == lastFuzzy) break;
                 lastFuzzy = fuzzy;
+                BrepInspectionAttempt attempt;
+                if (inspection) {
+                    attempt.number = ++attemptNumber;
+                    attempt.fuzzyToleranceMm = fuzzy;
+                    attempt.cuttingFaces = geometry.faces;
+                    attempt.holeTools = geometry.holeTools;
+                }
                 const auto freeformCount = output.quality.freeformFaceCount;
                 output.quality = {};
                 output.quality.freeformFaceCount = freeformCount;
@@ -402,12 +423,15 @@ bool reconstructClosedBrep(const PointStore& points, const SurfaceAnalysisResult
                 try {
                     auto solid = diagnostics::profileStage("brep.partition_and_cut", [&] {
                         return partitionAndSelect(points, tree, envelope, geometry, spacing, tolerance,
-                                                  fuzzy, options, output, error, cancelled);
+                                                  fuzzy, options, output, error, cancelled,
+                                                  inspection ? &attempt : nullptr);
                     });
                     if (cancelled && cancelled()) return false;
-                    if (!solid.IsNull() && finishSolid(solid, geometry, fuzzy, options, error, output.diagnostics) &&
+                    if (!solid.IsNull() && finishSolid(solid, geometry, fuzzy, options, error, output.diagnostics,
+                                                       inspection ? &attempt : nullptr) &&
                         checkSolid(solid, observations, tolerance, options, output.quality, error, cancelled)) {
                         output.solid = solid;
+                        if (inspection) inspection->attempt = std::move(attempt);
                         error.clear();
                         return true;
                     }
@@ -416,6 +440,10 @@ bool reconstructClosedBrep(const PointStore& points, const SurfaceAnalysisResult
                 }
                 if (cancelled && cancelled()) return false;
                 if (error.empty()) error = "Could not produce a single closed B-Rep solid";
+                if (inspection && attempt.stage >= inspection->attempt.stage) {
+                    attempt.error = error;
+                    inspection->attempt = std::move(attempt);
+                }
                 output.diagnostics.push_back("Boolean tolerance " + std::to_string(fuzzy) + " mm: " + error);
                 if (output.quality.scoredPointCount) break;
             }

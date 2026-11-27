@@ -44,6 +44,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
+#include <QMenu>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -51,6 +53,7 @@
 #include <QTemporaryDir>
 #include <QThread>
 #include <QTimer>
+#include <QToolBar>
 #include <QTreeWidget>
 #include <QTabWidget>
 #include <QTextBrowser>
@@ -73,6 +76,29 @@ QAction* action(MainWindow& window, const QString& text)
         if (candidate->text() == text) return candidate;
     }
     throw std::runtime_error("missing window action");
+}
+
+void verifyMainMenu(MainWindow& window)
+{
+    require(window.findChildren<QToolBar*>(QString{}, Qt::FindDirectChildrenOnly).isEmpty(),
+            "main window has no toolbar");
+    const auto verify = [&](const char* command, const char* menu) {
+        auto* item = action(window, QString::fromLatin1(command));
+        int entries = 0;
+        for (const auto* menuAction : window.menuBar()->actions()) {
+            if (const auto* entry = menuAction->menu(); entry && entry->actions().contains(item)) {
+                require(entry->title() == QLatin1String(menu), "command is in the intended top-level menu");
+                ++entries;
+            }
+        }
+        require(entries == 1, "command appears once in the main menus");
+    };
+    verify("Open Model", "&File");
+    for (const auto* command : {"New Sketch", "Capture Image", "Reconstruct Point Cloud",
+                                "Analyze Surfaces and Relations", "Generate Closed B-Rep",
+                                "Parametric Modeling", "Edit parameters by text"}) {
+        verify(command, "&Tools");
+    }
 }
 
 void chooseFile(MainWindow& window, QAction* command, const QString& path)
@@ -575,6 +601,7 @@ int main(int argc, char** argv)
         window.setAttribute(Qt::WA_DontShowOnScreen);
         window.show();
         application.processEvents();
+        verifyMainMenu(window);
 
         auto* viewer = window.findChild<VTKViewer*>();
         auto* model = window.findChild<ModelingController*>();

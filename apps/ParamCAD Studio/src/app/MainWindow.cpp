@@ -8,6 +8,8 @@
 #include "app/ModelViewController.h"
 #include "app/ParametricModelingTab.h"
 #include "app/PlanarJunctionPanel.h"
+#include "app/BrepInspectionTab.h"
+#include "app/CadReconstructionTask.h"
 #include "app/ProjectController.h"
 #include "app/PointCloudWorkspaceController.h"
 #include "app/ReconstructionController.h"
@@ -61,8 +63,6 @@
 #include <QStyle>
 #include <QTabBar>
 #include <QTabWidget>
-#include <QToolBar>
-#include <QToolButton>
 #include <QTextEdit>
 #include <QUrl>
 
@@ -114,7 +114,6 @@ MainWindow::MainWindow(QWidget* parent)
 
     createActions();
     createMenus();
-    createToolBar();
     createCentralArea();
     createDockPanels();
     createStatusBar();
@@ -328,6 +327,25 @@ void MainWindow::createWorkspaceControllers()
     connect(m_planarJunctionPanel, &PlanarJunctionPanel::viewportRequested, this, [this](VTKViewer* viewer) {
         showViewportTab(viewer, tr("面片交线与边界"));
     });
+    connect(m_pointCloudWorkspace, &PointCloudWorkspaceController::brepInspectionReady, this,
+        [this](const CadReconstructionResult& result, const QString& sourceName, bool openTab) {
+            if (!m_brepInspectionTab) m_brepInspectionTab = new BrepInspectionTab(m_viewportTabs);
+            m_brepInspectionTab->setResult(*result.closedBrep, sourceName, result.error);
+            m_brepInspectionAction->setEnabled(true);
+            if (openTab) showViewportTab(m_brepInspectionTab, m_brepInspectionAction->text());
+        });
+    connect(m_brepInspectionAction, &QAction::triggered, this, [this] {
+        if (m_brepInspectionTab) showViewportTab(m_brepInspectionTab, m_brepInspectionAction->text());
+    });
+    connect(m_pointCloudDocument, &PointCloudDocument::cloudChanged, this, [this] {
+        if (!m_brepInspectionTab) return;
+        if (auto* viewer = viewportOf(m_brepInspectionTab)) viewer->setRenderingActive(false);
+        const int index = m_viewportTabs->indexOf(m_brepInspectionTab);
+        if (index >= 0) m_viewportTabs->removeTab(index);
+        m_brepInspectionTab->deleteLater();
+        m_brepInspectionTab = nullptr;
+        m_brepInspectionAction->setEnabled(false);
+    });
     connect(m_pointCloudWorkspace, &PointCloudWorkspaceController::contourSketchCreated,
             this, &MainWindow::showDocumentViewport);
     connect(m_pointCloudWorkspace, &PointCloudWorkspaceController::contourSketchCreated,
@@ -446,8 +464,6 @@ void MainWindow::createActions()
     m_textureAction = new QAction(tr("应用纹理…"), this);
     m_textureAction->setToolTip(
         tr("将图像直接投影到模型上，不做展开"));
-    // Capturing the current viewport is the data-generation step of the
-    // pipeline, so it sits right next to Open Model in the toolbar.
     m_captureAction = new QAction(tr("拍摄图像"), this);
     m_captureAction->setToolTip(tr("将当前视口保存为 PNG"));
     // The screenshot command writes straight to outputs/screenshots so it can be
@@ -526,7 +542,6 @@ void MainWindow::createMenus()
     fileMenu->addAction(m_exitAction);
     auto* editMenu=menuBar()->addMenu(tr("编辑(&E)"));
     editMenu->addAction(m_undoCadAction); editMenu->addAction(m_redoCadAction);
-    editMenu->addSeparator(); editMenu->addAction(m_textEditAction);
 
     auto* settingsMenu = menuBar()->addMenu(tr("设置(&S)"));
     settingsMenu->setObjectName(QStringLiteral("settingsMenu"));
@@ -572,6 +587,9 @@ void MainWindow::createMenus()
     auto* debugMenu = menuBar()->addMenu(tr("调试(&D)"));
     debugMenu->setObjectName(QStringLiteral("debugMenu"));
     debugMenu->addAction(m_projectionDebugAction);
+    m_brepInspectionAction = debugMenu->addAction(tr("B-Rep 检查"));
+    m_brepInspectionAction->setObjectName(QStringLiteral("brepInspectionAction"));
+    m_brepInspectionAction->setEnabled(false);
 
     QMenu* viewMenu = menuBar()->addMenu(tr("视图(&V)"));
     viewMenu->addAction(m_resetCameraAction);
@@ -586,51 +604,20 @@ void MainWindow::createMenus()
     toolsMenu->addSeparator();
     toolsMenu->addAction(m_screenshotAction);
     toolsMenu->addAction(m_captureToolAction);
+    toolsMenu->addAction(m_captureAction);
     toolsMenu->addAction(m_reconstructToolAction);
     toolsMenu->addAction(m_analyzeCadSurfacesAction);
     toolsMenu->addAction(m_reconstructCadAction);
     toolsMenu->addAction(m_cadWithoutProjectionAction);
     toolsMenu->addAction(m_cancelCadAction);
     toolsMenu->addSeparator();
+    toolsMenu->addAction(m_newSketchAction);
     toolsMenu->addAction(m_openModelingTabAction);
+    toolsMenu->addAction(m_textEditAction);
 
     QMenu* helpMenu = menuBar()->addMenu(tr("帮助(&H)"));
     QAction* aboutAction = helpMenu->addAction(tr("关于"));
     connect(aboutAction, &QAction::triggered, this, &MainWindow::showAbout);
-}
-
-void MainWindow::createToolBar()
-{
-    QToolBar* toolBar = addToolBar(tr("主工具栏"));
-    toolBar->setObjectName(QStringLiteral("mainToolBar"));
-    toolBar->setMovable(true);
-    toolBar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    // The toolbar carries loading, image capture, cloud reconstruction and CAD reconstruction.
-    toolBar->addAction(m_openAction);
-    toolBar->addSeparator();
-    // The toolbar button is created explicitly so it keeps a stable object name
-    // for the UI automation checks, which a QAction alone does not provide.
-    auto* newSketchButton = new QToolButton(toolBar);
-    newSketchButton->setObjectName(QStringLiteral("newSketchButton"));
-    newSketchButton->setDefaultAction(m_newSketchAction);
-    newSketchButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    toolBar->addWidget(newSketchButton);
-    toolBar->addSeparator();
-    toolBar->addAction(m_captureAction);
-    toolBar->addAction(m_reconstructToolAction);
-    toolBar->addAction(m_analyzeCadSurfacesAction);
-    auto* reconstructCadButton = new QToolButton(toolBar);
-    reconstructCadButton->setObjectName(QStringLiteral("reconstructCadButton"));
-    reconstructCadButton->setDefaultAction(m_reconstructCadAction);
-    reconstructCadButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    toolBar->addWidget(reconstructCadButton);
-    toolBar->addAction(m_openModelingTabAction);
-
-    auto* textEditButton = new QToolButton(toolBar);
-    textEditButton->setObjectName("textParameterEditButton");
-    textEditButton->setDefaultAction(m_textEditAction);
-    textEditButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    toolBar->addWidget(textEditButton);
 }
 
 void MainWindow::createCentralArea()
@@ -672,7 +659,8 @@ void MainWindow::createCentralArea()
         if (auto* viewer = viewportOf(page)) viewer->setRenderingActive(false);
         m_viewportTabs->removeTab(tab);
         page->hide();
-        if (!m_planarJunctionPanel || page != m_planarJunctionPanel->viewport()) page->deleteLater();
+        if (page != m_brepInspectionTab &&
+            (!m_planarJunctionPanel || page != m_planarJunctionPanel->viewport())) page->deleteLater();
     });
 }
 

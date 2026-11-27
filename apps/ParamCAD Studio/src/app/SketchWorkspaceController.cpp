@@ -53,8 +53,7 @@ void SketchWorkspaceController::connectUi()
     connect(m_ui.propertyPanel->featureDetailsPanel(), &FeatureDetailsPanel::featureRequested,
             m_ui.modelingPanel, &ModelingPanel::selectFeature);
 
-    // Viewport sketch workflow: a click picks the sketch plane and the toolbar
-    // action turns that selection into a sketch.
+    // The New Sketch action creates a sketch on the plane picked in the viewport.
     connect(m_ui.newSketchAction, &QAction::triggered, this, &SketchWorkspaceController::onNewSketchRequested);
     connect(m_ui.toolPalette, &SketchToolPalette::toolChanged,
             this, &SketchWorkspaceController::onViewportToolChanged);

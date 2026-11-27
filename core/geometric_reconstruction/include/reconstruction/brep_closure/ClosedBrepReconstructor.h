@@ -3,6 +3,10 @@
 #include "reconstruction/surface/SurfaceAnalysis.h"
 
 #include <TopoDS_Solid.hxx>
+#include <TopoDS_Face.hxx>
+
+#include <array>
+#include <memory>
 
 namespace reconstruction {
 
@@ -13,6 +17,33 @@ struct BrepClosureOptions {
     bool enableParallelBop = false;
     bool separateRegularHoles = true;
     double maxAllowedP95Multiplier = 4.0;
+    bool collectInspection = false;
+};
+
+struct BrepInspectionCell {
+    enum class Label { Unclassified, Inside, Outside, ExteriorAnchor };
+    TopoDS_Solid solid;
+    Label label = Label::Unclassified;
+    double volumeMm3 = 0;
+};
+
+struct BrepInspectionAttempt {
+    enum class Stage { CuttingFaces, Partitioned, Classified };
+    Stage stage = Stage::CuttingFaces;
+    std::size_t number = 0;
+    double fuzzyToleranceMm = 0;
+    std::string error;
+    std::vector<TopoDS_Face> cuttingFaces;
+    std::vector<BrepInspectionCell> cells;
+    TopoDS_Solid solidBeforeHoleCuts;
+    std::vector<TopoDS_Shape> holeTools;
+};
+
+struct BrepInspection {
+    // Layout matches VTK bounds: minimum and maximum for X, Y, and Z.
+    std::array<double, 6> boundsMm{};
+    std::vector<modeling::Vec3> observationsMm;
+    BrepInspectionAttempt attempt;
 };
 
 struct BrepClosureQualityReport {
@@ -32,6 +63,8 @@ struct ClosedBrepResult {
     TopoDS_Solid solid;
     BrepClosureQualityReport quality;
     std::vector<std::string> diagnostics;
+    // Captured from the successful attempt, or the furthest failed attempt.
+    std::shared_ptr<const BrepInspection> inspection;
 };
 
 // Points and analysis are in the same millimetre frame. The optional original

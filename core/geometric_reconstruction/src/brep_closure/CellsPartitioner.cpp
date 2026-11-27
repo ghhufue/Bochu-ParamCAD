@@ -231,7 +231,7 @@ std::vector<boost::default_color_type> classify(std::vector<Cell>& cells, const 
 TopoDS_Solid partitionAndSelect(const PointStore& points, const KdTree& tree, const Bnd_Box& envelope,
     const CuttingGeometry& geometry, double spacing, double tolerance, double fuzzy,
     const BrepClosureOptions& options, ClosedBrepResult& result, std::string& error,
-    const std::function<bool()>& cancelled) {
+    const std::function<bool()>& cancelled, BrepInspectionAttempt* inspection) {
     const auto [lo, hi] = bounds(envelope);
     Partition builder;
     builder.AddArgument(BRepPrimAPI_MakeBox(point(lo), point(hi)).Solid());
@@ -252,7 +252,7 @@ TopoDS_Solid partitionAndSelect(const PointStore& points, const KdTree& tree, co
     TopExp::MapShapes(parts, TopAbs_SOLID, solids);
     result.quality.subSolidCount = solids.Extent();
     result.quality.insideSolidCount = 0;
-    if (solids.Extent() < 2) {
+    if (solids.Extent() < 2 && !inspection) {
         error = "Cutting faces did not partition the exterior envelope";
         return {};
     }
@@ -269,6 +269,19 @@ TopoDS_Solid partitionAndSelect(const PointStore& points, const KdTree& tree, co
         GProp_GProps properties;
         BRepGProp::VolumeProperties(solid, properties, true);
         cells.push_back({solid, {a, b}, std::max(0., properties.Mass()), exterior});
+    }
+    if (inspection && !cells.empty()) {
+        inspection->stage = BrepInspectionAttempt::Stage::Partitioned;
+        inspection->cells.reserve(cells.size());
+        for (const auto& cell : cells) {
+            const auto label = cell.exterior ? BrepInspectionCell::Label::ExteriorAnchor :
+                                               BrepInspectionCell::Label::Unclassified;
+            inspection->cells.push_back({cell.solid, label, cell.volume});
+        }
+    }
+    if (cells.size() < 2) {
+        error = "Cutting faces did not partition the exterior envelope";
+        return {};
     }
     NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> ancestors;
     TopExp::MapShapesAndUniqueAncestors(parts, TopAbs_FACE, TopAbs_SOLID, ancestors);
@@ -288,6 +301,14 @@ TopoDS_Solid partitionAndSelect(const PointStore& points, const KdTree& tree, co
         return classify(cells, faces, points, tree, spacing, tolerance, cancelled);
     });
     if (labels.empty()) return {};
+    if (inspection) {
+        inspection->stage = BrepInspectionAttempt::Stage::Classified;
+        for (std::size_t i = 0; i < cells.size(); ++i) {
+            if (cells[i].exterior) continue;
+            inspection->cells[i].label = labels[i] == labels[cells.size()] ? BrepInspectionCell::Label::Inside :
+                                                                          BrepInspectionCell::Label::Outside;
+        }
+    }
     for (std::size_t i = 0; i < cells.size(); ++i) {
         if (cells[i].exterior || labels[i] != labels[cells.size()]) continue;
         builder.select(cells[i].solid);

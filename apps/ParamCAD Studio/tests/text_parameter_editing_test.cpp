@@ -55,7 +55,7 @@ void workflow(QApplication& app) {
     model->clearHistory(); tree->selectFeature(holeId);
     auto* textAction=window.findChild<QAction*>("textParameterEditAction");
     auto* propertyDock=window.findChild<QDockWidget*>("propertyDock");
-    require(textAction && propertyDock && textAction->isEnabled(), "text editing has a discoverable toolbar/menu action");
+    require(textAction && propertyDock && textAction->isEnabled(), "text editing has an enabled menu action");
     propertyDock->hide(); textAction->trigger(); app.processEvents();
     require(propertyDock->isVisible() && panel->isVisible(), "text action opens even a hidden Properties dock");
     input->setText("孔直径增加2mm");

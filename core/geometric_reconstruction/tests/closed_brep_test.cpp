@@ -179,12 +179,63 @@ void regularizeMoreThanTwelveSurfaces() {
     require(ok, error);
     require(report.accepted.size() == 17 && report.rejected.empty(), "Expected all 18 surfaces to regularize");
 }
+
+void verifyInspection() {
+    BrepClosureOptions options;
+    options.collectInspection = true;
+    const auto result = run(block(-1), options);
+    require(result.inspection != nullptr, "Requested inspection snapshot is present");
+    const auto& attempt = result.inspection->attempt;
+    const auto labelCount = [&](BrepInspectionCell::Label label) {
+        return std::count_if(attempt.cells.begin(), attempt.cells.end(),
+                             [label](const auto& cell) { return cell.label == label && !cell.solid.IsNull(); });
+    };
+    require(attempt.stage == BrepInspectionAttempt::Stage::Classified && attempt.error.empty() &&
+        attempt.number > 0 && attempt.fuzzyToleranceMm > 0 && attempt.cuttingFaces.size() == 6,
+        "Successful inspection includes the cutting faces and attempt metadata");
+    const auto inside = labelCount(BrepInspectionCell::Label::Inside);
+    const auto outside = labelCount(BrepInspectionCell::Label::Outside);
+    const auto anchors = labelCount(BrepInspectionCell::Label::ExteriorAnchor);
+    require(attempt.cells.size() == result.quality.subSolidCount &&
+        static_cast<std::size_t>(inside) == result.quality.insideSolidCount && anchors > 0 &&
+        static_cast<std::size_t>(inside + outside + anchors) == attempt.cells.size(),
+        "Inspection labels match the selected solid and exterior envelope");
+    require(attempt.holeTools.empty() && attempt.solidBeforeHoleCuts.IsNull(),
+        "Inspection has no hole cut geometry for an undrilled block");
+
+    const auto stepped = run(block(2, true, false, true), options);
+    const auto& drilledAttempt = stepped.inspection->attempt;
+    require(stepped.quality.regularHoleToolCount == 2 && drilledAttempt.holeTools.size() == 2 &&
+        !drilledAttempt.holeTools[0].IsNull() && !drilledAttempt.holeTools[1].IsNull() &&
+        !drilledAttempt.solidBeforeHoleCuts.IsNull(), "Inspection retains the two coaxial stepped hole tools and their base");
+    const gp_Pnt holeAxis(10, 8, 6);
+    BRepClass3d_SolidClassifier before(drilledAttempt.solidBeforeHoleCuts, holeAxis, 1e-6);
+    BRepClass3d_SolidClassifier after(stepped.solid, holeAxis, 1e-6);
+    require(before.State() == TopAbs_IN && after.State() == TopAbs_OUT,
+        "Hole location changes from solid material to a void after the cut");
+    compareVolume(stepped, 2560 - (9 + 4.5 * 4.5) * 3 * pi, 1e-6);
+
+    auto open = block(-1);
+    open.analysis.surfaces.resize(1);
+    open.analysis.patches.resize(1);
+    const PointStore points(std::move(open.samples));
+    open.analysis.pointFingerprint = pointStoreFingerprint(points);
+    open.analysis.unit = points.unit();
+    open.analysis.options.detection.plane.distanceThreshold = .12;
+    ClosedBrepResult failed;
+    std::string error;
+    require(!reconstructClosedBrep(points, open.analysis, options, failed, error) &&
+        failed.solid.IsNull() && failed.inspection && failed.inspection->attempt.cuttingFaces.size() == 1 &&
+        !failed.inspection->attempt.error.empty(), "Failed closure retains the available inspection geometry");
+}
 } // namespace
 
 int main() {
     try {
         regularizeMoreThanTwelveSurfaces();
+        verifyInspection();
         const auto rectangular = run(block(-1, false));
+        require(!rectangular.inspection, "Inspection is opt-in");
         compareVolume(rectangular, 2560, 1e-6);
         std::stringstream native;
         BRepTools::Write(rectangular.solid, native);
@@ -202,9 +253,6 @@ int main() {
         BrepClosureOptions partitionHoles;
         partitionHoles.separateRegularHoles = false;
         compareVolume(run(block(0), partitionHoles), 2560 - 72 * pi, 1e-6);
-        const auto stepped = run(block(2, true, false, true));
-        require(stepped.quality.regularHoleToolCount == 2, "Expected two coaxial tools for stepped blind hole");
-        compareVolume(stepped, 2560 - (9 + 4.5 * 4.5) * 3 * pi, 1e-6);
         const auto oblique = run(obliqueHole(.23));
         require(oblique.quality.regularHoleToolCount == 0, "Oblique holes participate in partitioning");
         compareVolume(oblique, 2560 - 2.8 * 2.8 * 8 * pi / std::cos(.23), 1e-5);
