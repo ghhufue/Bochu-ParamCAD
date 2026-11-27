@@ -224,30 +224,36 @@ void ModelViewController::exportModel()
         return;
     }
     const quint64 revision = m_ui.viewer->bodyRevision();
-    QString path = QFileDialog::getSaveFileName(m_dialogParent, workspaceTr("导出 STEP"),
+    const auto brepFilter = workspaceTr("B-Rep 文件 (*.brep)");
+    const auto stepFilter = workspaceTr("STEP 文件 (*.step *.stp)");
+    QString selectedFilter = stepFilter;
+    QString path = QFileDialog::getSaveFileName(m_dialogParent, workspaceTr("导出 CAD"),
         QDir(ProjectPaths::outputsRoot()).filePath(QStringLiteral("model.step")),
-        workspaceTr("STEP 文件 (*.step *.stp)"));
+        stepFilter + ";;" + brepFilter, &selectedFilter);
     if (path.isEmpty()) return;
     const QString suffix = QFileInfo(path).suffix().toLower();
-    if (suffix != QStringLiteral("step") && suffix != QStringLiteral("stp")) path += QStringLiteral(".step");
+    const bool brep = suffix == QStringLiteral("brep") ||
+        (selectedFilter == brepFilter && suffix != QStringLiteral("step") && suffix != QStringLiteral("stp"));
+    if (brep && suffix != QStringLiteral("brep")) path += QStringLiteral(".brep");
+    if (!brep && suffix != QStringLiteral("step") && suffix != QStringLiteral("stp")) path += QStringLiteral(".step");
 
     // The save dialog runs a nested event loop: imports, close and a background
     // CAD completion must not silently change which body the user is exporting.
     if (revision != m_ui.viewer->bodyRevision() || m_currentBody.IsNull()) {
-        const QString message = workspaceTr("选择文件期间模型已更改，请重新导出 STEP。");
+        const QString message = workspaceTr("选择文件期间模型已更改，请重新导出 CAD。");
         emit logWarning(message);
         emit statusMessage(message, 5000);
         return;
     }
     QString error;
-    if (!exportStepTo(path, error)) {
-        const QString message = workspaceTr("无法导出 STEP 到 %1：%2").arg(path, error);
+    if (!(brep ? StepModelExporter::writeBrep(m_currentBody, path, error) : exportStepTo(path, error))) {
+        const QString message = workspaceTr("无法导出 CAD 到 %1：%2").arg(path, error);
         emit logError(message);
         emit statusMessage(message, 5000);
-        QMessageBox::warning(m_dialogParent, workspaceTr("导出 STEP"), message);
+        QMessageBox::warning(m_dialogParent, workspaceTr("导出 CAD"), message);
         return;
     }
-    const QString message = workspaceTr("STEP 模型已导出到 %1").arg(QFileInfo(path).absoluteFilePath());
+    const QString message = workspaceTr("CAD 模型已导出到 %1").arg(QFileInfo(path).absoluteFilePath());
     emit logInfo(message);
     emit statusMessage(message, 5000);
 }

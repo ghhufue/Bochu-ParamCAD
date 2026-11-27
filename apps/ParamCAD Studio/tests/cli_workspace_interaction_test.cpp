@@ -2,6 +2,7 @@
 #include "cli/StudioCommandServer.h"
 #include "app/ModelingController.h"
 #include "core/PointCloudDocument.h"
+#include "ui/viewport/VTKViewer.h"
 #include <QApplication>
 #include <QEventLoop>
 #include <QElapsedTimer>
@@ -44,7 +45,12 @@ int main(int argc,char** argv){
         command(exe,{"export","analysis","--out",detectedBundle});
         require(QFile::exists(detectedBundle+"/support-validation.json"),
             "automatic relation inference preserves the freshly detected support report");
-        auto cad=command(exe,{"reconstruct","cad"});require(cad["status"]=="complete"&&!model->features().empty(),"online CAD committed actual GUI feature graph");
+        auto* viewport = window.findChild<VTKViewer*>();
+        auto cad=command(exe,{"reconstruct","cad"});
+        const auto quality = cad["result"].toObject()["brep_quality"].toObject();
+        require(cad["status"]=="complete" && viewport && viewport->hasBody() && model->features().empty() &&
+            quality["valid_topology"].toBool() && quality["free_edge_count"].toInt(-1)==0,
+            "online CAD committed a closed B-Rep without features");
         // The ordinary CAD workflow may schedule a follow-up surface analysis.
         QElapsedTimer elapsed;elapsed.start();while(elapsed.elapsed()<15000){auto status=command(exe,{"status"});if(!status["busy"].toBool())break;QApplication::processEvents();}
         const auto project=temp.filePath("model.pcad"),step=temp.filePath("model.step"),bundle=temp.filePath("snapshot.pcad-analysis");
@@ -53,8 +59,11 @@ int main(int argc,char** argv){
         require(QFile::exists(project)&&QFile::exists(step)&&QFile::exists(bundle+"/manifest.json"),"online exports actual UI state");
         auto check=command(exe,{"inspect","--bundle",bundle,"verify","--full"});require(check["verification"]=="all_assets","native inspector reads actual C++ export");
         auto offline=command(exe,{"reconstruct","cad","--offline","--in",cloud,"--output",temp.filePath("offline")});
-        require(offline["cad_constructed"].toBool()&&offline["project_round_trip_verified"].toBool(),"offline uses backend and verifies CAD");
-        command(exe,{"project","open","--in",project});require(!model->features().empty(),"online project reload updates GUI");
+        require(offline["cad_constructed"].toBool() && offline["history_free"].toBool() &&
+            offline["project_round_trip_verified"].toBool() && offline["brep_round_trip_verified"].toBool() &&
+            QFile::exists(offline["brep"].toString()), "offline exports and verifies history-free CAD");
+        command(exe,{"project","open","--in",project});
+        require(viewport->hasBody() && model->features().empty(), "online project reload restores the history-free solid");
         command(exe,{"capture","structured-light","--in",step,"--output",temp.filePath("scan"),
             "--scan-stations","1","--scan-size","32x32","--projector-size","32x32","--scan-no-phase-shift"});
         require(QFile::exists(temp.filePath("scan/capture/capture.json")),"online structured scan publishes capture manifest");

@@ -120,7 +120,7 @@ void verifyExport(MainWindow& window, const QString& chosenPath,
     auto* model = window.findChild<ModelingController*>();
     const auto revision = model->revision();
     const auto displayedRevision = viewer->bodyRevision();
-    chooseFile(window, action(window, "Export STEP..."), chosenPath);
+    chooseFile(window, action(window, "Export CAD..."), chosenPath);
     StepModelLoader loader;
     LoadedModel loaded;
     QString error;
@@ -275,7 +275,7 @@ void testCadReconstruction(MainWindow& window, const QString& cloudPath)
     require(starts == 0 && model->revision() == initialRevision && viewer->bodyRevision() == initialBodyRevision
             && !selection.regions().empty() && !selection.relations().empty(),
             "surface phase publishes surfaces and relations and waits for explicit CAD generation");
-    window.findChild<QToolButton*>("reconstructCadButton")->click();
+    reconstruct->trigger();
     require(task->isRunning() && !reconstruct->isEnabled() && cancel->isEnabled()
             && !cancelButton->isHidden(), "running reconstruction exposes cancel and prevents duplicate commands");
     workspace->reconstructCad();
@@ -583,7 +583,7 @@ int main(int argc, char** argv)
         auto* properties = window.findChild<PropertyPanel*>();
         auto* console = window.findChild<QPlainTextEdit*>("console");
         require(viewer && model && sketch && palette && properties && console, "workspace views and command controller");
-        auto* exportStep = action(window, "Export STEP...");
+        auto* exportStep = action(window, "Export CAD...");
         require(!exportStep->isEnabled(), "empty model disables STEP export");
 
         auto* newSketch = action(window, "New Sketch");
@@ -680,7 +680,7 @@ int main(int argc, char** argv)
         });
         exportStep->trigger();
         require(replaced && !QFile::exists(stalePath)
-                && console->toPlainText().contains(workspaceTr("选择文件期间模型已更改，请重新导出 STEP。")),
+                && console->toPlainText().contains(workspaceTr("选择文件期间模型已更改，请重新导出 CAD。")),
                 "modal model replacement prevents stale export");
         verifyExport(window, temp.filePath("replaced.step"), temp.filePath("replaced.step"),
                      BRepPrimAPI_MakeBox(2, 3, 4).Shape());

@@ -1,4 +1,5 @@
 """Black-box contracts for the built native CLI, including C++/Python parity."""
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -48,10 +49,18 @@ class NativeCliTests(unittest.TestCase):
         out = self.root / "cad"
         result = self.run_cli("reconstruct", "cad", "--offline", "--in", cloud, "--output", out)
         self.assertTrue(result["cad_constructed"])
+        self.assertTrue(result["history_free"])
+        self.assertEqual(result["features"], 0)
+        self.assertEqual(result["brep_quality"]["free_edge_count"], 0)
         self.assertTrue(result["project_round_trip_verified"])
         self.assertTrue(result["step_round_trip_verified"])
-        for name in ("model.pcad", "model.step", "model.features.json", "report.json"):
+        self.assertTrue(result["brep_round_trip_verified"])
+        for name in ("model.pcad", "model.step", "model.brep", "report.json"):
             self.assertTrue((out / name).is_file())
+        legacy_out = self.root / "parametric"
+        legacy = self.run_cli("reconstruct", "cad", "--offline", "--in", cloud, "--output", legacy_out, "--parametric")
+        self.assertGreater(legacy["features"], 0)
+        self.assertTrue((legacy_out / "model.features.json").is_file())
         self.run_cli("reconstruct", "cad", "--offline", "--in", cloud, "--output", out, expected=2)
 
     def test_all_module_dispatch_and_report_contract(self):
@@ -63,6 +72,15 @@ class NativeCliTests(unittest.TestCase):
         exported = self.run_cli("project", "--offline", "--synthetic", "box", "--step", self.root/"projection.step")
         self.assertTrue(exported["accepted"])
         self.assertTrue((self.root/"projection.step").is_file())
+
+    def test_concurrent_reconstructions_create_sibling_outputs(self):
+        cloud = self.root / "cloud.ply"
+        self.run_cli("preprocess", "--synthetic", "box", "--out", cloud)
+        parent = self.root / "new-parent"
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(lambda i: self.run_cli(
+                "reconstruct", "cad", "--offline", "--in", cloud, "--output", parent / str(i)), range(4)))
+        self.assertTrue(all(result["brep_round_trip_verified"] for result in results))
 
     def test_native_inspector_matches_exporter_and_python(self):
         exporter = self.exe.parent / "analysis_bundle_export_test.exe"

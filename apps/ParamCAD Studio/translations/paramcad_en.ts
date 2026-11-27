@@ -1072,8 +1072,60 @@
         <translation>Generate Parametric CAD</translation>
     </message>
     <message>
-        <source>曲面与关系已就绪。检查或编辑后，可点击「生成参数化 CAD」。</source>
-        <translation>Surfaces and relations are ready. Review or edit them, then select Generate Parametric CAD.</translation>
+        <source>曲面与关系已就绪。检查或编辑后，可点击「生成闭合 B-Rep」。</source>
+        <translation>Surfaces and relations are ready. Review or edit them, then select Generate Closed B-Rep.</translation>
+    </message>
+    <message>
+        <source>生成闭合 B-Rep</source>
+        <translation>Generate Closed B-Rep</translation>
+    </message>
+    <message>
+        <source>从已载入点云重建闭合无历史 B-Rep 实体</source>
+        <translation>Reconstruct a closed history-free B-Rep solid from the loaded point cloud</translation>
+    </message>
+    <message>
+        <source>正在划分空间并验证闭合 B-Rep…</source>
+        <translation>Partitioning space and validating the closed B-Rep…</translation>
+    </message>
+    <message>
+        <source>开始从点云重建闭合 B-Rep。</source>
+        <translation>Reconstructing a closed B-Rep from the point cloud.</translation>
+    </message>
+    <message>
+        <source>闭合 B-Rep</source>
+        <translation>Closed B-Rep</translation>
+    </message>
+    <message>
+        <source>替换 CAD 特征</source>
+        <translation>Replace CAD Features</translation>
+    </message>
+    <message>
+        <source>生成闭合 B-Rep 会替换当前模型及其特征历史。是否继续？</source>
+        <translation>Generating a closed B-Rep replaces the current model and its feature history. Continue?</translation>
+    </message>
+    <message>
+        <source>闭合 B-Rep 已生成，体积 %1 mm³，P95 误差 %2 mm。</source>
+        <translation>Closed B-Rep generated. Volume %1 mm³, P95 error %2 mm.</translation>
+    </message>
+    <message>
+        <source>导出 CAD</source>
+        <translation>Export CAD</translation>
+    </message>
+    <message>
+        <source>B-Rep 文件 (*.brep)</source>
+        <translation>B-Rep files (*.brep)</translation>
+    </message>
+    <message>
+        <source>选择文件期间模型已更改，请重新导出 CAD。</source>
+        <translation>The model changed while choosing a file. Export the CAD model again.</translation>
+    </message>
+    <message>
+        <source>无法导出 CAD 到 %1：%2</source>
+        <translation>Could not export CAD to %1. %2</translation>
+    </message>
+    <message>
+        <source>CAD 模型已导出到 %1</source>
+        <translation>CAD model exported to %1</translation>
     </message>
     <message>
         <source>直线 %1 条，整圆 %2 个，圆弧 %3 段。橙色点表示较大残差。</source>
@@ -1373,8 +1425,12 @@ Maximum deviation ≤ %3 %5, P95 deviation %4 %5</translation>
     </message>
     <message>
         <location filename="../src/app/MainWindow.cpp" line="367"/>
-        <source>导出 STEP…</source>
-        <translation>Export STEP...</translation>
+        <source>导出 CAD…</source>
+        <translation>Export CAD...</translation>
+    </message>
+    <message>
+        <source>以毫米为单位将当前实体导出为 STEP 或 B-Rep</source>
+        <translation>Export the current solid as STEP or B-Rep in millimetres</translation>
     </message>
     <message>
         <location filename="../src/app/MainWindow.cpp" line="369"/>
@@ -3742,18 +3798,18 @@ Set: %1</translation>
     <name>StepModelExporter</name>
     <message>
         <location filename="../src/io/StepModelExporter.cpp" line="39"/>
-        <source>没有可导出为 STEP 的 CAD 几何。</source>
-        <translation>No CAD geometry is available for STEP export.</translation>
+        <source>没有可导出的 CAD 几何。</source>
+        <translation>No CAD geometry is available for export.</translation>
     </message>
     <message>
         <location filename="../src/io/StepModelExporter.cpp" line="43"/>
-        <source>请选择 STEP 输出文件。</source>
-        <translation>Choose a STEP output file.</translation>
+        <source>请选择 CAD 输出文件。</source>
+        <translation>Choose a CAD output file.</translation>
     </message>
     <message>
         <location filename="../src/io/StepModelExporter.cpp" line="60"/>
-        <source>无法写入 STEP 输出。</source>
-        <translation>Could not write STEP output.</translation>
+        <source>无法写入 CAD 输出。</source>
+        <translation>Could not write CAD output.</translation>
     </message>
 </context>
 <context>

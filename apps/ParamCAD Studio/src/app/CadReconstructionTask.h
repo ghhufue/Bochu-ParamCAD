@@ -6,6 +6,7 @@
 #include <reconstruction/preprocessing/PointCloudPreprocessor.h>
 #include <reconstruction/pipeline/GuidedSolidRecognizer.h>
 #include <reconstruction/parts/AssemblyReconstruction.h>
+#include <reconstruction/brep_closure/ClosedBrepReconstructor.h>
 
 #include <QObject>
 #include <QJsonObject>
@@ -38,7 +39,7 @@ struct CadProjectionDebugResult
 struct CadReconstructionResult
 {
     enum class Outcome { Success, PreprocessingFailed, Unsupported, Failed, Cancelled };
-    enum class Branch { None, Conventional, Guided, Assembly };
+    enum class Branch { None, Conventional, Guided, Assembly, ClosedBrep };
     Outcome outcome = Outcome::Failed;
     Branch branch = Branch::None;
     bool partialAssembly = false;
@@ -54,9 +55,12 @@ struct CadReconstructionResult
     int failedRegionId = 0;
     QString error;
     std::optional<reconstruction::AssemblyReconstructionResult> assembly;
+    std::optional<reconstruction::ClosedBrepResult> closedBrep;
     std::optional<CadProjectionDebugResult> projectionDebug;
     std::size_t skippedInvalidObservations = 0;
 };
+
+QJsonObject closedBrepReport(const reconstruction::ClosedBrepResult& result);
 
 // Computes a candidate from an owned input snapshot. No view or modeling document
 // is accessed by the worker; the workspace decides whether to commit the result.
@@ -64,7 +68,7 @@ class CadReconstructionTask final : public QObject
 {
     Q_OBJECT
 public:
-    enum class Stage { Preprocessing, FittingTemplates, Recognizing, SeparatingParts, Projecting, Cancelling };
+    enum class Stage { Preprocessing, FittingTemplates, Recognizing, SeparatingParts, Projecting, ClosingBrep, Cancelling };
     Q_ENUM(Stage)
 
     explicit CadReconstructionTask(QObject* parent = nullptr);
@@ -79,7 +83,8 @@ public:
                std::vector<reconstruction::SurfaceRelationHint> relations = {},
                bool projectionFallback = true, bool specializedRecovery = true,
                std::optional<reconstruction::ProjectionExtrusionOptions> projectionOptions = {},
-               bool prepareSurfacePreview = true, bool legacyAssembly = false, PreviewMesher previewMesher = {});
+               bool prepareSurfacePreview = true, bool legacyAssembly = false, PreviewMesher previewMesher = {},
+               std::optional<reconstruction::BrepClosureOptions> brepOptions = {});
     bool startProjection(PlyCloud cloud, reconstruction::LengthUnit unit,
                          reconstruction::ProjectionPath path = reconstruction::ProjectionPath::Automatic,
                          bool inspectOnly = false,

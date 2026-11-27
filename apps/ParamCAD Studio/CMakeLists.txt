@@ -117,6 +117,11 @@ if(CAD_CLIENT_BUILD_TESTS)
     set_tests_properties(plane_support_recovery_test PROPERTIES TIMEOUT 120
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:CadPointCloudClient>")
     add_executable(module_settings_test ../../core/geometric_reconstruction/tests/settings/module_settings_test.cpp)
+    add_executable(closed_brep_test ../../core/geometric_reconstruction/tests/closed_brep_test.cpp)
+    target_link_libraries(closed_brep_test PRIVATE GeometricReconstruction::BrepClosure)
+    add_test(NAME closed_brep_test COMMAND closed_brep_test)
+    set_tests_properties(closed_brep_test PROPERTIES TIMEOUT 120
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${OpenCASCADE_BINARY_DIR}")
     target_link_libraries(module_settings_test PRIVATE GeometricReconstruction::GeometricReconstruction)
     target_include_directories(module_settings_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../core/geometric_reconstruction/src")
     target_compile_definitions(module_settings_test PRIVATE
@@ -539,7 +544,7 @@ if(CAD_CLIENT_BUILD_MODULE_CLIS)
         src/core/PointCloudSelection.cpp src/core/PointCloudEdits.cpp src/core/PointCloudRelations.cpp
         src/io/PointCloudAnalysis.cpp
         src/io/CameraInfoBuilder.cpp src/io/ProjectStore.cpp src/io/FeatureCodec.cpp
-        src/io/PlyReader.cpp src/io/PlyWriter.cpp src/io/PointCloudAdapter.cpp)
+        src/io/PlyReader.cpp src/io/PlyWriter.cpp src/io/PointCloudAdapter.cpp src/io/StepModelExporter.cpp)
     target_include_directories(pcad PRIVATE src "${PARAMCAD_BUILD_INFO_DIR}")
     add_dependencies(pcad paramcad_build_info)
     target_link_directories(pcad PRIVATE ${OpenCASCADE_LIBRARY_DIR})
@@ -600,6 +605,7 @@ if(CAD_CLIENT_BUILD_VALIDATION_TOOLS)
         src/io/PlyReader.cpp
         src/io/PointCloudAdapter.cpp
         src/io/StepModelLoader.cpp
+        src/io/StepModelExporter.cpp
     )
     target_include_directories(cad_reconstruction_validation PRIVATE src
         ../../core/geometric_reconstruction/src ../../core/parametric_modeling/src)

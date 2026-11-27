@@ -179,6 +179,8 @@ PointCloudWorkspaceController::PointCloudWorkspaceController(
                 message = workspaceTr("正在分离部件、恢复有限边界并检查曲面连接与闭合…");break;
             case CadReconstructionTask::Stage::Projecting:
                 message = workspaceTr("正在后台执行单件投影拟合…"); break;
+            case CadReconstructionTask::Stage::ClosingBrep:
+                message = workspaceTr("正在划分空间并验证闭合 B-Rep…"); break;
             case CadReconstructionTask::Stage::Cancelling:
                 m_ui.viewer->clearCadPreview();
                 message = workspaceTr("已请求取消 CAD 重建，等待当前计算步骤结束…"); break;
@@ -281,7 +283,7 @@ void PointCloudWorkspaceController::connectUi()
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::assignRequested, m_document,
             &PointCloudDocument::assignRegion);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::reconstructRequested,
-        this, &PointCloudWorkspaceController::reconstructCad);
+        this, &PointCloudWorkspaceController::reconstructCadWithoutProjection);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::unassignRequested,
         m_document, &PointCloudDocument::unassignSelection);
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::saveRequested, this, [this] {
@@ -386,7 +388,7 @@ void PointCloudWorkspaceController::connectUi()
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::refitRequested,this,[this](int id) {
         if(!m_document->selection().region(id)) return;
         m_document->lockTemplate(id);
-        reconstructCad();
+        reconstructCadWithoutProjection();
     });
     connect(m_ui.relationsPanel, &PointCloudRelationsPanel::inferRequested, this, [this] {
         startRelationInference();
@@ -767,17 +769,17 @@ void PointCloudWorkspaceController::reconstructCadSurfaces()
 
 void PointCloudWorkspaceController::reconstructCad()
 {
-    startCadReconstruction(true);
+    startCadReconstruction(CadPath::ClosedBrep);
 }
 
 void PointCloudWorkspaceController::reconstructCadLegacy()
 {
-    startCadReconstruction(true, true);
+    startCadReconstruction(CadPath::LegacyAssembly);
 }
 
 void PointCloudWorkspaceController::reconstructCadWithoutProjection()
 {
-    startCadReconstruction(false);
+    startCadReconstruction(CadPath::Parametric);
 }
 
 std::optional<reconstruction::LengthUnit> PointCloudWorkspaceController::confirmCloudUnit()
@@ -896,9 +898,11 @@ void PointCloudWorkspaceController::startProjectionDebug(reconstruction::Project
     m_cadTask->startProjection(m_document->sourceCloud(), *unit, path, inspectOnly);
 }
 
-void PointCloudWorkspaceController::startCadReconstruction(bool projectionFallback, bool legacyAssembly)
+void PointCloudWorkspaceController::startCadReconstruction(CadPath path)
 {
     if (m_importThread || m_cadTask->isRunning() || m_startingCad || m_analysisThread || m_downsampleThread) return;
+    const bool closedBrep = path == CadPath::ClosedBrep;
+    const bool legacyAssembly = path == CadPath::LegacyAssembly;
     if (m_document->sourcePath().isEmpty()) {
         emit logWarning(workspaceTr("Load a point cloud before reconstructing a model."));
         emit statusMessage(workspaceTr("尚未载入点云"), 3500);
@@ -918,9 +922,12 @@ void PointCloudWorkspaceController::startCadReconstruction(bool projectionFallba
     m_cadBodyRevision = m_ui.viewer->bodyRevision();
     m_cadSourcePath = m_document->sourcePath();
     m_cadOverwriteManual = false;
-    if (m_modelingController->hasProtectedReconstruction()) {
-        const auto answer = QMessageBox::question(m_dialogParent, workspaceTr("替换手动修改"),
-            workspaceTr("当前重建特征包含手动修改。重新拟合会替换这些特征及其尺寸调整。是否继续？"),
+    const bool replacesHistory = closedBrep && !m_modelingController->features().empty();
+    if (replacesHistory || m_modelingController->hasProtectedReconstruction()) {
+        const auto answer = QMessageBox::question(m_dialogParent,
+            replacesHistory ? workspaceTr("替换 CAD 特征") : workspaceTr("替换手动修改"),
+            replacesHistory ? workspaceTr("生成闭合 B-Rep 会替换当前模型及其特征历史。是否继续？") :
+                workspaceTr("当前重建特征包含手动修改。重新拟合会替换这些特征及其尺寸调整。是否继续？"),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (answer != QMessageBox::Yes) return;
         m_cadOverwriteManual = true;
@@ -931,7 +938,7 @@ void PointCloudWorkspaceController::startCadReconstruction(bool projectionFallba
     for (const auto id : ids) pointIds[id] = static_cast<reconstruction::PointId>(id) + 1;
     std::vector<reconstruction::TemplateHint> hints;
     for (const auto& region : m_document->selection().regions()) {
-        if (!region.templateLocked || m_document->selection().regionPointCount(region.id) == 0)
+        if (closedBrep || !region.templateLocked || m_document->selection().regionPointCount(region.id) == 0)
             continue;
         reconstruction::TemplateHint hint;
         hint.regionId = region.id;
@@ -979,10 +986,13 @@ void PointCloudWorkspaceController::startCadReconstruction(bool projectionFallba
     m_cadPreviewScale = 1.0 / reconstruction::millimetersPerUnit(*sourceUnit).value_or(1.0);
     m_cadPreviewSurfaces = 0;
     m_cadPreviewSolid = false;
+    std::optional<reconstruction::BrepClosureOptions> brepOptions;
+    if (closedBrep) brepOptions.emplace();
     m_cadTask->start(std::move(cloud), *sourceUnit, std::move(hints),
-                     m_ui.relationsPanel->surfaceTolerance(), m_surfaceAnalysis,std::move(relations),projectionFallback,
-                     true, {}, true, legacyAssembly, meshCadSurfacePreview);
-    emit logInfo(workspaceTr("仅点云重建：使用观测坐标、法向、单位和用户模板，不读取源模型或面对应表。"));
+                     m_ui.relationsPanel->surfaceTolerance(), m_surfaceAnalysis,std::move(relations),legacyAssembly,
+                     true, {}, true, legacyAssembly, meshCadSurfacePreview, brepOptions);
+    emit logInfo(closedBrep ? workspaceTr("开始从点云重建闭合 B-Rep。") :
+        workspaceTr("仅点云重建：使用观测坐标、法向、单位和用户模板，不读取源模型或面对应表。"));
 }
 
 void PointCloudWorkspaceController::clearStaleCadPreview()
@@ -1080,7 +1090,6 @@ void PointCloudWorkspaceController::updateCadActions()
     const bool busy = running || m_startingCad || m_analysisThread || m_downsampleThread || m_importThread;
     m_ui.analyzeCadSurfacesAction->setEnabled(!busy && m_document->hasCloud() &&
         (m_document->selection().regionPointCount(0) >= 20 || !m_document->selection().regions().empty()));
-    m_ui.reconstructCadAction->setToolTip(workspaceTr("仅使用点云的位置、法向和用户模板拟合 CAD，不读取源模型或拓扑对应表。"));
     m_ui.reconstructCadAction->setEnabled(!busy && m_document->hasCloud()
                                          && m_document->pointCount() > 0);
     m_ui.projectionDebugAction->setEnabled(!busy && m_document->hasCloud()
@@ -1241,10 +1250,14 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
     }
     bool applied=false;QString commandError=result.error;
     const auto finishCommand=qScopeGuard([&] {
-        if(m_cliOperation=="reconstruct cad")finishCliOperation(applied,
+        if(m_cliOperation!="reconstruct cad") return;
+        QJsonObject details{{"partial_reconstruction",result.partialAssembly},
+            {"features",qint64(m_modelingController->features().size())},
+            {"document_revision",QString::number(m_document->revision())},{"cache",result.cache}};
+        if (result.closedBrep) details["brep_quality"] = closedBrepReport(*result.closedBrep);
+        finishCliOperation(applied,
             applied?QString():commandError.isEmpty()?QStringLiteral("CAD result was cancelled, stale or not applied"):commandError,
-            {{"partial_reconstruction",result.partialAssembly},{"features",qint64(m_modelingController->features().size())},
-             {"document_revision",QString::number(m_document->revision())},{"cache",result.cache}});
+            details);
     });
     const auto reportStatus = [this](const QString& message) {
         m_ui.relationsPanel->setStatus(message);
@@ -1283,6 +1296,10 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
                 .arg(preprocessingReport.estimatedNormalsOriented)
                 .arg(preprocessingReport.normalsWithoutOrientation));
         }
+    }
+    if (result.closedBrep) {
+        emit logInfo(QString::fromUtf8(QJsonDocument(closedBrepReport(*result.closedBrep))
+                                          .toJson(QJsonDocument::Compact)));
     }
     std::vector<DetectedPointCloudSurface> surfaces;
     if (result.outcome == CadReconstructionResult::Outcome::Unsupported) {
@@ -1368,6 +1385,19 @@ void PointCloudWorkspaceController::onCadReconstructionFinished(const CadReconst
         reportStatus(message);
         emit logError(message);
         QMessageBox::warning(m_dialogParent, workspaceTr("重建 CAD"), message);
+        return;
+    }
+    if (result.closedBrep) {
+        m_modelingController->adoptProject(modeling::ModelingCore{});
+        m_ui.viewer->setObjectVisible(true);
+        m_ui.viewer->setBodyShape(result.closedBrep->solid);
+        m_ui.scenePanel->updateNodeLabel(SceneNodeType::Model, workspaceTr("闭合 B-Rep"));
+        const auto& quality = result.closedBrep->quality;
+        const auto message = workspaceTr("闭合 B-Rep 已生成，体积 %1 mm³，P95 误差 %2 mm。")
+            .arg(quality.volumeMm3, 0, 'g', 6).arg(quality.p95ErrorMm, 0, 'g', 4);
+        reportStatus(message);
+        emit statusTextChanged(message);
+        applied = true;
         return;
     }
     const auto& candidate = result.candidate;
@@ -1597,7 +1627,7 @@ void PointCloudWorkspaceController::startRelationInference(bool recordUndo, bool
         m_document->applyInferredRelations(result->relations, recordUndo);
         applied=true;
         if (prepareCad) {
-            const auto message = workspaceTr("曲面与关系已就绪。检查或编辑后，可点击「生成参数化 CAD」。");
+            const auto message = workspaceTr("曲面与关系已就绪。检查或编辑后，可点击「生成闭合 B-Rep」。");
             m_ui.relationsPanel->setStatus(message);
             emit statusMessage(message, 8000);
         } else {

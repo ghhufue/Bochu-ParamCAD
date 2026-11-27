@@ -56,16 +56,17 @@ pcad capture structured-light --in model.step --output outputs/scan-new --scan-s
 
 ```powershell
 pcad reconstruct cad --online
-pcad reconstruct cad --online --in cloud.ply --no-projection-fallback
+pcad reconstruct cad --online --in cloud.ply
 pcad reconstruct cad --offline --in cloud.ply --unit mm --output outputs/cad-new
+pcad reconstruct cad --offline --in cloud.ply --unit mm --output outputs/cad-parametric --parametric
 pcad reconstruct cad --offline --in cloud.ply --unit mm --output outputs/cad-legacy --legacy-assembly
 ```
 
-在线可省略 --in，以当前文档为输入。使用真实 UI 控制器，可在界面看到进度和结果，必要确认仍由客户端显示。在线参数只有 `--in`、`--no-projection-fallback`；在线不启用 legacy 装配，因此投影回退开关当前不改变默认实体推断的结果。
+默认从点云重建单个闭合无历史 B-Rep。在线可省略 `--in`，以当前文档为输入。进度和结果显示在 Studio 中。使用 `--parametric` 可运行原参数化重建。
 
-离线必须给 --in 和新的 --output 目录。支持 --unit mm/m、--legacy-assembly、--no-projection-fallback、--no-specialized-recovery、--config、重复 --set、--path。默认分支是实体推断：曲面分析导出 `SurfaceScene`，再生成闭合壳或平行端盖拉伸候选，不会自动回退到装配链。`--legacy-assembly` 显式切换到旧装配路径；只有启用它时，`--no-projection-fallback`、`--no-specialized-recovery`、`--config`、`--set`、`--path` 才作用于装配与投影配置。
+离线需要 `--in`、一个新的 `--output` 目录和已知的 mm 或 m 单位。`--tolerance-mm N` 显式指定拟合距离容差。`--partition-holes` 让孔壁直接参与空间切分。`--parallel-bop` 显式启用 OCCT 并行布尔，默认使用串行。`--legacy-assembly` 运行原装配路径及其投影配置。
 
-离线成功输出 input 快照、report.json、model.pcad、model.features.json、model.step；legacy 装配路径可能另有分离诊断。报告中的 `legacy_assembly` 表示是否启用旧链，`specialized_recovery_enabled` 与 `projection_fallback_enabled` 只在 legacy 模式下可能为真。检查 cad_constructed、project_round_trip_verified、step_round_trip_verified 和实际文件。cad_exported_partial 表示部分结果。
+闭合 B-Rep 导出 `model.step`、`model.brep`、`model.pcad` 和 `report.json`。报告包含自由边数、体积、点到边界的 RMS 和 P95，以及各格式的回读验证结果。参数化模式还会导出 `model.features.json`。原装配路径可能另有分离诊断。
 
 Studio 和原生 pcad 共享本地应用缓存。报告的 `cache` 对象列出本次查询阶段及其命中、未命中或绕过情况。缓存键绑定实际观测和生效设置，包含阶段实现与数据格式版本。实体推断的识别缓存版本还纳入实体推断源码与产品版本。legacy 装配按提取分组、边界准备、闭合和投影保存，单独修改投影参数可以复用前面的结果。开放部件及其诊断也可以复用。
 

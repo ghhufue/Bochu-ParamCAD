@@ -175,6 +175,10 @@ bool indexDetectedSurfaceEvidence(const PointStore& points, const std::vector<Pr
 // Transactional, observation-bounded optimization of a feasible relation subset.
 bool optimizeSurfaceRelations(const PointStore& points, SurfaceAnalysisResult& analysis,
     const std::vector<SurfaceRelation>& proposals, RelationOptimizationReport& report, std::string& error);
+// Locks directions before refitting observed offsets, axes and radii, while
+// preserving the original patch IDs and support used for solid partitioning.
+bool regularizeBrepRelations(const PointStore& points, SurfaceAnalysisResult& analysis,
+    RelationOptimizationReport& report, std::string& error);
 struct LocalObservationRecovery {
     PointStore observations{std::vector<PointSample>{}};
     std::vector<PointId> recoveredPointIds;

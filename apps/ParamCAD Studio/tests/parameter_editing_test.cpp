@@ -410,8 +410,8 @@ void cloudOnlyButtonWorkflow() {
     require(!window.findChild<QAction*>("openModelingTabAction")->isEnabled(),
             "point cloud alone does not enable parametric modeling");
     auto* action=window.findChild<QAction*>("reconstructCadAction");require(action->isEnabled() && !action->text().contains("STEP"),"button exposes only point-cloud reconstruction");
-    const auto* projectionAction=window.findChild<QAction*>("cadWithoutProjectionAction");
-    require(projectionAction && projectionAction->isEnabled(),"projection opt-out is enabled for a metric cloud");
+    auto* parametricAction=window.findChild<QAction*>("cadWithoutProjectionAction");
+    require(parametricAction && parametricAction->isEnabled(),"legacy parametric action is enabled for a metric cloud");
     require(debugAction->isEnabled(), "import enables direct projection");
     debugAction->trigger();
     auto* debugPage = window.findChild<PropertyPanel*>()->findChild<QWidget*>("projectionDebugPage");
@@ -506,8 +506,16 @@ void cloudOnlyButtonWorkflow() {
     viewer->clearProjectionPreview();
     require(findArrows().empty(), "closing projection preview removes its viewport geometry");
     std::optional<CadReconstructionResult> result;QObject::connect(task,&CadReconstructionTask::finished,&window,[&](const auto& value){result=value;});
-    action->trigger();QElapsedTimer timer;timer.start();while(task->isRunning()&&timer.elapsed()<30000){QApplication::processEvents();QThread::msleep(5);}
-    require(result && result->outcome==CadReconstructionResult::Outcome::Success && !model->features().empty(),"button reconstructs using only observations despite poisoned source-model sidecars");
+    action->trigger();
+    waitForProjection();
+    require(result && result->outcome == CadReconstructionResult::Outcome::Success && result->closedBrep &&
+            model->features().empty() && near(volume(viewer->displayedBody()), 216),
+        "default reconstruction commits the observed history-free body despite poisoned source-model sidecars");
+    result.reset();
+    parametricAction->trigger();
+    waitForProjection();
+    require(result && result->outcome==CadReconstructionResult::Outcome::Success && !model->features().empty(),
+        "legacy reconstruction still produces editable features from the same cloud");
     require(std::abs(volume(model->bodyShape())-216)<1e-5,"cloud-only result has observed dimensions");
     verifyModelingTabs(window, model, viewer);
     window.findChild<ModelingPanel*>()->selectFeature(model->latestExtrudeId());auto* editor=window.findChild<FeatureEditorPanel*>();
@@ -575,7 +583,7 @@ void observedAssemblyWorkflow() {
     auto* model=window.findChild<ModelingController*>();auto* viewer=window.findChild<VTKViewer*>();
     workspace->loadPointCloudFromFile(path);require(viewer->pointCloudDocument()->hasCloud(),"load arbitrary real observations");
     std::optional<CadReconstructionResult> result;QObject::connect(task,&CadReconstructionTask::finished,&window,[&](const auto& value){result=value;});
-    window.findChild<QAction*>("reconstructCadAction")->trigger();QElapsedTimer timer;timer.start();
+    workspace->reconstructCadLegacy();QElapsedTimer timer;timer.start();
     while(task->isRunning()&&timer.elapsed()<180000){QApplication::processEvents();QThread::msleep(5);}
     require(result&&result->assembly,"real button produces separation diagnostics");
     const auto closed=std::count_if(result->assembly->parts.begin(),result->assembly->parts.end(),[](const auto& part){return part.closed;});
@@ -801,7 +809,7 @@ int main(int argc,char** argv) {
         bool asked=false; QTimer::singleShot(0,&window,[&] {
             auto* dialog=window.findChild<QMessageBox*>(); if (dialog && dialog->windowTitle().contains("替换手动修改")) { asked=true; dialog->done(QMessageBox::No); }
         });
-        window.findChild<PointCloudWorkspaceController*>()->reconstructCad(); require(asked && model->hasProtectedReconstruction(),"explicit reconstruction asks before replacing protected model");
+        window.findChild<PointCloudWorkspaceController*>()->reconstructCadWithoutProjection(); require(asked && model->hasProtectedReconstruction(),"explicit reconstruction asks before replacing protected model");
 
         reconstruction::CompoundCandidate curved;
         reconstruction::CurvedSolidCandidate solid;

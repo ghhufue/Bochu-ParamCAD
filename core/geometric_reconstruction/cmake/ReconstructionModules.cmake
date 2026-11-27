@@ -31,6 +31,7 @@ set(RECONSTRUCTION_SURFACES_SOURCES
     src/surface/LocalRecovery.cpp
     src/surface/CurvedFragmentRecovery.cpp
     src/surface/RelationOptimization.cpp
+    src/surface/BrepRelationRegularization.cpp
     src/surface/SurfaceFootprint.cpp
     src/surface/SurfaceSupportValidation.cpp
     src/surface/SurfaceAnalysis.cpp
@@ -39,6 +40,13 @@ set(RECONSTRUCTION_SURFACES_SOURCES
     src/surface/SurfaceRelations.cpp
     src/surface/expansion/PlaneSupportRecovery.cpp
     src/surface/SurfaceOwnership.cpp
+)
+
+set(RECONSTRUCTION_BREP_SOURCES
+    src/brep_closure/ClosedBrepReconstructor.cpp
+    src/brep_closure/CellsPartitioner.cpp
+    src/brep_closure/CuttingGeometry.cpp
+    src/brep_closure/FreeformFaces.cpp
 )
 
 set(RECONSTRUCTION_WORKFLOW_SOURCES

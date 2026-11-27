@@ -67,6 +67,12 @@ configure_reconstruction_library(ReconstructionSurfaces)
 target_link_libraries(ReconstructionSurfaces PUBLIC ReconstructionSegmentation ReconstructionInput
     PRIVATE ContourFitting::ContourFitting CGAL::CGAL Eigen3::Eigen Threads::Threads)
 
+add_library(ReconstructionBrepClosure STATIC ${RECONSTRUCTION_BREP_SOURCES})
+add_library(GeometricReconstruction::BrepClosure ALIAS ReconstructionBrepClosure)
+configure_reconstruction_library(ReconstructionBrepClosure)
+target_link_libraries(ReconstructionBrepClosure PUBLIC ReconstructionSurfaces CadModelCore::CadModelCore
+    PRIVATE CGAL::CGAL Eigen3::Eigen TKBO TKShHealing TKGeomAlgo TKMesh)
+
 # CAD-backed feature/part recognition and workflow orchestration live above the
 # numerical libraries. Existing clients retain the same aggregate target name.
 add_library(GeometricReconstruction ${RECONSTRUCTION_WORKFLOW_SOURCES})
@@ -74,13 +80,18 @@ add_library(GeometricReconstruction::GeometricReconstruction ALIAS GeometricReco
 configure_reconstruction_library(GeometricReconstruction)
 target_compile_definitions(GeometricReconstruction PRIVATE
     PARAMCAD_CONFIG_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../apps/ParamCAD Studio/config")
-target_link_libraries(GeometricReconstruction PUBLIC ReconstructionSurfaces CadModelCore::CadModelCore
+target_link_libraries(GeometricReconstruction PUBLIC ReconstructionBrepClosure
     PRIVATE ContourFitting::ContourFitting CGAL::CGAL Eigen3::Eigen Threads::Threads)
 
 if(GEOMETRIC_RECONSTRUCTION_BUILD_TESTS)
     include(CTest)
     include(cmake/BoundaryTests.cmake)
     add_reconstruction_boundary_tests()
+    add_executable(closed_brep_test tests/closed_brep_test.cpp)
+    target_link_libraries(closed_brep_test PRIVATE GeometricReconstruction::BrepClosure)
+    add_test(NAME closed_brep_test COMMAND closed_brep_test)
+    set_tests_properties(closed_brep_test PROPERTIES TIMEOUT 120
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${OpenCASCADE_BINARY_DIR}")
     add_executable(surface_support_validation_test tests/analysis/surface_support_validation_test.cpp)
     target_link_libraries(surface_support_validation_test PRIVATE GeometricReconstruction::GeometricReconstruction)
     add_test(NAME surface_support_validation_test COMMAND surface_support_validation_test)

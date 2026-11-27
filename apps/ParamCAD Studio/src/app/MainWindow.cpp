@@ -420,16 +420,16 @@ void MainWindow::createActions()
     m_analyzeCadSurfacesAction->setObjectName(QStringLiteral("analyzeCadSurfacesAction"));
     m_analyzeCadSurfacesAction->setToolTip(tr("识别点云曲面并推断关系，供检查和编辑。"));
     m_analyzeCadSurfacesAction->setEnabled(false);
-    m_reconstructCadAction = new QAction(tr("生成参数化 CAD"), this);
+    m_reconstructCadAction = new QAction(tr("生成闭合 B-Rep"), this);
     m_reconstructCadAction->setObjectName(QStringLiteral("reconstructCadAction"));
     m_reconstructCadAction->setToolTip(
-        tr("识别已载入点云中的几何并重建参数化 CAD 模型"));
+        tr("从已载入点云重建闭合无历史 B-Rep 实体"));
     m_reconstructCadAction->setEnabled(false);
     m_openModelingTabAction = new QAction(tr("参数化建模"), this);
     m_openModelingTabAction->setObjectName(QStringLiteral("openModelingTabAction"));
     m_openModelingTabAction->setToolTip(tr("在新标签页中查看当前实体并调整特征参数"));
     m_openModelingTabAction->setEnabled(false);
-    m_cadWithoutProjectionAction = new QAction(tr("重建 CAD（不使用投影回退）"), this);
+    m_cadWithoutProjectionAction = new QAction(tr("生成参数化 CAD"), this);
     m_cadWithoutProjectionAction->setObjectName(QStringLiteral("cadWithoutProjectionAction"));
     m_cadWithoutProjectionAction->setEnabled(false);
     connect(m_reconstructCadAction,&QAction::changed,this,[this] {
@@ -475,9 +475,9 @@ void MainWindow::createActions()
     m_saveAsAction = new QAction(tr("项目另存为…"), this);
     m_saveAsAction->setObjectName(QStringLiteral("saveProjectAsAction"));
     m_saveAsAction->setShortcut(QKeySequence::SaveAs);
-    m_exportStepAction = new QAction(tr("导出 STEP…"), this);
+    m_exportStepAction = new QAction(tr("导出 CAD…"), this);
     m_exportStepAction->setObjectName(QStringLiteral("exportStepAction"));
-    m_exportStepAction->setToolTip(tr("以毫米为单位导出当前 CAD 几何"));
+    m_exportStepAction->setToolTip(tr("以毫米为单位将当前实体导出为 STEP 或 B-Rep"));
     m_exportStepAction->setEnabled(false);
     m_exitAction = new QAction(tr("退出"), this);
     m_exitAction->setShortcut(QKeySequence::Quit);
@@ -819,6 +819,7 @@ void MainWindow::connectUi()
     });
     connect(m_cadWithoutProjectionAction,&QAction::triggered,m_pointCloudWorkspace,
             &PointCloudWorkspaceController::reconstructCadWithoutProjection);
+    connect(m_cadWithoutProjectionAction,&QAction::triggered,this,&MainWindow::showDocumentViewport);
     connect(m_projectionDebugAction, &QAction::triggered, this, &MainWindow::showDocumentViewport);
     connect(m_projectionDebugAction, &QAction::triggered, m_pointCloudWorkspace,
             &PointCloudWorkspaceController::runProjectionDebug);

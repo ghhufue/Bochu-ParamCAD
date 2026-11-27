@@ -1,6 +1,8 @@
 #include "io/StepModelExporter.h"
 #include <QCoreApplication>
 #include <modeling/StepExporter.h>
+#include <BRepTools.hxx>
+#include <Standard_Failure.hxx>
 
 #include <QSaveFile>
 #include <exception>
@@ -30,17 +32,15 @@ protected:
 private:
     QSaveFile& m_file;
 };
-}
-
-bool StepModelExporter::write(const TopoDS_Shape& shape, const QString& path, QString& error)
+bool writeShape(const TopoDS_Shape& shape, const QString& path, QString& error, bool brep)
 {
     error.clear();
     if (shape.IsNull()) {
-        error = QCoreApplication::translate("StepModelExporter", "没有可导出为 STEP 的 CAD 几何。");
+        error = QCoreApplication::translate("StepModelExporter", "没有可导出的 CAD 几何。");
         return false;
     }
     if (path.isEmpty()) {
-        error = QCoreApplication::translate("StepModelExporter", "请选择 STEP 输出文件。");
+        error = QCoreApplication::translate("StepModelExporter", "请选择 CAD 输出文件。");
         return false;
     }
     QSaveFile file(path);
@@ -52,12 +52,14 @@ bool StepModelExporter::write(const TopoDS_Shape& shape, const QString& path, QS
         SaveFileBuffer buffer(file);
         std::ostream output(&buffer);
         std::string failure;
-        const bool written = modeling::exportStep(shape, output, &failure);
+        bool written = true;
+        if (brep) BRepTools::Write(shape, output);
+        else written = modeling::exportStep(shape, output, &failure);
         output.flush();
         if (!written || !output.good()) {
             error = file.error() == QFileDevice::NoError
                 ? QString::fromStdString(failure) : file.errorString();
-            if (error.isEmpty()) error = QCoreApplication::translate("StepModelExporter", "无法写入 STEP 输出。");
+            if (error.isEmpty()) error = QCoreApplication::translate("StepModelExporter", "无法写入 CAD 输出。");
             file.cancelWriting();
             return false;
         }
@@ -66,9 +68,24 @@ bool StepModelExporter::write(const TopoDS_Shape& shape, const QString& path, QS
             return false;
         }
         return true;
+    } catch (const Standard_Failure& failure) {
+        file.cancelWriting();
+        error = QString::fromUtf8(failure.what());
+        return false;
     } catch (const std::exception& failure) {
         file.cancelWriting();
         error = QString::fromUtf8(failure.what());
         return false;
     }
+}
+} // namespace
+
+bool StepModelExporter::write(const TopoDS_Shape& shape, const QString& path, QString& error)
+{
+    return writeShape(shape, path, error, false);
+}
+
+bool StepModelExporter::writeBrep(const TopoDS_Shape& shape, const QString& path, QString& error)
+{
+    return writeShape(shape, path, error, true);
 }

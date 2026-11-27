@@ -43,7 +43,7 @@ bool PointCloudWorkspaceController::dispatchCliOperation(const QString& command,
         }
         const bool cad=command=="reconstruct cad";
         pcad::Options options(args,cad?QStringList{"--in"}:command=="detect"?QStringList{"--in"}:QStringList{"--out"},
-            cad?QStringList{"--no-projection-fallback"}:QStringList{});
+            cad?QStringList{"--no-projection-fallback","--parametric"}:QStringList{});
         if(!options.get("--in").isEmpty()){
             const auto file=QFileInfo(options.get("--in"));
             if(!file.isFile()){error="Input PLY does not exist";return false;}
@@ -58,7 +58,7 @@ bool PointCloudWorkspaceController::dispatchCliOperation(const QString& command,
         }
         m_cliOperation=command;
         if(cad){
-            if(options.flags.contains("--no-projection-fallback"))reconstructCadWithoutProjection();else reconstructCad();
+            if(options.flags.contains("--parametric"))reconstructCadWithoutProjection();else reconstructCad();
             if(!m_cadTask->isRunning()){error="CAD reconstruction was not started (cancelled confirmation or invalid input)";m_cliOperation.clear();return false;}
         }else if(command=="detect"){
             startPointCloudAnalysis();if(!m_analysisThread){error="Surface detection needs at least 20 unassigned active points";m_cliOperation.clear();return false;}

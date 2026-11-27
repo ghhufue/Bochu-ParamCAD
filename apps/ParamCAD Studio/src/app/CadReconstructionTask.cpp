@@ -6,6 +6,7 @@
 #include <reconstruction/data/StageProfile.h>
 #include <reconstruction/modeling/ModelingAdapter.h>
 #include <reconstruction/parts/ProjectionSettings.h>
+#include <reconstruction/recognition/RecognitionAnalysisOptions.h>
 #include <reconstruction/settings/ModuleConfig.h>
 #include <reconstruction/surface/SurfaceOwnership.h>
 #include <reconstruction/surface/SurfaceSupportValidation.h>
@@ -13,6 +14,7 @@
 #include <BRepBuilderAPI_Copy.hxx>
 
 #include <QElapsedTimer>
+#include <QJsonArray>
 #include <QPointer>
 #include <QScopeGuard>
 #include <QThread>
@@ -39,6 +41,7 @@ struct CadWork {
     std::optional<reconstruction::ProjectionExtrusionOptions> projectionOptions;
     bool prepareSurfacePreview;
     bool legacyAssembly;
+    std::optional<reconstruction::BrepClosureOptions> brepOptions;
 };
 
 void prepareSourceSurfacePreview(const reconstruction::PointStore& source, double supportRadius,
@@ -76,7 +79,7 @@ void runCadWork(const CadWork& input, CadReconstructionResult& result,
     const std::function<bool()>& cancelled, const std::function<void(Stage)>& stageChanged,
     const reconstruction::GuidedRecognitionProgress& progress) {
     const auto& [cloud, unit, hints, sourceTolerance, analysis, relations, projectionFallback, specializedRecovery,
-                 projectionOptions, shouldPrepareSurfacePreview, legacyAssembly] = input;
+                 projectionOptions, shouldPrepareSurfacePreview, legacyAssembly, brepOptions] = input;
     using reconstruction::diagnostics::profileStage;
     const reconstruction::diagnostics::StageProfile workerProfile("cad.worker", cloud.positions.size());
     if (cancelled()) return;
@@ -124,6 +127,43 @@ void runCadWork(const CadWork& input, CadReconstructionResult& result,
         prepareSourceSurfacePreview(recoverySource, 3 * preprocessing.voxelSize * source.sourceToWorkingScale(),
             cloud.normals.size() == cloud.positions.size(), result, cancelled, cache);
     };
+    if (brepOptions) {
+        result.branch = CadReconstructionResult::Branch::ClosedBrep;
+        stageChanged(Stage::Recognizing);
+        auto options = reconstruction::recognitionAnalysisOptions(points, planes, cylinders,
+                                                                   recognitionSettings.analysis);
+        // Competing families share one RANSAC pass. Independent passes can
+        // cover a freeform patch with many overlapping analytic approximations.
+        options.independentFamilies = false;
+        result.analysisReused = analysis && reconstruction::analysisMatches(points, *analysis) &&
+            reconstruction::analysisSettingsMatch(analysis->options, options);
+        bool analyzed = true;
+        if (result.analysisReused) {
+            result.analysis = *analysis;
+            reconstruction::reportSurfaceAnalysis(result.analysis, progress.surfaces);
+        } else {
+            analyzed = cache.analyze(points, options, result.analysis, failure, progress.surfaces);
+        }
+        if (cancelled()) return;
+        if (analyzed && !relations.empty())
+            analyzed = reconstruction::applySurfaceRelationHints(points, relations, result.analysis, failure);
+        if (analyzed) {
+            stageChanged(Stage::ClosingBrep);
+            auto& closed = result.closedBrep.emplace();
+            if (profileStage("cad.closed_brep", [&] {
+                return reconstruction::reconstructClosedBrep(points, result.analysis, *brepOptions, closed,
+                                                              failure, &recoverySource, cancelled);
+            })) {
+                result.outcome = CadReconstructionResult::Outcome::Success;
+                return;
+            }
+        }
+        if (cancelled()) return;
+        result.outcome = CadReconstructionResult::Outcome::Unsupported;
+        result.error = QString::fromStdString(failure);
+        preparePreview();
+        return;
+    }
     reconstruction::GuidedSolidResult guided;
     const bool recognized = profileStage("cad.recognize", [&] {
         if (legacyAssembly) return false;
@@ -192,6 +232,18 @@ void runCadWork(const CadWork& input, CadReconstructionResult& result,
 }
 } // namespace
 
+QJsonObject closedBrepReport(const reconstruction::ClosedBrepResult& result)
+{
+    const auto& q = result.quality;
+    QJsonArray diagnostics;
+    for (const auto& message : result.diagnostics) diagnostics.append(QString::fromStdString(message));
+    return {{"valid_topology", q.isValidTopology}, {"free_edge_count", q.freeEdgeCount},
+        {"volume_mm3", q.volumeMm3}, {"rms_error_mm", q.rmsErrorMm}, {"p95_error_mm", q.p95ErrorMm},
+        {"scored_point_count", qint64(q.scoredPointCount)}, {"sub_solid_count", qint64(q.subSolidCount)},
+        {"inside_solid_count", qint64(q.insideSolidCount)}, {"regular_hole_tool_count", qint64(q.regularHoleToolCount)},
+        {"freeform_face_count", qint64(q.freeformFaceCount)}, {"diagnostics", diagnostics}};
+}
+
 CadReconstructionTask::CadReconstructionTask(QObject* parent)
     : QObject(parent)
 {
@@ -227,12 +279,13 @@ bool CadReconstructionTask::start(PlyCloud cloud, reconstruction::LengthUnit uni
     std::optional<reconstruction::SurfaceAnalysisResult> analysis,
     std::vector<reconstruction::SurfaceRelationHint> relations, bool projectionFallback, bool specializedRecovery,
     std::optional<reconstruction::ProjectionExtrusionOptions> projectionOptions, bool prepareSurfacePreview,
-    bool legacyAssembly, PreviewMesher previewMesher)
+    bool legacyAssembly, PreviewMesher previewMesher, std::optional<reconstruction::BrepClosureOptions> brepOptions)
 {
     const bool livePreview = previewMesher && !legacyAssembly;
     return startWork([input = CadWork{std::move(cloud), unit, std::move(hints), sourceTolerance,
             std::move(analysis), std::move(relations), projectionFallback, specializedRecovery,
-            std::move(projectionOptions), prepareSurfacePreview, legacyAssembly}, mesher = std::move(previewMesher)]
+            std::move(projectionOptions), prepareSurfacePreview, legacyAssembly, std::move(brepOptions)},
+            mesher = std::move(previewMesher)]
             (auto& result, const auto& cancelled, const auto& reportStage, const ReportPreview& reportPreview) {
         reconstruction::GuidedRecognitionProgress progress;
         if (reportPreview) {

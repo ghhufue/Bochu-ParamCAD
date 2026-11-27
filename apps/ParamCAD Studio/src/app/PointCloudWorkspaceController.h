@@ -73,7 +73,8 @@ signals:
     void contourSketchCreated(modeling::FeatureId id);
 
 private:
-    void startCadReconstruction(bool projectionFallback, bool legacyAssembly = false);
+    enum class CadPath { ClosedBrep, Parametric, LegacyAssembly };
+    void startCadReconstruction(CadPath path);
     void startProjectionDebug(reconstruction::ProjectionPath path, bool inspectOnly);
     void clearProjectionDebugResult();
     std::optional<reconstruction::LengthUnit> confirmCloudUnit();

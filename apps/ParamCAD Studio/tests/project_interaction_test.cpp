@@ -291,7 +291,7 @@ int main(int argc, char** argv)
         // Queue a worker result against the old document and immediately replace
         // it. Cancellation and revisions must both keep the new project intact.
         auto* task = restored.findChild<CadReconstructionTask*>();
-        action(restored, "reconstructCadAction")->trigger();
+        action(restored, "cadWithoutProjectionAction")->trigger();
         require(task->isRunning(), "CAD worker launched from restored metric cloud");
         require(restoredProject->loadFrom(projectPath, error),
                 "project opens while CAD task is pending");

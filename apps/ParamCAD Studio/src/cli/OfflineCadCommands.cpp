@@ -4,6 +4,7 @@
 #include "io/PointCloudAdapter.h"
 #include "io/ProjectStore.h"
 #include "io/FeatureCodec.h"
+#include "io/StepModelExporter.h"
 #include <reconstruction/data/StageProfile.h>
 #include <reconstruction/modeling/ModelingAdapter.h>
 #include <reconstruction/parts/ProjectionExtrusion.h>
@@ -11,6 +12,8 @@
 #include <modeling/StepExporter.h>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepBndLib.hxx>
+#include <BRepTools.hxx>
+#include <BRep_Builder.hxx>
 #include <Bnd_Box.hxx>
 #include <STEPControl_Reader.hxx>
 #include <TopExp_Explorer.hxx>
@@ -32,6 +35,7 @@ void save(const QString& path,const QJsonObject& report){QSaveFile file(path);re
     const auto data=QJsonDocument(report).toJson();require(file.write(data)==data.size() && file.commit(),"Cannot commit cloud-only report");}
 int solids(const TopoDS_Shape& shape){int count=0;for(TopExp_Explorer i(shape,TopAbs_SOLID);i.More();i.Next())++count;return count;}
 void exportCad(const modeling::ModelingCore& core, const QString& path, QJsonObject& report);
+void exportClosedBrep(const TopoDS_Solid& solid, const QString& path, QJsonObject& report);
 
 struct ProjectionArguments {
     reconstruction::ProjectionExtrusionOptions options;
@@ -39,10 +43,13 @@ struct ProjectionArguments {
     bool projectionFallback = true;
     bool specializedRecovery = true;
     bool legacyAssembly = false;
+    bool parametric = false;
+    reconstruction::BrepClosureOptions closure;
+    double toleranceMm = 0;
     QString path = QStringLiteral("auto");
 };
 
-ProjectionArguments projectionArguments(const QStringList& args, bool assembly)
+ProjectionArguments projectionArguments(const QStringList& args, bool assembly, bool defaultToClosedBrep = true)
 {
     ProjectionArguments result;
     QStringList overrides;
@@ -66,6 +73,18 @@ ProjectionArguments projectionArguments(const QStringList& args, bool assembly)
             pathSpecified = true;
         } else if (assembly && argument == "--legacy-assembly" && !result.legacyAssembly) {
             result.legacyAssembly = true;
+        } else if (assembly && argument == "--parametric" && !result.parametric) {
+            result.parametric = true;
+        } else if (assembly && argument == "--parallel-bop" && !result.closure.enableParallelBop) {
+            result.closure.enableParallelBop = true;
+        } else if (assembly && argument == "--partition-holes" && result.closure.separateRegularHoles) {
+            result.closure.separateRegularHoles = false;
+        } else if (assembly && argument == "--tolerance-mm" && !toleranceSpecified) {
+            bool parsed = false;
+            result.toleranceMm = readValue().toDouble(&parsed);
+            require(parsed && std::isfinite(result.toleranceMm) && result.toleranceMm > 0,
+                    "Expected a positive tolerance in millimetres");
+            toleranceSpecified = true;
         } else if (assembly && argument == "--no-specialized-recovery" && result.specializedRecovery) {
             result.specializedRecovery = false;
         } else if (assembly && !projectionSpecified &&
@@ -84,6 +103,17 @@ ProjectionArguments projectionArguments(const QStringList& args, bool assembly)
         } else {
             throw std::invalid_argument("Unknown or repeated option: " + argument.toStdString());
         }
+    }
+    if (assembly) {
+        if (!defaultToClosedBrep && !result.legacyAssembly) result.parametric = true;
+        require(!(result.legacyAssembly && result.parametric), "Choose either --legacy-assembly or --parametric");
+        if (!result.legacyAssembly && !result.parametric) {
+            require(result.file.empty() && overrides.empty() && !pathSpecified,
+                    "--config, --set and --path require --legacy-assembly or --parametric");
+            return result;
+        }
+        require(!result.closure.enableParallelBop && result.closure.separateRegularHoles,
+                "--parallel-bop and --partition-holes apply to closed B-Rep reconstruction");
     }
     if (result.file.empty()) result.file = reconstruction::projectionConfigPath();
     result.options = reconstruction::loadProjectionOptions(result.file);
@@ -111,19 +141,21 @@ void reportProjectionSettings(QJsonObject& report, const ProjectionArguments& ar
     report["projection_settings"] = settings;
 }
 }
-void reconstructOfflineCad(const QStringList& args,QJsonObject& report) {
+void reconstructOfflineCad(const QStringList& args, QJsonObject& report, bool defaultToClosedBrep) {
     using reconstruction::diagnostics::profileStage;
     const reconstruction::diagnostics::StageProfile profile("cad.offline");
     require(args.size()>=5,
-            "Usage: reconstruct-cloud cloud.ply report.json output.step [--legacy-assembly] [--no-projection-fallback] [--no-specialized-recovery] [--config file] [--set key=value] [--path mode]");
-    const auto arguments = projectionArguments(args,true);
+            "Usage: reconstruct-cloud cloud.ply report.json output.step [--parallel-bop] [--partition-holes] [--tolerance-mm N] [--parametric | --legacy-assembly]");
+    const auto arguments = projectionArguments(args, true, defaultToClosedBrep);
     const auto projectionFallback = arguments.projectionFallback;
     const auto specializedRecovery = arguments.specializedRecovery;
-    reportProjectionSettings(report,arguments);
+    const bool closedBrep = !arguments.parametric && !arguments.legacyAssembly;
+    if (!closedBrep) reportProjectionSettings(report,arguments);
     const auto unit=PointCloudAdapter::lengthUnitFor(args[2]);
     require(unit!=reconstruction::LengthUnit::Arbitrary,"Point cloud needs mm/m unit metadata; declare its unit explicitly");
     report["input_kind"]="point_cloud_only";report["source_model_read"]=false;report["topology_correspondence_used"]=false;
     report["legacy_assembly"]=arguments.legacyAssembly;
+    report["history_free"]=closedBrep;
     report["specialized_recovery_enabled"]=arguments.legacyAssembly && specializedRecovery;
     report["projection_fallback_enabled"]=arguments.legacyAssembly && projectionFallback;
     report["reference_labels_used"]=false;report["source_completeness_verified"]=false;report["cad_constructed"]=false;
@@ -135,9 +167,15 @@ void reconstructOfflineCad(const QStringList& args,QJsonObject& report) {
     report["input_points"]=double(cloud.positions.size());
     CadReconstructionTask task;QEventLoop loop;std::optional<CadReconstructionResult> result;
     QObject::connect(&task,&CadReconstructionTask::stageChanged,&loop,[&](auto value){
-        stage(value==CadReconstructionTask::Stage::Preprocessing?"preprocessing":value==CadReconstructionTask::Stage::SeparatingParts?"separating_and_closing_parts":"recognizing_from_points");});
+        stage(value==CadReconstructionTask::Stage::Preprocessing?"preprocessing":
+              value==CadReconstructionTask::Stage::ClosingBrep?"partitioning_brep":
+              value==CadReconstructionTask::Stage::SeparatingParts?"separating_and_closing_parts":"recognizing_from_points");});
     QObject::connect(&task,&CadReconstructionTask::finished,&loop,[&](const auto& value){result=value;loop.quit();});
-    require(task.start(cloud,unit,{},0,{},{},projectionFallback,specializedRecovery,arguments.options,false,arguments.legacyAssembly),
+    std::optional<reconstruction::BrepClosureOptions> closure;
+    if (closedBrep) closure = arguments.closure;
+    const auto sourceTolerance = arguments.toleranceMm / reconstruction::millimetersPerUnit(unit).value();
+    require(task.start(cloud,unit,{},sourceTolerance,{},{},projectionFallback,specializedRecovery,arguments.options,
+                       false,arguments.legacyAssembly,{},closure),
         "Cannot start point-cloud worker");
     if(!result)loop.exec();require(result.has_value(),"Point-cloud worker returned no result");
     report["cache"] = result->cache;
@@ -150,9 +188,14 @@ void reconstructOfflineCad(const QStringList& args,QJsonObject& report) {
     case Branch::Conventional: report["recognition_branch"] = "conventional"; break;
     case Branch::Guided: report["recognition_branch"] = "guided"; break;
     case Branch::Assembly: report["recognition_branch"] = "assembly"; break;
+    case Branch::ClosedBrep: report["recognition_branch"] = "closed_brep"; break;
     }
     report["detected_surface_patches"]=double(result->analysis.patches.size());
     report["unresolved_component_points"]=double(result->candidate.unresolvedPointIds.size());
+    if (result->closedBrep) {
+        report["brep_quality"] = closedBrepReport(*result->closedBrep);
+        report["distance_tolerance_mm"] = result->analysis.options.detection.plane.distanceThreshold;
+    }
     if (result->assembly) {
         stage("writing_separation_diagnostics");
         report["assembly"] = profileStage("cad.write_diagnostics", [&] {
@@ -162,6 +205,12 @@ void reconstructOfflineCad(const QStringList& args,QJsonObject& report) {
     if(result->outcome!=CadReconstructionResult::Outcome::Success) {
         report["status"]=result->outcome==CadReconstructionResult::Outcome::Unsupported?"unsupported":"failed";
         report["error"]=result->error;return;
+    }
+    if (closedBrep) {
+        require(result->closedBrep && !result->closedBrep->solid.IsNull(), "Closed B-Rep worker returned no solid");
+        stage("exporting_cad");
+        profileStage("cad.export", [&] { exportClosedBrep(result->closedBrep->solid, args[4], report); });
+        return;
     }
     stage("building_parametric_cad");modeling::ModelingCore core;
     profileStage("cad.build_and_validate", [&] {
@@ -182,24 +231,68 @@ void reconstructOfflineCad(const QStringList& args,QJsonObject& report) {
 }
 
 namespace {
-void exportCad(const modeling::ModelingCore& core, const QString& path, QJsonObject& report) {
+void writeAndCheckStep(const TopoDS_Shape& shape, const QString& path, QJsonObject& report) {
     QString error;
-    report["solids"]=solids(core.bodyShape());report["brep_valid"]=true;
-    std::string failure;require(modeling::exportStep(core.bodyShape(),std::filesystem::path(path.toStdWString()),&failure),failure);
+    report["solids"]=solids(shape);report["brep_valid"]=true;
+    const bool written = StepModelExporter::write(shape, path, error);
+    require(written, error.toStdString());
     STEPControl_Reader reader;std::ifstream input(std::filesystem::path(path.toStdWString()),std::ios::binary);
     require(input.good() && reader.ReadStream("exported.step",input)==IFSelect_RetDone && reader.TransferRoots()>0,"Cannot read exported CAD");
-    require(solids(reader.OneShape())==solids(core.bodyShape()) && BRepCheck_Analyzer(reader.OneShape()).IsValid(),"Exported CAD round trip lost valid solids");
+    require(solids(reader.OneShape())==solids(shape) && BRepCheck_Analyzer(reader.OneShape()).IsValid(),"Exported CAD round trip lost valid solids");
     report["step_round_trip_verified"]=true;
-    const auto info=QFileInfo(path);const auto projectPath=info.dir().filePath(info.completeBaseName()+".pcad");
-    const auto featuresPath=info.dir().filePath(info.completeBaseName()+".features.json");
-    QSaveFile definitions(featuresPath);require(definitions.open(QIODevice::WriteOnly),"Cannot save feature parameters");
-    const auto data=QJsonDocument(FeatureCodec::encode(core.features())).toJson();require(definitions.write(data)==data.size() && definitions.commit(),"Cannot commit feature parameters");
-    ProjectSnapshot snapshot;snapshot.features=core.features();snapshot.currentBody=core.bodyShape();snapshot.parametricBody=true;snapshot.view.originLock=false;
-    Bnd_Box box;BRepBndLib::AddOptimal(core.bodyShape(),box,false,false);double x0,y0,z0,x1,y1,z1;box.Get(x0,y0,z0,x1,y1,z1);
+}
+
+ProjectSnapshot projectSnapshot(const TopoDS_Shape& shape) {
+    ProjectSnapshot snapshot;
+    snapshot.currentBody = shape;
+    snapshot.view.originLock = false;
+    Bnd_Box box;BRepBndLib::AddOptimal(shape,box,false,false);double x0,y0,z0,x1,y1,z1;box.Get(x0,y0,z0,x1,y1,z1);
     const double span=std::hypot(x1-x0,y1-y0,z1-z0);
     for(int i=0;i<3;++i)snapshot.view.camera.target[i]=(i==0?x0+x1:i==1?y0+y1:z0+z1)*.5;
     snapshot.view.camera.position[0]=snapshot.view.camera.target[0]+span;snapshot.view.camera.position[1]=snapshot.view.camera.target[1]-span;
     snapshot.view.camera.position[2]=snapshot.view.camera.target[2]+span;
+    return snapshot;
+}
+
+void exportClosedBrep(const TopoDS_Solid& solid, const QString& path, QJsonObject& report) {
+    writeAndCheckStep(solid, path, report);
+    const auto info = QFileInfo(path);
+    const auto brepPath = info.dir().filePath(info.completeBaseName() + ".brep");
+    QString error;
+    const bool nativeWritten = StepModelExporter::writeBrep(solid, brepPath, error);
+    require(nativeWritten, error.toStdString());
+    std::ifstream input(std::filesystem::path(brepPath.toStdWString()), std::ios::binary);
+    TopoDS_Shape native;
+    BRep_Builder builder;
+    BRepTools::Read(native, input, builder);
+    require(!input.fail() && !native.IsNull() && native.ShapeType() == TopAbs_SOLID &&
+            BRepCheck_Analyzer(native).IsValid(), "Native B-Rep round trip lost the valid solid");
+    const auto project = info.dir().filePath(info.completeBaseName() + ".pcad");
+    const bool saved = ProjectStore::save(project, projectSnapshot(solid), error);
+    require(saved, error.toStdString());
+    const auto restored = ProjectStore::load(project, error);
+    require(restored && restored->model.features().empty() && !restored->currentBody.IsNull() &&
+            restored->currentBody.ShapeType() == TopAbs_SOLID, "History-free project round trip failed: " + error.toStdString());
+    report["features"] = 0;
+    report["step"] = info.absoluteFilePath();
+    report["brep"] = brepPath;
+    report["project"] = project;
+    report["brep_round_trip_verified"] = true;
+    report["project_round_trip_verified"] = true;
+    report["cad_constructed"] = true;
+    report["status"] = "cad_exported";
+}
+
+void exportCad(const modeling::ModelingCore& core, const QString& path, QJsonObject& report) {
+    QString error;
+    writeAndCheckStep(core.bodyShape(), path, report);
+    const auto info=QFileInfo(path);const auto projectPath=info.dir().filePath(info.completeBaseName()+".pcad");
+    const auto featuresPath=info.dir().filePath(info.completeBaseName()+".features.json");
+    QSaveFile definitions(featuresPath);require(definitions.open(QIODevice::WriteOnly),"Cannot save feature parameters");
+    const auto data=QJsonDocument(FeatureCodec::encode(core.features())).toJson();require(definitions.write(data)==data.size() && definitions.commit(),"Cannot commit feature parameters");
+    auto snapshot = projectSnapshot(core.bodyShape());
+    snapshot.features = core.features();
+    snapshot.parametricBody = true;
     const auto saved=ProjectStore::save(projectPath,snapshot,error);
     require(saved,error.toStdString());
     const auto restored=ProjectStore::load(projectPath,error);require(restored && restored->model.features().size()==core.features().size(),error.toStdString());

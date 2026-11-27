@@ -495,6 +495,8 @@ across the interactive `captures/` and `reconstructions/` roots.
 
 统一 CLI 入口为 `pcad`：`pcad studio` 启动界面，`pcad detect`、`pcad reconstruct cad` 支持自动在线/离线分派，其他模块按能力清单执行。构建 Studio 会同时构建匹配的 `pcad.exe` 并更新仓库启动记录。
 
+工具栏的 **生成闭合 B-Rep** 从当前点云生成通过拓扑和保真度检查的无历史实体。可保存到 `.pcad`，也可通过 **文件 → 导出 CAD** 导出 STEP 或 `.brep`。原 **生成参数化 CAD** 仍可从工具菜单使用。
+
 完整操作规范见 [CLI 使用指南](../../docs/site/cli/index.md)，配置格式见 [超参数配置](../../docs/site/development/configuration.md)。
 
 ```powershell

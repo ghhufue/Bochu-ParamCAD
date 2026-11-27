@@ -20,6 +20,7 @@
 #include <QSaveFile>
 #include <QTimer>
 #include <QUuid>
+#include <filesystem>
 #include <iostream>
 #include <map>
 #include <optional>
@@ -82,7 +83,9 @@ void help(const QString& command={}) {
         "Online errors never fall back offline. Offline never starts Studio.\n\n";
     for(const auto& c:pcad::capabilities())if(command.isEmpty()||c.command==command)
         std::cout<<c.command.toStdString()<<" ["<<(c.online?"online":"")<<(c.online&&c.offline?"/":"")<<(c.offline?"offline":"")<<"]  "<<c.description.toStdString()<<'\n';
-    if(command=="reconstruct cad")std::cout<<"Offline: --in PLY --output NEW_DIR [--unit mm|m] [--no-projection-fallback] [--config FILE] [--set key=value] [--path MODE]\nOnline: [--in PLY] [--no-projection-fallback]; uses the current document, templates and UI settings.\n";
+    if(command=="reconstruct cad")std::cout<<"Offline: --in PLY --output NEW_DIR [--unit mm|m] [--tolerance-mm N] [--parallel-bop] [--partition-holes]\n"
+        "Legacy offline modes: --parametric or --legacy-assembly [--config FILE] [--set key=value] [--path MODE]\n"
+        "Online: [--in PLY] [--parametric]; uses the current document and UI settings.\n";
     if(command=="reconstruct cloud")std::cout<<"--images DIR --output ROOT [--engine auto|colmap|structured_light] [--dense] [--matcher exhaustive|sequential] [--voxel-size-mm 0.2] [--min-contrast 8] [--no-camera-info]\n";
     if(command=="inspect")std::cout<<"--bundle DIR list [--filter TEXT] [--kind TYPE] [--limit 20] [--offset 0]\n--bundle DIR show (--id ID|--name NAME) [--group]\n--bundle DIR analyze (--id ID|--name NAME)\n--bundle DIR explain (--id ID|--name NAME)\n--bundle DIR compare --ids ID,ID\n--bundle DIR points (--id ID|--name NAME) [--limit 10]\n--bundle DIR verify [--full]\n--bundle DIR manifest\n";
     if(command=="studio")std::cout<<"[--exe FILE] [--dry-run]\n";
@@ -106,17 +109,26 @@ QJsonObject cloudInfo(const QStringList& arguments){
         {"bounds",finite?QJsonValue(QJsonArray{QJsonArray{low[0],low[1],low[2]},QJsonArray{high[0],high[1],high[2]}}):QJsonValue(QJsonValue::Null)}};
 }
 int offlineCad(const QStringList& arguments,const QString& reportPath){
-    Options o(arguments,{"--in","--output","--unit","--config","--set","--path"},{"--no-projection-fallback","--no-specialized-recovery"});
+    Options o(arguments,{"--in","--output","--unit","--config","--set","--path","--tolerance-mm"},
+        {"--no-projection-fallback","--no-specialized-recovery","--parametric","--legacy-assembly","--parallel-bop","--partition-holes"});
     const auto source=QFileInfo(o.require("--in")).absoluteFilePath();const auto out=QFileInfo(o.require("--output")).absoluteFilePath();
     if(QFileInfo::exists(out))Options::fail("Output directory already exists; choose a new directory");
     const auto unit=o.get("--unit",pointCloudUnitName(source));if(unit!="mm"&&unit!="m")Options::fail("CAD reconstruction requires known mm/m units");
     if(!QFileInfo(source).isFile())Options::fail("Input PLY does not exist");
-    if(!QDir().mkpath(out+"/input"))Options::fail("Cannot create output directory");
+    const std::filesystem::path outputPath(out.toStdU16String());
+    std::error_code directoryError;
+    std::filesystem::create_directories(outputPath.parent_path(), directoryError);
+    if (directoryError) Options::fail("Cannot create output parent directory");
+    const bool created = std::filesystem::create_directory(outputPath, directoryError);
+    if (directoryError) Options::fail("Cannot create output directory");
+    if (!created) Options::fail("Output directory already exists; choose a new directory");
+    if (!QDir(out).mkdir("input")) Options::fail("Cannot create input snapshot directory");
     if(!QFile::copy(source,out+"/input/cloud.ply"))Options::fail("Cannot snapshot input PLY");
     output({{"unit",unit}},out+"/input/cloud.json");
     const QString internalReport=out+"/report.json";
     QStringList native{"pcad","reconstruct-cloud",out+"/input/cloud.ply",internalReport,out+"/model.step"};
-    for(const auto& key:{QString("--config"),QString("--set"),QString("--path")})for(const auto& v:o.values.value(key))native<<key<<v;
+    for(const auto& key:{QString("--config"),QString("--set"),QString("--path"),QString("--tolerance-mm")})
+        for(const auto& v:o.values.value(key))native<<key<<v;
     for(const auto& flag:o.flags)native<<flag;
     QJsonObject report{{"schema","paramcad.cli.result"},{"version",1},{"mode","offline"},{"cad_constructed",false}};
     try{pcad::BackendLogScope logs;reconstructOfflineCad(native,report);}catch(const std::exception& e){report["status"]="failed";report["error"]=QString::fromUtf8(e.what());output(report,internalReport);throw;}
